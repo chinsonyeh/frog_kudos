@@ -94,11 +94,13 @@ erDiagram
         uuid rule_id FK "FOREIGN KEY -> reward_rules(id) ON DELETE SET NULL, NULLABLE"
         varchar target_name_snapshot "NOT NULL, [快照] 目標項目名(如 社會科)"
         varchar condition_snapshot "NOT NULL, [快照] 達成數值/條件(如 100)"
-        integer points_awarded "NOT NULL, [快照] 實發點數(如 50, 永久不變)"
+        integer points_awarded "NOT NULL, [快照] 實發點數(如 50, 可由家長批次統一調整)"
         jsonb rule_detail_snapshot "NULLABLE, [快照] 當下規則JSON完整備份"
         text note "NULLABLE, 家長備註(如 第一次段考滿分)"
+        text adjustment_note "NULLABLE, [批次調整] 統一修改原因備註"
         varchar recorded_by "NOT NULL DEFAULT 'Parent', 登記人"
         timestamptz created_at "NOT NULL DEFAULT NOW(), 獲得時間"
+        timestamptz updated_at "NOT NULL DEFAULT NOW(), 最後異動時間"
     }
 
     REWARD_ITEMS {
@@ -133,8 +135,9 @@ erDiagram
    - 規則未來即便被刪除，歷史發放紀錄依舊完整保留，`rule_id` 僅被設為 `NULL`，不損壞歷史記帳。
 3. **`kudos_records.member_id` ➔ `members.id` (`ON DELETE RESTRICT`)**：
    - 若成員已有歷史點數紀錄，禁止直接硬刪除成員，確保審計鏈完整。
-4. **`kudos_records` 快照欄位組**：
-   - `target_name_snapshot`、`condition_snapshot`、`points_awarded`、`rule_detail_snapshot` 均為靜態儲存值，**系統不再回溯計算舊點數**。
+4. **`kudos_records` 快照欄位組與批次調整審計**：
+   - `target_name_snapshot`、`condition_snapshot`、`points_awarded`、`rule_detail_snapshot` 均為發放當下儲存值，系統預設不隨規則變動而回溯重算。
+   - 當家長主動使用「批次篩選調整工具」時，系統在同一資料庫交易內更新 `points_awarded`、記錄 `adjustment_note`（調整原因）與 `updated_at`，並同步調整該成員之點數餘額，確保審計軌跡清楚透明。
 
 ---
 
@@ -186,6 +189,33 @@ erDiagram
 | `POST` | `/api/items` | `{ title, description, cost_points, icon }` | `RewardItemOut` | 新增商城獎品 |
 | `POST` | `/api/redemptions` | `{ member_id, item_id, note }` | `RedemptionOut` | **兌換獎品（扣除可用點數 Transaction）** |
 | `GET` | `/api/redemptions` | `?member_id=...` | `RedemptionOut[]` | 查詢兌換與核銷歷史 |
+| `POST` | `/api/kudos/batch-preview` | `{ member_id, target_name, start_date, end_date, mode, value }` | `BatchPreviewOut` | **歷史積分批次調整預覽試算** |
+| `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整 (ACID Transaction)** |
+
+### 3.3 歷史積分批次統一調整演算法與交易安全 (Batch Adjustment Logic & Safety)
+
+當家長需要依「人員、目標項目、時間區間」統一修改過往積分時，後端執行嚴格的交易安全保障：
+
+```mermaid
+flowchart TD
+    Start([家長發起批次修改請求]) --> Step1[驗證家長安全鎖 PIN 碼]
+    Step1 -- 驗證失敗 --> ErrPin[拋出 403: PIN 碼錯誤]
+    Step1 -- 驗證成功 --> Step2[DB 交易開啟: 鎖定該成員資料列 SELECT ... FOR UPDATE]
+    Step2 --> Step3[查詢符合條件之歷史紀錄清單<br>member_id + target_name + date_range]
+    Step3 --> Step4{符合筆數 > 0 ?}
+    Step4 -- 否 --> ErrZero[拋出 404: 無符合之歷史紀錄]
+    Step4 -- 是 --> Step5[計算各筆新點數與總變動量 Δ]
+    Step5 --> Step6{檢查餘額: current_points + Δ >= 0 ?}
+    Step6 -- 否 --> ErrNeg[拋出 400: 調降後餘額不足以支付歷史已兌換獎品]
+    Step6 -- 是 --> Step7[批次更新 kudos_records:<br>設定 points_awarded, adjustment_note, updated_at]
+    Step7 --> Step8[更新 members 表:<br>current_points += Δ<br>total_earned_points += Δ]
+    Step8 --> Commit([提交 DB 交易並回傳成功結果])
+```
+
+- **批次調整模式 (`mode`)**：
+  - `FIXED`（統一設為固定值）：所有符合紀錄的 `points_awarded` 直接更新為 `value`。各筆變動量 $\Delta_i = \text{value} - \text{old\_points}_i$。
+  - `OFFSET`（統一增減點數）：所有符合紀錄的 `points_awarded` 更新為 $\text{old\_points}_i + \text{value}$。各筆變動量 $\Delta_i = \text{value}$。
+- **不可小於零防呆**：若調整為負變動量（向下扣減），系統嚴格保障會員的 `current_points + \Delta \ge 0`，避免破壞已完成之兌換扣點。
 
 ---
 
@@ -338,6 +368,47 @@ erDiagram
 
 ---
 
+### 4.6 畫面 5：歷史積分批次篩選與調整工具 (Batch Points Adjuster Modal)
+
+專為家長提供的管理審計工具，整合於「榮譽榜與存摺」右上角之【🛠 批次調整歷史積分】。
+
+```
++-------------------------------------------------------------------------+
+|  🛠 批次調整歷史積分 (家長管理工具)                                     |
+|  說明：此功能將依篩選條件「統一批次修改」歷史已發放的點數紀錄並同步更新餘額。|
++-------------------------------------------------------------------------+
+|  1. 篩選對象 (Member):    [ 🐸 Ian                                ▼ ]   |
+|  2. 目標項目 (Target):    [ 社會科                                ▼ ]   |
+|  3. 時間區間 (Date Range):[ 2026-09-01 ] 至 [ 2026-09-27 ]              |
+|                                                                         |
+|  4. 調整模式 (Mode):                                                    |
+|     (•) 統一設為固定新點數: 每筆設為 [ 60 ] 點                          |
+|     ( ) 統一增減點數:       每筆 [ +10 ] 點                             |
+|                                                                         |
+|  5. 調整原因 (Reason):    [ 九月份社會科加碼獎勵補發                      ]  |
+|                                                                         |
+|  [ 🔍 試算影響範圍 (Preview) ]                                          |
+|  ┌───────────────────────────────────────────────────────────────────┐  |
+|  │ 📊 試算結果：                                                     │  |
+|  │ • 符合歷史紀錄：共 3 筆                                           │  |
+|  │ • 原發放總點數：150 點 (50 + 50 + 50)                             │  |
+|  │ • 調整後總點數：180 點 (60 + 60 + 60)                             │  |
+|  │ • 預計變動差額 (Δ)：+30 點 (Ian 餘額將由 230 點變為 260 點)        │  |
+|  │ ───────────────────────────────────────────────────────────────── │  |
+|  │ 明細預覽:                                                         │  |
+|  │  1. 2026-09-10 | 社會科 (100分) : 50 點 ➔ 60 點                   │  |
+|  │  2. 2026-09-18 | 社會科 (100分) : 50 點 ➔ 60 點                   │  |
+|  │  3. 2026-09-27 | 社會科 (100分) : 50 點 ➔ 60 點                   │  |
+|  └───────────────────────────────────────────────────────────────────┘  |
+|                                                                         |
+|  請輸入家長 PIN 碼: [ **** ]                                            |
+|                                                                         |
+|  [ 取消 ]                          [ ⚠️ 確認執行批次調整 (+30 點) ]     |
++-------------------------------------------------------------------------+
+```
+
+---
+
 ## 5. PostgreSQL DDL 建表腳本 (預備執行腳本)
 
 本腳本規劃於審查通過後，在 `frog_kudos` 資料庫中執行：
@@ -383,7 +454,7 @@ CREATE TABLE IF NOT EXISTS reward_rules (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 5. 點數獲得快照紀錄表 (核心快照，不可溯及修改)
+-- 5. 點數獲得快照紀錄表 (核心快照，不可溯及修改，支援家長批次統一調整)
 CREATE TABLE IF NOT EXISTS kudos_records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     member_id UUID NOT NULL REFERENCES members(id) ON DELETE RESTRICT,
@@ -393,8 +464,10 @@ CREATE TABLE IF NOT EXISTS kudos_records (
     points_awarded INTEGER NOT NULL,
     rule_detail_snapshot JSONB,
     note TEXT,
+    adjustment_note TEXT,
     recorded_by VARCHAR(50) NOT NULL DEFAULT 'Parent',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- 6. 兌換商城品項表
@@ -424,6 +497,7 @@ CREATE TABLE IF NOT EXISTS redemptions (
 -- 8. 效能索引
 CREATE INDEX IF NOT EXISTS idx_rules_member_active ON reward_rules(member_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_kudos_records_member_created ON kudos_records(member_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_kudos_batch_filter ON kudos_records(member_id, target_name_snapshot, created_at);
 CREATE INDEX IF NOT EXISTS idx_redemptions_member_created ON redemptions(member_id, created_at DESC);
 ```
 
