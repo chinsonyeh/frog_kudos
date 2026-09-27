@@ -67,6 +67,7 @@ erDiagram
     REWARD_RULES ||--o{ KUDOS_RECORDS : "參考規則 (rule_id)"
     MEMBERS ||--o{ REDEMPTIONS : "發起兌換 (member_id)"
     REWARD_ITEMS ||--o{ REDEMPTIONS : "兌換獎品 (item_id)"
+    MEMBERS ||--o{ MEMBER_BADGES : "獲得勳章 (member_id)"
 
     MEMBERS {
         uuid id PK "PRIMARY KEY, DEFAULT gen_random_uuid()"
@@ -133,10 +134,17 @@ erDiagram
         uuid item_id FK "FOREIGN KEY -> reward_items(id) ON DELETE SET NULL, NULLABLE"
         varchar item_title_snapshot "NOT NULL, [快照] 兌換時品項名稱"
         integer points_spent "NOT NULL, [快照] 扣除點數"
-        varchar status "NOT NULL DEFAULT 'APPROVED', 狀態(PENDING/APPROVED/REJECTED)"
+        varchar status "NOT NULL DEFAULT 'PENDING', 狀態(PENDING/COMPLETED/REJECTED)"
         text review_note "NULLABLE, 審核備註"
         timestamptz created_at "NOT NULL DEFAULT NOW(), 申請時間"
         timestamptz reviewed_at "NULLABLE, 核准時間"
+    }
+
+    MEMBER_BADGES {
+        uuid id PK "PRIMARY KEY, DEFAULT gen_random_uuid()"
+        uuid member_id FK "FOREIGN KEY -> members(id) ON DELETE CASCADE, NOT NULL"
+        varchar badge_key "NOT NULL, 勳章識別碼(如 FIRST_100_PTS)"
+        timestamptz unlocked_at "NOT NULL DEFAULT NOW(), 解鎖時間"
     }
 ```
 
@@ -152,6 +160,8 @@ erDiagram
 4. **`kudos_records` 快照欄位組與批次調整審計**：
    - `target_name_snapshot`、`condition_snapshot`、`points_awarded`、`rule_detail_snapshot` 均為發放當下儲存值，系統預設不隨規則變動而回溯重算。
    - 當家長主動使用「批次篩選調整工具」時，系統在同一資料庫交易內更新 `points_awarded`、記錄 `adjustment_note`（調整原因）與 `updated_at`，並同步調整該成員之點數餘額，確保審計軌跡清楚透明。
+5. **`member_badges.member_id` ➔ `members.id` (`ON DELETE CASCADE`)**：
+   - 綁定成員與成就勳章解鎖紀錄，設有 `UNIQUE(member_id, badge_key)` 限制，確保勳章不可重複領取。成員刪除時連帶清理。
 
 ---
 
@@ -192,16 +202,17 @@ erDiagram
 |---|---|---|---|---|
 | `GET` | `/api/members` | - | `MemberOut[]` | 取得家庭成員清單（含即時點數） |
 | `POST` | `/api/members` | `{ name, role, avatar, pin_code }` | `MemberOut` | 新增家庭成員 |
+| `GET` | `/api/members/{id}/badges` | - | `MemberBadgeOut[]` | **查詢成員里程碑成就勳章清單與達成進度 (FR-18)** |
 | `GET` | `/api/rules` | `?member_id=...` | `RuleOut[]` | 取得規則清單（可過濾專屬或通用） |
 | `POST` | `/api/rules` | `{ member_id, target_name, match_type, condition_value, reward_points }` | `RuleOut` | 新增獎勵規則 |
 | `PUT` | `/api/rules/{id}` | 規則異動欄位 | `RuleOut` | 修改規則（**明示不溯及歷史點數**） |
 | `DELETE` | `/api/rules/{id}` | - | `{ success: true }` | 停用或刪除規則 |
 | `POST` | `/api/kudos/preview` | `{ member_id, target_name, condition_value }` | `{ matched, suggested_points, rule_id, rule_name }` | **智慧即時試算預覽** |
-| `POST` | `/api/kudos/record` | `{ member_id, rule_id, target_name, condition_value, points_awarded, note }` | `KudosRecordOut` | **正式發放點數（寫入快照與扣點）** |
+| `POST` | `/api/kudos/record` | `{ member_id, rule_id, target_name, condition_value, points_awarded, note }` | `KudosRecordOut` | **正式發放點數（寫入快照與扣點，回傳 newly_unlocked_badges）** |
 | `GET` | `/api/kudos/history` | `?member_id=...&limit=50` | `KudosRecordOut[]` | 查詢點數獲得歷史流水帳 |
 | `GET` | `/api/items` | - | `RewardItemOut[]` | 查詢兌換商城品項 |
 | `POST` | `/api/items` | `{ title, description, cost_points, icon }` | `RewardItemOut` | 新增商城獎品 |
-| `POST` | `/api/redemptions` | `{ member_id, item_id, note }` | `RedemptionOut` | **兌換獎品（扣除可用點數 Transaction，狀態為 PENDING）** |
+| `POST` | `/api/redemptions` | `{ member_id, item_id, note }` | `RedemptionOut` | **兌換獎品（扣除可用點數 Transaction，狀態為 PENDING，背景任務非同步推播 LINE 通知）** |
 | `GET` | `/api/redemptions` | `?member_id=...&status=...` | `RedemptionOut[]` | 查詢兌換與核銷歷史（支援依狀態篩選） |
 | `POST` | `/api/redemptions/{id}/review` | `{ action: "APPROVE"\|"REJECT", review_note, parent_pin }` | `RedemptionOut` | **家長審核核銷或拒絕申請（拒絕時自動全額退還點數）** |
 | `GET` | `/api/kudos/export` | `?member_id=...&start_date=...&end_date=...` | `FileStream (CSV)` | **匯出歷史成就與存摺紀錄為標準 CSV 檔案** |
@@ -209,8 +220,9 @@ erDiagram
 | `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整 (ACID Transaction)** |
 | `POST` | `/api/system/backup` | `{ target_path, parent_pin }` | `{ success, backup_file, file_size, created_at }` | **觸發資料庫備份至指定目標路徑** |
 | `GET` | `/api/system/backups` | `?target_path=...` | `BackupFileInfo[]` | **查詢指定目錄歷史備份清單** |
-| `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name, github_repo, auto_backup, retention_count }` | **Web 取得目前備份路徑、排程與系統配置** |
-| `PUT` | `/api/system/config` | `{ backup_dir, auto_backup, retention_count, parent_pin }` | `{ success }` | **Web 儲存自訂備份路徑與排程輪替保留設定** |
+| `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name, github_repo, auto_backup, retention_count, line_configured, line_user_id }` | **Web 取得備份、排程、LINE 通知與系統配置** |
+| `PUT` | `/api/system/config` | `{ backup_dir, auto_backup, retention_count, line_channel_access_token, line_user_id, parent_pin }` | `{ success }` | **Web 儲存自訂備份路徑、排程與 LINE 通知憑證** |
+| `POST` | `/api/system/line/test` | `{ parent_pin }` | `{ success, message }` | **測試發送 LINE Messaging API 推播訊息 (FR-19)** |
 | `GET` | `/api/system/version` | - | `{ current_version, latest_version, has_update, release_notes, download_url }` | **連線 GitHub Releases API 檢查最新發行版** |
 | `POST` | `/api/system/upgrade` | `{ parent_pin, package_url }` | `{ status, message }` | **Web 一鍵從 GitHub 下載發行包並自動升級** |
 | `POST` | `/api/system/upload-package` | `multipart: file, parent_pin` | `{ status, message }` | **手動上傳離線安裝/升級套件 (.tar.gz) 進行升級** |
@@ -318,6 +330,13 @@ flowchart TD
 +-------------------------------------------------------------------------+
 |  [ 🐸 Ian 的存摺 ]      目前可用: 🪙 230 點     歷史累計總獲: 🌟 480 點  |
 |  進度條: [████████████████░░░░] 距下一個大獎 (樂高模型 300 點) 還差 70點 |
++-------------------------------------------------------------------------+
+|  🏅 Ian 的榮譽成就勳章牆 (Milestone Badges - FR-18)                     |
+|  +----------------+  +----------------+  +----------------+  +--------+ |
+|  | 🌟 初出茅廬蛙  |  | 🏆 百分學霸蛙  |  | 🧹 家事小達人  |  | 👑 ... | |
+|  | [✨ 已解鎖]    |  | [✨ 已解鎖]    |  | [🔒 120/200點] |  | [🔒]   | |
+|  | 累計獲得 100 點|  | 科目滿分達 5 次|  | 生活常規滿200點|  |        | |
+|  +----------------+  +----------------+  +----------------+  +--------+ |
 +-------------------------------------------------------------------------+
 |  點數歷史流水帳 (Immutable Ledger)                                      |
 |                                                                         |
@@ -445,7 +464,7 @@ flowchart TD
 ```
 +-------------------------------------------------------------------------+
 |  ⚙️ 系統管理中心 (家長專區)                                             |
-|  [ 💾 資料庫備份與管理 ]    [ 🔄 系統版本與一鍵升級 ]                   |
+|  [ 💾 資料庫備份與管理 ]  [ 🔄 系統版本與升級 ]  [ 📱 LINE 推播通知 (FR-19) ]|
 +-------------------------------------------------------------------------+
 |  【 分頁 1: 資料庫備份與管理 】                                         |
 |                                                                         |
@@ -500,6 +519,21 @@ flowchart TD
 |  ▼ 即時升級進度顯示 (即時輪詢 /api/system/upgrade-status):              |
 |  進度: [████████████████████░░░░░░░░] 75%                              |
 |  目前步驟: 正在解壓縮新版發行包並執行資料庫 Migration...                |
++-------------------------------------------------------------------------+
+|  【 分頁 3: 📱 LINE 外部即時推播通知設定 (FR-19) 】                     |
+|                                                                         |
+|  說明：設定 LINE Messaging API 憑證，當孩子於商城申請兌換時即時推播至家長手機。|
+|                                                                         |
+|  1. LINE Channel Access Token:                                          |
+|     [ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...                         ] |
+|  2. 家長 LINE User ID / Group ID:                                       |
+|     [ U1234567890abcdef1234567890abcdef                              ] |
+|                                                                         |
+|  輸入家長 PIN: [ **** ]                                                 |
+|  [ 💾 儲存通知設定 ]        [ 📨 發送測試訊息 (Verify Connection) ]      |
+|  ┌───────────────────────────────────────────────────────────────────┐  |
+|  │ ✅ 測試推播已發送成功！請檢查家長手機 LINE 聊天室。                │  |
+|  └───────────────────────────────────────────────────────────────────┘  |
 |                                                                         |
 |  [ 關閉 ]                                                               |
 +-------------------------------------------------------------------------+
@@ -604,17 +638,27 @@ CREATE TABLE IF NOT EXISTS redemptions (
     item_id UUID REFERENCES reward_items(id) ON DELETE SET NULL,
     item_title_snapshot VARCHAR(100) NOT NULL,
     points_spent INTEGER NOT NULL CHECK (points_spent > 0),
-    status VARCHAR(20) NOT NULL DEFAULT 'APPROVED', -- 'PENDING', 'APPROVED', 'REJECTED'
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING', -- 'PENDING', 'COMPLETED', 'REJECTED'
     review_note TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     reviewed_at TIMESTAMPTZ
 );
 
--- 8. 效能索引
+-- 8. 成員成就勳章解鎖紀錄表 (FR-18)
+CREATE TABLE IF NOT EXISTS member_badges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+    badge_key VARCHAR(50) NOT NULL,
+    unlocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (member_id, badge_key)
+);
+
+-- 9. 效能索引
 CREATE INDEX IF NOT EXISTS idx_rules_member_active ON reward_rules(member_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_kudos_records_member_created ON kudos_records(member_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_kudos_batch_filter ON kudos_records(member_id, target_name_snapshot, created_at);
 CREATE INDEX IF NOT EXISTS idx_redemptions_member_created ON redemptions(member_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_member_badges_member ON member_badges(member_id);
 ```
 
 ---
@@ -988,6 +1032,8 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 | **FR-15**| 兌換商城審核與退回退點閉環 | `redemptions` (`PENDING` 狀態) | `POST /api/redemptions/{id}/review` | 畫面 3：分頁 2 家長審核卡片 (核銷/自動退點) | ✅ 100% 符合 |
 | **FR-16**| 定期自動備份排程與保留輪替 | `scripts/backup.sh`, `.env` | 後端定時任務 + 備份上限輪替清理 | 畫面 6：分頁 1 自動排程與保留上限設定 | ✅ 100% 符合 |
 | **FR-17**| 學期成就紀錄與存摺 CSV 匯出 | `kudos_records` | `GET /api/kudos/export` | 畫面 2：【📥 匯出存摺 (CSV)】按鈕 | ✅ 100% 符合 |
+| **FR-18**| 里程碑成就勳章系統 | `member_badges` 表 | `GET /api/members/{id}/badges`<br>成就評定邏輯 | 畫面 2：榮譽榜成就勳章牆、解鎖彈窗與灑花 | ✅ 100% 符合 |
+| **FR-19**| LINE 兌換申請即時推播通知 | 後端 `BackgroundTasks` + LINE Messaging API | `POST /api/redemptions`<br>`POST /api/system/line/test` | 畫面 6：分頁 3 LINE 推播設定與連線測試 | ✅ 100% 符合 |
 | **NFR-1**| 易用性與行動裝置友善 | Vue 3 + TailwindCSS | - | RWD 手機/平板優先、大觸控區塊、灑花慶祝反饋 | ✅ 100% 符合 |
 | **NFR-2**| 資料交易一致性 (ACID) | PostgreSQL DB Transaction | 點數發放/扣抵/批次調整均於單一 Transaction 完成 | - | ✅ 100% 符合 |
 | **NFR-3**| 資料庫與環境相容性 | PostgreSQL `frog_kudos` | SQLAlchemy 2.0 Async + asyncpg | - | ✅ 100% 符合 |
