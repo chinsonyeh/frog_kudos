@@ -201,14 +201,16 @@ erDiagram
 | `GET` | `/api/kudos/history` | `?member_id=...&limit=50` | `KudosRecordOut[]` | 查詢點數獲得歷史流水帳 |
 | `GET` | `/api/items` | - | `RewardItemOut[]` | 查詢兌換商城品項 |
 | `POST` | `/api/items` | `{ title, description, cost_points, icon }` | `RewardItemOut` | 新增商城獎品 |
-| `POST` | `/api/redemptions` | `{ member_id, item_id, note }` | `RedemptionOut` | **兌換獎品（扣除可用點數 Transaction）** |
-| `GET` | `/api/redemptions` | `?member_id=...` | `RedemptionOut[]` | 查詢兌換與核銷歷史 |
+| `POST` | `/api/redemptions` | `{ member_id, item_id, note }` | `RedemptionOut` | **兌換獎品（扣除可用點數 Transaction，狀態為 PENDING）** |
+| `GET` | `/api/redemptions` | `?member_id=...&status=...` | `RedemptionOut[]` | 查詢兌換與核銷歷史（支援依狀態篩選） |
+| `POST` | `/api/redemptions/{id}/review` | `{ action: "APPROVE"\|"REJECT", review_note, parent_pin }` | `RedemptionOut` | **家長審核核銷或拒絕申請（拒絕時自動全額退還點數）** |
+| `GET` | `/api/kudos/export` | `?member_id=...&start_date=...&end_date=...` | `FileStream (CSV)` | **匯出歷史成就與存摺紀錄為標準 CSV 檔案** |
 | `POST` | `/api/kudos/batch-preview` | `{ member_id, target_name, start_date, end_date, mode, value }` | `BatchPreviewOut` | **歷史積分批次調整預覽試算** |
 | `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整 (ACID Transaction)** |
 | `POST` | `/api/system/backup` | `{ target_path, parent_pin }` | `{ success, backup_file, file_size, created_at }` | **觸發資料庫備份至指定目標路徑** |
 | `GET` | `/api/system/backups` | `?target_path=...` | `BackupFileInfo[]` | **查詢指定目錄歷史備份清單** |
-| `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name, github_repo }` | **Web 取得目前備份路徑與系統配置** |
-| `PUT` | `/api/system/config` | `{ backup_dir, parent_pin }` | `{ success, backup_dir }` | **Web 儲存自訂備份路徑設定** |
+| `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name, github_repo, auto_backup, retention_count }` | **Web 取得目前備份路徑、排程與系統配置** |
+| `PUT` | `/api/system/config` | `{ backup_dir, auto_backup, retention_count, parent_pin }` | `{ success }` | **Web 儲存自訂備份路徑與排程輪替保留設定** |
 | `GET` | `/api/system/version` | - | `{ current_version, latest_version, has_update, release_notes, download_url }` | **連線 GitHub Releases API 檢查最新發行版** |
 | `POST` | `/api/system/upgrade` | `{ parent_pin, package_url }` | `{ status, message }` | **Web 一鍵從 GitHub 下載發行包並自動升級** |
 | `POST` | `/api/system/upload-package` | `multipart: file, parent_pin` | `{ status, message }` | **手動上傳離線安裝/升級套件 (.tar.gz) 進行升級** |
@@ -248,53 +250,53 @@ flowchart TD
 ### 4.1 頁面架構與導航設計
 - **頂部 Header**：
   - 左側：🐸 **Frog Kudos** 系統 Logo 與品牌名稱。
-  - 右側：快速切換目前使用者身份、家長安全鎖圖示（進入後台需驗證 PIN）。
+  - 右側：
+    - **模式切換**：`[ 👦 小孩模式 (唯讀) ]` ⇄ `[ 🔐 家長模式 (已解鎖) ]`。
+    - **家長安全鎖**：點擊後輸入 4 位數 PIN 碼解鎖管理功能；15 分鐘無操作自動安全鎖定退回小孩模式。
 - **主要導航 (Navigation Tabs)**：
-  1. 📝 **快速登記 (Record)**
-  2. 🏆 **榮譽榜與存摺 (Ledger)**
-  3. 🎁 **兌換商城 (Rewards Shop)**
-  4. ⚙️ **規則管理 (Rule Settings)**
+  - **小孩模式下**：僅開放 `🏆 榮譽榜與存摺 (Ledger)` 與 `🎁 兌換商城 (Rewards Shop)`（僅能申請兌換）。
+  - **家長解鎖後**：完整開放全部 4 大功能：
+    1. 📝 **快速登記 (Record)**
+    2. 🏆 **榮譽榜與存摺 (Ledger)**
+    3. 🎁 **兌換商城與審核 (Rewards & Reviews)**
+    4. ⚙️ **規則管理 (Rule Settings)**
 
 ---
 
 ### 4.2 畫面 1：快速成就登記 (Quick Kudos Entry Form)
 
-最頻繁使用的操作介面，以高對比卡片呈現，支援即時試算與成就反饋。
+最頻繁使用的操作介面，以高對比卡片呈現，支援**「規則匹配推導」**與**「自訂臨時獎懲 (Bonus/Penalty)」**雙模式。
 
 ```
 +-------------------------------------------------------------------------+
-|  🐸 Frog Kudos                                      [ 爸比 (家長) ⚙️ ]  |
+|  🐸 Frog Kudos                [ 🔐 家長模式已解鎖 (剩餘12分) 🔒手動鎖定 ]|
 +-------------------------------------------------------------------------+
-|                                                                         |
-|  第一步：選擇成就對象                                                   |
+|  第一步：選擇對象                                                       |
 |  +--------------------+  +--------------------+  +-------------------+  |
 |  |  [ 🐸 Ian ]        |  |  [ 👧 Amy ]        |  |  [ + 新增成員 ]   |  |
 |  |  餘額: 180 點 (選定)|  |  餘額: 95 點       |  |                   |  |
 |  +--------------------+  +--------------------+  +-------------------+  |
 |                                                                         |
-|  第二步：輸入成就資料                                                   |
-|  ┌───────────────────────────────────────────────────────────────────┐  |
-|  │ 目標項目 (Target)                                                  │  |
-|  │ [ 社會科                                                    ▼ ]   │  |
-|  │ (可下拉快速選取現有科目，或直接打字搜尋)                          │  |
+|  登記模式切換:  [ (•) 依規則自動帶出 ]    [ ( ) 自由臨時獎懲 (Bonus/扣點) ]|
+|                                                                         |
+|  ┌── 【模式 A：依規則自動帶出】 ─────────────────────────────────────┐  |
+|  │ 1. 目標項目:  [ 社會科                         ▼ ]                 │  |
+|  │ 2. 達成成績:  [ 100                            ] 分                │  |
 |  │                                                                   │  |
-|  │ 達成狀況/分數 (Condition)                                         │  |
-|  │ [ 100                                                       ] 分  │  |
-|  └───────────────────────────────────────────────────────────────────┘  |
-|                                                                         |
-|  ▼ 系統即時比對反饋 (Live Preview Badge)                                |
-|  ┌───────────────────────────────────────────────────────────────────┐  |
+|  │ ▼ 系統即時比對反饋 (Live Preview Badge)                           │  |
 |  │ 🌟 命中規則：【Ian 專屬規則】社會科段考滿分獎勵                   │  |
-|  │ 🎁 系統建議獎勵：[ +50 ] 點  (家長可點擊數字直接進行微調)         │  |
+|  │ 🎁 建議獎勵：[ +50 ] 點 (可直接點擊數字微調)                      │  |
+|  └───────────────────────────────────────────────────────────────────┘  |
+|  ┌── 【模式 B：自由臨時獎懲 (切換時顯示)】 ──────────────────────────┐  |
+|  │ 1. 自訂事項:  [ 主動幫忙照顧弟妹 / 未寫完作業偷看電視          ]   │  |
+|  │ 2. 點數增減:  [ +20 / -10                      ] 點 (支援負數扣點) │  |
 |  └───────────────────────────────────────────────────────────────────┘  |
 |                                                                         |
-|  第三步：補充說明                                                       |
-|  [ 第一次段考社會科成績單公布                                    ]      |
+|  備註說明: [ 表現非常優良，值得肯定！                            ]      |
 |                                                                         |
 |  +-------------------------------------------------------------------+  |
-|  |                🎉 確認發放 50 點獎勵積分 (Submit)                 |  |
+|  |             🎉 確認發放點數 / 登記獎懲 (Submit)                   |  |
 |  +-------------------------------------------------------------------+  |
-|                                                                         |
 +-------------------------------------------------------------------------+
 ```
 
@@ -312,7 +314,7 @@ flowchart TD
 
 ```
 +-------------------------------------------------------------------------+
-|  🏆 家庭榮譽存摺                                                        |
+|  🏆 家庭榮譽存摺              [ 區間: 本學期 ▼ ]  [ 📥 匯出存摺 (CSV) ] |
 +-------------------------------------------------------------------------+
 |  [ 🐸 Ian 的存摺 ]      目前可用: 🪙 230 點     歷史累計總獲: 🌟 480 點  |
 |  進度條: [████████████████░░░░] 距下一個大獎 (樂高模型 300 點) 還差 70點 |
@@ -327,42 +329,47 @@ flowchart TD
 |    備註: 玩具收拾整齊 | 登記人: Mom                                     |
 |                                                                         |
 |  • 2026-09-24 15:00 | 兌換: 週末玩 Switch 1小時          [ -50 點 ] 🔴  |
-|    狀態: 已核銷使用 | 審核人: Dad                                       |
+|    狀態: 已核銷完成 | 審核人: Dad                                       |
 +-------------------------------------------------------------------------+
 ```
 
 ---
 
-### 4.4 畫面 3：獎勵兌換商城 (Kudos Rewards Shop)
+### 4.4 畫面 3：獎勵兌換商城與審核中心 (Rewards Shop & Redemptions Review)
 
-孩子將努力成果兌現的夢想清單，實現「設定目標 ➔ 努力達成 ➔ 兌換反饋」的正向循環。
+支援孩子發起心願兌換，並由家長在線上進行核准兌現或退回退點。
 
 ```
 +-------------------------------------------------------------------------+
 |  🎁 獎勵兌換商城                 [ Ian 目前點數錢包: 🪙 230 點 ]        |
+|  分頁切換: [ 🎁 可兌換品項清單 ]   [ 📋 待審核兌換申請 (1) - 家長專區 ] |
 +-------------------------------------------------------------------------+
-|                                                                         |
+|  【 分頁 1: 可兌換品項清單 】                                           |
 |  +------------------------+   +------------------------+                |
 |  | 🎮 玩 Switch 1 小時    |   | 🍦 週末吃冰淇淋一球    |                |
 |  | 所需點數: 50 點         |   | 所需點數: 30 點         |                |
 |  | 說明: 限週末完成作業後  |   | 說明: 任何口味皆可     |                |
-|  | [   🟢 立即申請兌換  ] |   | [   🟢 立即申請兌換  ] |                |
+|  | [   🟢 申請兌換 (凍結) ]|   | [   🟢 申請兌換 (凍結) ]|                |
 |  +------------------------+   +------------------------+                |
 |                                                                         |
-|  +------------------------+   +------------------------+                |
-|  | 📚 自選課外讀物 1 本   |   | 🤖 樂高機械人組        |                |
-|  | 所需點數: 100 點        |   | 所需點數: 300 點        |                |
-|  | 說明: 假日至書店挑選   |   | 說明: 達成學期大目標   |                |
-|  | [   🟢 立即申請兌換  ] |   | [ 🔒 還差 70 點 (鎖定) ]|                |
-|  +------------------------+   +------------------------+                |
-|                                                                         |
+|  【 分頁 2: 待審核兌換申請 (家長解鎖後顯示) 】                          |
+|  ┌───────────────────────────────────────────────────────────────────┐  |
+|  │ 🕒 2026-09-27 20:00 申請待審核：                                  │  |
+|  │ 成員: 🐸 Ian  | 項目: 🎮 玩 Switch 1 小時 | 消耗點數: 50 點        │  |
+|  │ 目前狀態: ⏳ PENDING (點數已暫扣)                                  │  |
+|  │                                                                   │  |
+|  │ 操作:                                                             │  |
+|  │ [ 🟢 核准兌現 (COMPLETED) ]   [ 🔴 退回申請並退點 (REJECTED) ]    │  |
+|  │ (退回時系統自動在資料庫交易中全額退還 50 點給 Ian，並附註退回原因)│  |
+|  └───────────────────────────────────────────────────────────────────┘  |
 +-------------------------------------------------------------------------+
 ```
 
 #### 兌換流程與交易防呆：
-1. **點數檢核**：若成員可用點數不足（例如 Ian 有 230 點，想兌換 300 點品項），按鈕呈現反灰鎖定狀態，顯示「還差 70 點」，防止超兌。
-2. **兌換確認彈窗**：點擊【立即申請兌換】時彈出確認對話框：「確定要消耗 50 點兌換『玩 Switch 1 小時』嗎？兌換後剩餘 180 點」。
-3. **原子扣點**：後端採用資料庫 Transaction，扣除 `members.current_points` 同步新增 `redemptions` 紀錄。
+1. **點數檢核與凍結**：若成員可用點數不足，按鈕呈現反灰鎖定狀態，顯示「還差 70 點」，防止超兌；申請時點數先扣除，狀態為 `PENDING`。
+2. **核銷或退回退點**：
+   - 家長確認兌現：狀態變更為 `COMPLETED`。
+   - 家長退回申請：輸入原因後狀態變更為 `REJECTED`，後端 DB Transaction **自動退回點數**（`current_points += points_spent`）。
 
 ---
 
@@ -453,6 +460,11 @@ flowchart TD
 |  ┌───────────────────────────────────────────────────────────────────┐  |
 |  │ ✅ 備份成功！檔案: frog_kudos_backup_20260927_232500.dump (42 KB) │  |
 |  └───────────────────────────────────────────────────────────────────┘  |
+|  3. 定期自動備份排程與輪替:                                             |
+|     自動備份開關: [ (•) 開啟  ( ) 關閉 ]                                 |
+|     排程頻率: 每週日深夜 02:00 自動執行                                  |
+|     保留備份份數: [ 10 ] 份 (超過時自動清理舊備份)                       |
+|     [ 💾 儲存排程設定 ]                                                 |
 |                                                                         |
 |  📁 歷史備份清單:                                                       |
 |  ┌───────────────────────────────────────────────────────────────────┐  |
@@ -492,6 +504,24 @@ flowchart TD
 |  [ 關閉 ]                                                               |
 +-------------------------------------------------------------------------+
 ```
+
+---
+
+### 4.8 PWA (Progressive Web App) 行動裝置原生化規格
+
+為讓家庭成員在手機或 iPad 上如同使用原生 App，前端深度整合 PWA 技術：
+1. **Web App Manifest (`frontend/public/manifest.webmanifest`)**：
+   - `name`: "Frog Kudos 家庭積分獎勵系統"
+   - `short_name`: "Frog Kudos"
+   - `start_url`: "/"
+   - `display`: "standalone"（隱藏瀏覽器網址列與工具列，提供沉浸式獨立 App 體驗）
+   - `theme_color`: "#10B981"（清新青蛙綠）
+   - `background_color`: "#F9FAFB"
+   - `icons`: 提供 192x192 與 512x512 高解析度 🐸 圖示。
+2. **iOS Safari 最佳化支援**：
+   - 注入 `<meta name="apple-mobile-web-app-capable" content="yes">`
+   - 注入 `<link rel="apple-touch-icon" href="/icons/icon-192.png">`
+   - 家長與孩子只需於 Safari 點擊「分享 ➔ 加入主畫面」，即可常駐於手機桌面隨點即用。
 
 ---
 
@@ -626,6 +656,20 @@ pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -Fc "$DB_NAME" > "$BACKUP_FILE
 FILE_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
 echo "✅ 備份成功！檔案大小: ${FILE_SIZE}"
 echo "📍 完整備份路徑: ${BACKUP_FILE}"
+
+# 執行備份保留輪替 (Retention Cleanup，預設保留最新 10 份)
+RETENTION_COUNT="${BACKUP_RETENTION_COUNT:-10}"
+BACKUP_LIST=$(ls -1t "$TARGET_DIR"/frog_kudos_backup_*.dump 2>/dev/null || true)
+TOTAL_BACKUPS=$(echo "$BACKUP_LIST" | grep -c . || true)
+if [ "$TOTAL_BACKUPS" -gt "$RETENTION_COUNT" ]; then
+    echo "🧹 執行備份輪替清理 (超過保留上限 ${RETENTION_COUNT} 份)..."
+    echo "$BACKUP_LIST" | tail -n +$((RETENTION_COUNT + 1)) | while IFS= read -r old_file; do
+        if [ -f "$old_file" ]; then
+            echo "   🗑️ 刪除過期舊備份: $(basename "$old_file")"
+            rm -f "$old_file"
+        fi
+    done
+fi
 ```
 
 ### 6.2 資料庫安全還原腳本 (`scripts/restore.sh`)
@@ -938,6 +982,12 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 | **FR-9** | 系統平滑升級與 GitHub Releases 整合 | `scripts/upgrade.sh` | `GET /api/system/version`<br>`POST /api/system/upgrade` | 畫面 6：分頁 2 系統升級（檢查更新、Changelog、進度條） | ✅ 100% 符合 |
 | **FR-10**| GitHub Release 自動化打包發佈 | `.github/workflows/release.yml` | GitHub Actions CI/CD 自動構建 | 發行包內建編譯後 `dist/`，主機免裝 Node/npm | ✅ 100% 符合 |
 | **FR-11**| 安裝時使用者自訂連接埠 | `scripts/install.sh`, `.env`, `run.sh` | 支援 `--port` 與互動式輸入、佔用防呆 | 後端單一 Port 整合託管自訂 Port | ✅ 100% 符合 |
+| **FR-12**| PWA 行動裝置主畫面應用支援 | `frontend/public/manifest.webmanifest` | Web App Manifest、iOS Safari meta | 全螢幕原生 App 體驗、桌面圖示 | ✅ 100% 符合 |
+| **FR-13**| 客廳共用裝置家長鎖與小孩模式 | 前端狀態機 Pinia / SessionStorage | 家長 PIN 碼認證、15 分鐘閒置自動鎖定 | 頂部模式切換開關、自動隱藏管理選單 | ✅ 100% 符合 |
+| **FR-14**| 自訂臨時特別獎勵與違規扣點 | `kudos_records` (支援負數點數) | `POST /api/kudos/record` (自訂模式) | 畫面 1：自由臨時獎懲切換卡片 | ✅ 100% 符合 |
+| **FR-15**| 兌換商城審核與退回退點閉環 | `redemptions` (`PENDING` 狀態) | `POST /api/redemptions/{id}/review` | 畫面 3：分頁 2 家長審核卡片 (核銷/自動退點) | ✅ 100% 符合 |
+| **FR-16**| 定期自動備份排程與保留輪替 | `scripts/backup.sh`, `.env` | 後端定時任務 + 備份上限輪替清理 | 畫面 6：分頁 1 自動排程與保留上限設定 | ✅ 100% 符合 |
+| **FR-17**| 學期成就紀錄與存摺 CSV 匯出 | `kudos_records` | `GET /api/kudos/export` | 畫面 2：【📥 匯出存摺 (CSV)】按鈕 | ✅ 100% 符合 |
 | **NFR-1**| 易用性與行動裝置友善 | Vue 3 + TailwindCSS | - | RWD 手機/平板優先、大觸控區塊、灑花慶祝反饋 | ✅ 100% 符合 |
 | **NFR-2**| 資料交易一致性 (ACID) | PostgreSQL DB Transaction | 點數發放/扣抵/批次調整均於單一 Transaction 完成 | - | ✅ 100% 符合 |
 | **NFR-3**| 資料庫與環境相容性 | PostgreSQL `frog_kudos` | SQLAlchemy 2.0 Async + asyncpg | - | ✅ 100% 符合 |
