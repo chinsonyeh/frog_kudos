@@ -206,6 +206,11 @@ erDiagram
 | `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整 (ACID Transaction)** |
 | `POST` | `/api/system/backup` | `{ target_path, parent_pin }` | `{ success, backup_file, file_size, created_at }` | **觸發資料庫備份至指定目標路徑** |
 | `GET` | `/api/system/backups` | `?target_path=...` | `BackupFileInfo[]` | **查詢指定目錄歷史備份清單** |
+| `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name }` | **Web 取得目前備份路徑與系統配置** |
+| `PUT` | `/api/system/config` | `{ backup_dir, parent_pin }` | `{ success, backup_dir }` | **Web 儲存自訂備份路徑設定** |
+| `GET` | `/api/system/version` | - | `{ current_commit, latest_commit, has_update, branch }` | **Web 檢查當前版本與遠端是否有更新** |
+| `POST` | `/api/system/upgrade` | `{ parent_pin }` | `{ status, message }` | **Web 一鍵觸發系統平滑升級 (背景執行)** |
+| `GET` | `/api/system/upgrade-status` | - | `{ status, progress, current_step, logs }` | **Web 輪詢即時升級進度與日誌** |
 
 ### 3.3 歷史積分批次統一調整演算法與交易安全 (Batch Adjustment Logic & Safety)
 
@@ -424,34 +429,55 @@ flowchart TD
 
 ---
 
-### 4.7 畫面 6：系統維運與資料庫備份中心 (System Backup & Maintenance Modal)
+### 4.7 畫面 6：系統設定、資料庫備份與升級中心 (System Settings, Backup & Upgrade Modal)
 
-家長可在右上角齒輪選單點選【💾 系統備份與維運】，提供可指定目標路徑的備份操作與歷史備份清單。
+家長可在右上角齒輪選單點選【⚙️ 系統設定與維運】，提供 Web 前端視覺化分頁介面，支援**資料庫自訂路徑備份**與**系統一鍵升級**。
 
 ```
 +-------------------------------------------------------------------------+
-|  💾 系統備份與資料庫維運 (家長專區)                                     |
+|  ⚙️ 系統管理中心 (家長專區)                                             |
+|  [ 💾 資料庫備份與管理 ]    [ 🔄 系統版本與一鍵升級 ]                   |
 +-------------------------------------------------------------------------+
+|  【 分頁 1: 資料庫備份與管理 】                                         |
+|                                                                         |
 |  1. 自訂備份目的地路徑:                                                 |
 |     [ /home/chinsonyeh/Code/frog_kudos/backups                    ]     |
-|     (可修改為自訂目錄、外接硬碟或 NAS 掛載路徑)                         |
+|     (支援本機目錄、隨身碟或家庭 NAS 儲存路徑)                           |
+|     [ 💾 儲存路徑設定 ]                                                 |
 |                                                                         |
-|  2. 家長管理 PIN 碼: [ **** ]                                           |
+|  2. 立即備份:                                                           |
+|     輸入家長 PIN: [ **** ]    [ 📦 立即建立資料庫完整備份 ]             |
 |                                                                         |
-|  [ 📦 立即建立資料庫完整備份 ]                                          |
 |  ┌───────────────────────────────────────────────────────────────────┐  |
 |  │ ✅ 備份成功！檔案: frog_kudos_backup_20260927_232500.dump (42 KB) │  |
 |  └───────────────────────────────────────────────────────────────────┘  |
 |                                                                         |
-|  📁 歷史備份檔案清單:                                                   |
+|  📁 歷史備份清單:                                                       |
 |  ┌───────────────────────────────────────────────────────────────────┐  |
 |  │ • 2026-09-27 23:25 | frog_kudos_backup_20260927_232500.dump (42 KB)│  |
 |  │ • 2026-09-26 18:00 | frog_kudos_backup_20260926_180000.dump (38 KB)│  |
 |  └───────────────────────────────────────────────────────────────────┘  |
-|                                                                         |
-|  💡 資料庫還原提示：                                                    |
-|     如需還原備份，為確保安全，請於伺服器終端機執行安全還原腳本：        |
+|  💡 還原提醒：為保障資料安全，請於伺服器終端機執行：                    |
 |     $ ./scripts/restore.sh <備份檔案絕對路徑>                            |
++-------------------------------------------------------------------------+
+|  【 分頁 2: 系統版本與一鍵升級 】                                       |
+|                                                                         |
+|  目前系統版本: v1.0.0 (Commit: 402a125)                                 |
+|  [ 🔍 檢查最新版本 (Check for Updates) ]                                |
+|                                                                         |
+|  ┌───────────────────────────────────────────────────────────────────┐  |
+|  │ 🚀 發現新版本！最新版本: v1.1.0 (Commit: 8e91f0a)                  │  |
+|  │ 📝 更新內容：                                                      │  |
+|  │  • 新增歷史積分批次統一調整功能                                    │  |
+|  │  • 優化行動端兌換商城介面流暢度                                    │  |
+|  └───────────────────────────────────────────────────────────────────┘  |
+|                                                                         |
+|  升級驗證 PIN 碼: [ **** ]                                              |
+|  [ ⚠️ 開始一鍵平滑升級 (Auto Backup & Upgrade) ]                       |
+|                                                                         |
+|  ▼ 即時升級進度顯示 (即時輪詢 /api/system/upgrade-status):              |
+|  進度: [████████████████████░░░░░░░░] 70%                              |
+|  目前狀態: 正在重新打包前端資源 (npm run build)...                      |
 |                                                                         |
 |  [ 關閉 ]                                                               |
 +-------------------------------------------------------------------------+
@@ -555,7 +581,7 @@ CREATE INDEX IF NOT EXISTS idx_redemptions_member_created ON redemptions(member_
 
 ## 6. 資料庫備份、還原與維運自動化腳本 (Backup, Restore, Install & Upgrade)
 
-本系統提供獨立的維運腳本目錄 `scripts/`，並在前端家長後台提供 UI 操作介面，支援**指定備份目標路徑**、安全還原、一鍵安裝與平滑升級。
+本系統提供獨立的維運腳本目錄 `scripts/`，同時在 Web 前端家長後台（畫面 4.7）提供視覺化 UI 設定介面。當家長在 Web 介面發起「立即備份」或「一鍵升級」時，FastAPI 後端以非同步背景程序（Background Process）觸發對應腳本，並透過 `/api/system/upgrade-status` 即時串流進度回傳前端，達成 **Web 前端圖形介面** 與 **伺服器終端機 CLI** 雙軌無縫支援。
 
 ### 6.1 資料庫指定路徑備份機制 (`scripts/backup.sh`)
 - **功能**：使用 PostgreSQL 原生 `pg_dump` 建立高壓縮 Custom 格式（`.dump`）備份檔。
