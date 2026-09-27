@@ -82,19 +82,23 @@
   - 還原流程具備前置安全檢查：執行還原前提示二次確認，並在覆蓋前自動執行一次安全快照備份，防止人為誤操作導致資料滅失。
 - **雙軌支援**：支援 Web 前端圖形化介面操作，亦支援終端機 CLI 腳本獨立執行。
 
-### FR-9：系統一鍵安裝與平滑升級 (Installation & Upgrade Lifecycle)
-- **Web 前端 UI 系統版本與升級設定介面**：
-  - **版本狀態檢視**：Web 前端即時顯示目前系統版本、最新提交紀錄，並能一鍵「檢查是否有新版本」。
-  - **Web 一鍵升級功能**：當有新版本時，家長可在 Web 介面輸入 PIN 碼確認後，一鍵點擊【升級系統】。
-  - **即時升級進度回饋**：Web 介面呈現升級進度條與狀態提示（自動備份中 ➔ 拉取新代碼 ➔ 更新套件 ➔ 遷移資料庫 ➔ 重新編譯前端 ➔ 升級成功並自動重新載入）。
-- **一鍵安裝功能 (install.sh)**：
-  - 自動偵測主機環境（Python 3.12+、Node.js 18+、PostgreSQL 服務）。
-  - 自動建立 Python 虛擬環境 (`venv`) 並安裝依賴套件。
-  - 自動建置前端靜態資源 (`npm run build`)。
-  - 自動檢查與初始化 PostgreSQL `frog_kudos` 資料庫與資料表結構。
-  - 建立一鍵啟動腳本與系統服務範本。
-- **底層平滑升級引擎 (upgrade.sh)**：
-  - 由 Web API 觸發或 CLI 執行，升級前強制執行資料庫備份，自動拉取程式碼、更新套件、執行資料庫 Migration 並重構前端。
+### FR-9：系統平滑升級與 GitHub Releases 整合 (Upgrade via GitHub Releases)
+- **直接比對 GitHub 最新 Release 版本**：
+  - 系統升級檢查應直接連線 GitHub Releases API（`https://api.github.com/repos/chinsonyeh/frog_kudos/releases/latest`），取得最新正式發行版本號（如 `v1.1.0`）、發行日誌（Changelog）與發行資產清單。
+  - 當遠端版本高於本地 `VERSION` 時，Web 前端主動標示「發現新版本」，並顯示更新內容。
+- **支援雙軌升級模式（自動下載 / 手動套件升級）**：
+  - **自動下載升級 (Web UI 一鍵執行)**：點擊升級後，系統自動從 GitHub Release 附件下載對應的升級安裝包（`frog_kudos-vX.Y.Z.tar.gz`），自動校驗 SHA256 雜湊碼、自動備份 DB、自動替換核心檔案、執行 DB Migration 並重新啟動。
+  - **手動下載套件升級 (離線/手動執行)**：允許使用者自 GitHub Releases 頁面手動下載 `frog_kudos-vX.Y.Z.tar.gz`，並透過指令 `./scripts/upgrade.sh <套件路徑>` 或於 Web 介面上傳套件執行升級。
+- **升級前自動備份安全防呆**：
+  - 無論透過 Web 介面自動升級或手動套件升級，系統**必須在解壓縮替換前強制自動備份資料庫**，若升級過程發生錯誤則自動還原或保留現場。
+
+### FR-10：GitHub Release 打包與發佈機制 (Release & Packaging Automation)
+- **標準化發行套件架構**：
+  - 每次版本發佈時，透過自動化流程（GitHub Actions）將系統打包為開箱即用的發行包（`frog_kudos-vX.Y.Z.tar.gz`）。
+  - **內含預先編譯好的前端資源 (`frontend/dist`)**：使用者與家庭主機在安裝/升級時，**主機端無需安裝 Node.js 與 npm**，僅需 Python 3.12+ 與 PostgreSQL，大幅降低家庭伺服器維護負擔。
+- **發行包內容規範**：
+  - 包含：FastAPI 後端程式碼、預編譯前端 `dist/`、資料庫 DDL 與遷移檔、安裝腳本 (`install.sh`)、升級腳本 (`upgrade.sh`)、備份還原工具 (`backup.sh`, `restore.sh`) 與 `VERSION` 檔案。
+  - 附帶發行說明（Release Notes）與 SHA256 驗證清單（`checksums.txt`）。
 
 ---
 
@@ -122,7 +126,8 @@
   - 歷史積分批次篩選與統一調整工具（人員/項目/時間區間）。
   - 獎品設定與兌換扣點。
   - **資料庫指定路徑備份與還原腳本 (FR-8)**。
-  - **系統一鍵安裝與自動化升級腳本 (FR-9)**。
+  - **系統平滑升級與 GitHub Releases 整合機制 (FR-9)**。
+  - **GitHub Release 自動化打包與安裝/升級套件規範 (FR-10)**。
 - **未來擴充 (Out of Scope)**：
   - 多家庭多租戶隔離。
   - 第三方社群登入（以本機單一家庭安全鎖 PIN 碼為主）。

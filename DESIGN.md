@@ -206,10 +206,11 @@ erDiagram
 | `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整 (ACID Transaction)** |
 | `POST` | `/api/system/backup` | `{ target_path, parent_pin }` | `{ success, backup_file, file_size, created_at }` | **觸發資料庫備份至指定目標路徑** |
 | `GET` | `/api/system/backups` | `?target_path=...` | `BackupFileInfo[]` | **查詢指定目錄歷史備份清單** |
-| `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name }` | **Web 取得目前備份路徑與系統配置** |
+| `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name, github_repo }` | **Web 取得目前備份路徑與系統配置** |
 | `PUT` | `/api/system/config` | `{ backup_dir, parent_pin }` | `{ success, backup_dir }` | **Web 儲存自訂備份路徑設定** |
-| `GET` | `/api/system/version` | - | `{ current_commit, latest_commit, has_update, branch }` | **Web 檢查當前版本與遠端是否有更新** |
-| `POST` | `/api/system/upgrade` | `{ parent_pin }` | `{ status, message }` | **Web 一鍵觸發系統平滑升級 (背景執行)** |
+| `GET` | `/api/system/version` | - | `{ current_version, latest_version, has_update, release_notes, download_url }` | **連線 GitHub Releases API 檢查最新發行版** |
+| `POST` | `/api/system/upgrade` | `{ parent_pin, package_url }` | `{ status, message }` | **Web 一鍵從 GitHub 下載發行包並自動升級** |
+| `POST` | `/api/system/upload-package` | `multipart: file, parent_pin` | `{ status, message }` | **手動上傳離線安裝/升級套件 (.tar.gz) 進行升級** |
 | `GET` | `/api/system/upgrade-status` | - | `{ status, progress, current_step, logs }` | **Web 輪詢即時升級進度與日誌** |
 
 ### 3.3 歷史積分批次統一調整演算法與交易安全 (Batch Adjustment Logic & Safety)
@@ -460,24 +461,32 @@ flowchart TD
 |  💡 還原提醒：為保障資料安全，請於伺服器終端機執行：                    |
 |     $ ./scripts/restore.sh <備份檔案絕對路徑>                            |
 +-------------------------------------------------------------------------+
-|  【 分頁 2: 系統版本與一鍵升級 】                                       |
+|  【 分頁 2: 系統版本與一鍵升級 (GitHub Releases) 】                     |
 |                                                                         |
-|  目前系統版本: v1.0.0 (Commit: 402a125)                                 |
-|  [ 🔍 檢查最新版本 (Check for Updates) ]                                |
+|  目前安裝版本: v1.0.0                                                   |
+|  GitHub 儲存庫: https://github.com/chinsonyeh/frog_kudos                |
+|  [ 🔍 檢查 GitHub 最新 Release (Check Updates) ]                        |
 |                                                                         |
 |  ┌───────────────────────────────────────────────────────────────────┐  |
-|  │ 🚀 發現新版本！最新版本: v1.1.0 (Commit: 8e91f0a)                  │  |
-|  │ 📝 更新內容：                                                      │  |
-|  │  • 新增歷史積分批次統一調整功能                                    │  |
-|  │  • 優化行動端兌換商城介面流暢度                                    │  |
+|  │ 🚀 發現新版本！最新正式發行版: v1.1.0 (發佈於 2026-09-27)          │  |
+|  │ 📦 官方發行包: frog_kudos-v1.1.0.tar.gz (內建前端免編譯)           │  |
+|  │ 📝 更新日誌 (Changelog):                                           │  |
+|  │  • 新增歷史積分批次統一調整功能 (FR-7)                             │  |
+|  │  • 新增資料庫自訂路徑備份與 Web 端 UI 管理 (FR-8)                  │  |
+|  │  • 支援 GitHub Releases 一鍵自動升級與離線包手動安裝               │  |
 |  └───────────────────────────────────────────────────────────────────┘  |
 |                                                                         |
-|  升級驗證 PIN 碼: [ **** ]                                              |
-|  [ ⚠️ 開始一鍵平滑升級 (Auto Backup & Upgrade) ]                       |
+|  模式 A：從 GitHub 自動下載並升級                                       |
+|  輸入家長 PIN: [ **** ]                                                 |
+|  [ 🚀 立即從 GitHub 下載並執行自動平滑升級 ]                            |
+|                                                                         |
+|  模式 B：手動/離線套件升級                                               |
+|  [ 選擇本機 frog_kudos-*.tar.gz 升級包 ]  [ 📤 上傳並執行升級 ]         |
+|  (若家庭伺服器無對外網路，可先手動從 GitHub 下載發行包後在此上傳)       |
 |                                                                         |
 |  ▼ 即時升級進度顯示 (即時輪詢 /api/system/upgrade-status):              |
-|  進度: [████████████████████░░░░░░░░] 70%                              |
-|  目前狀態: 正在重新打包前端資源 (npm run build)...                      |
+|  進度: [████████████████████░░░░░░░░] 75%                              |
+|  目前步驟: 正在解壓縮新版發行包並執行資料庫 Migration...                |
 |                                                                         |
 |  [ 關閉 ]                                                               |
 +-------------------------------------------------------------------------+
@@ -729,41 +738,140 @@ echo "🎉 Frog Kudos 安裝完成！"
 echo "👉 執行 ./run.sh 即可啟動系統 (瀏覽器開啟: http://localhost:8000)"
 ```
 
-### 6.4 系統平滑升級腳本 (`scripts/upgrade.sh`)
-- **功能**：自動備份、拉取新代碼、更新套件、資料庫 Migration、重編前端並無縫重啟。
+### 6.4 GitHub Release 打包計畫與 CI/CD 自動化 (`.github/workflows/release.yml`)
+
+為實現「主機端免裝 Node.js/npm、開箱即用、版本明確」，每次發佈新版本時透過 GitHub Actions 自動打包生產環境發行包：
+
+1. **打包套件內容 (`frog_kudos-vX.Y.Z.tar.gz`)**：
+   ```
+   frog_kudos-vX.Y.Z/
+   ├── app/                   # FastAPI 後端核心代碼
+   ├── frontend/
+   │   └── dist/              # 預先在 GitHub Actions 編譯完成的 Vue 3 靜態網頁資源
+   ├── scripts/               # 運維工具 (backup.sh, restore.sh, install.sh, upgrade.sh)
+   ├── schema.sql             # 資料庫 DDL 建表與初始資料腳本
+   ├── requirements.txt       # Python 生產環境套件依賴
+   ├── run.sh                 # 單一 Port 一鍵啟動入口腳本
+   └── VERSION                # 當前發行版本字串 (例如 v1.1.0)
+   ```
+   - **重大優勢**：生產環境家庭伺服器**完全不需要安裝 Node.js 與 npm**，也不需在低功耗主機上承受耗時的前端編譯，只需 Python 3.12+ 與 PostgreSQL 即可極速部署與升級。
+
+2. **GitHub Actions 流程定義 (`.github/workflows/release.yml`)**：
+   ```yaml
+   name: Release Build and Packaging
+
+   on:
+     push:
+       tags:
+         - 'v*'
+
+   jobs:
+     build-and-release:
+       runs-on: ubuntu-latest
+       permissions:
+         contents: write
+       steps:
+         - name: Checkout Code
+           uses: actions/checkout@v4
+
+         - name: Setup Node.js
+           uses: actions/setup-node@v4
+           with:
+             node-version: 18
+
+         - name: Build Vue 3 Frontend
+           run: |
+             cd frontend
+             npm ci
+             npm run build
+
+         - name: Prepare Release Package
+           run: |
+             VERSION=${GITHUB_REF_NAME}
+             echo "$VERSION" > VERSION
+             mkdir -p release_package
+             tar --exclude='.git' \
+                 --exclude='frontend/node_modules' \
+                 --exclude='frontend/src' \
+                 --exclude='venv' \
+                 --exclude='.env' \
+                 -czvf "frog_kudos-${VERSION}.tar.gz" \
+                 app frontend/dist scripts schema.sql requirements.txt run.sh VERSION
+             sha256sum "frog_kudos-${VERSION}.tar.gz" > "frog_kudos-${VERSION}.tar.gz.sha256"
+
+         - name: Create GitHub Release
+           uses: softprops/action-gh-release@v2
+           with:
+             files: |
+               frog_kudos-${{ github.ref_name }}.tar.gz
+               frog_kudos-${{ github.ref_name }}.tar.gz.sha256
+             generate_release_notes: true
+   ```
+
+---
+
+### 6.5 系統雙軌平滑升級腳本 (`scripts/upgrade.sh`)
+- **功能**：支援**模式 A（自動連線 GitHub Releases 下載最新版）**與**模式 B（手動/離線傳入本地發行包）**。
 - **腳本內容設計**：
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-echo "🔄 開始進行 Frog Kudos 系統自動化升級..."
+PACKAGE_ARG="${1:-}"  # 可為本地檔案路徑或留空自動從 GitHub 取得
+GITHUB_REPO="chinsonyeh/frog_kudos"
+TMP_DIR="/tmp/frog_kudos_upgrade_$(date +%s)"
+mkdir -p "$TMP_DIR"
 
-# 1. 升級前強制備份
-echo "📦 步驟 1/5: 執行升級前強制資料庫備份..."
+echo "🔄 開始進行 Frog Kudos 系統平滑升級..."
+
+# 1. 強制升級前備份資料庫
+echo "📦 步驟 1/6: 執行升級前強制資料庫備份..."
 "$ROOT_DIR/scripts/backup.sh"
 
-# 2. 拉取最新代碼
-echo "📥 步驟 2/5: 拉取最新代碼 (git pull)..."
-cd "$ROOT_DIR"
-git pull origin master
+# 2. 獲取升級套件 (自動自 GitHub 下載或使用本地套件)
+if [ -n "$PACKAGE_ARG" ] && [ -f "$PACKAGE_ARG" ]; then
+    echo "📥 步驟 2/6: 使用指定的本地發行包: $PACKAGE_ARG"
+    TARGET_TAR="$PACKAGE_ARG"
+else
+    echo "🌐 步驟 2/6: 查詢 GitHub Releases 最新版本..."
+    LATEST_JSON=$(curl -s "https://api.github.com/repos/${GITHUB_REPO}/releases/latest")
+    LATEST_TAG=$(echo "$LATEST_JSON" | grep -oP '"tag_name": "\K[^"]+')
+    DOWNLOAD_URL=$(echo "$LATEST_JSON" | grep -oP '"browser_download_url": "\Khttps://[^"]+\.tar\.gz')
+    
+    if [ -z "$LATEST_TAG" ] || [ -z "$DOWNLOAD_URL" ]; then
+        echo "❌ 無法從 GitHub 取得最新 Release 資訊，請檢查網路或手動下載套件升級！"
+        exit 1
+    fi
+    
+    LOCAL_VERSION=$(cat "$ROOT_DIR/VERSION" 2>/dev/null || echo "v0.0.0")
+    echo "目前版本: $LOCAL_VERSION ➔ 最新版本: $LATEST_TAG"
+    
+    TARGET_TAR="${TMP_DIR}/frog_kudos-${LATEST_TAG}.tar.gz"
+    echo "⬇️ 下載發行套件: $DOWNLOAD_URL ..."
+    curl -L "$DOWNLOAD_URL" -o "$TARGET_TAR"
+fi
 
-# 3. 更新 Python 套件
-echo "🐍 步驟 3/5: 更新後端套件依賴..."
-source "$ROOT_DIR/venv/bin/activate"
-pip install -r requirements.txt
+# 3. 解壓縮新版本並覆蓋程式檔案 (保留 .env, backups 與 venv)
+echo "📂 步驟 3/6: 解壓縮並套用新版本檔案..."
+tar -xzvf "$TARGET_TAR" -C "$ROOT_DIR"
 
-# 4. 資料庫 Migration (若有資料庫欄位更新)
-echo "🐘 步驟 4/5: 執行資料庫結構更新..."
+# 4. 更新 Python 虛擬環境套件
+echo "🐍 步驟 4/6: 更新後端 Python 套件依賴..."
+if [ -d "$ROOT_DIR/venv" ]; then
+    source "$ROOT_DIR/venv/bin/activate"
+    pip install -r "$ROOT_DIR/requirements.txt"
+fi
+
+# 5. 資料庫結構遷移 (Migration)
+echo "🐘 步驟 5/6: 檢查並執行資料庫 Migration..."
 python -m app.migrate || true
 
-# 5. 重新建置前端靜態資源
-echo "🎨 步驟 5/5: 重新編譯前端靜態資源..."
-cd "$ROOT_DIR/frontend"
-npm install
-npm run build
-
-echo "✨ 升級完成！請重啟服務或執行 ./run.sh"
+# 6. 清理暫存檔並完成
+rm -rf "$TMP_DIR"
+NEW_VER=$(cat "$ROOT_DIR/VERSION" 2>/dev/null || echo "unknown")
+echo "🎉 系統已成功升級至版本: $NEW_VER！"
+echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 ```
 
 ---
@@ -775,6 +883,6 @@ echo "✨ 升級完成！請重啟服務或執行 ./run.sh"
 2. **前後端技術定案**：採用 **Python FastAPI** + **Vue 3 (Composition API + TailwindCSS)**。
 3. **單一 Port 整合運行**：平日家庭日常使用由 FastAPI 在單一連接埠（預設 Port 8000）同時提供 Vue 3 SPA 網頁與 RESTful APIs，家庭裝置連線最簡便。
 4. **Web UI 詳細規格**：包含快速登記、即時試算動畫反饋、兌換商城、不可篡改存摺、歷史批次調整工具與規則管理中心。
-5. **完整維運自動化**：包含指定路徑資料庫備份 (`backup.sh`)、安全還原 (`restore.sh`)、一鍵安裝 (`install.sh`) 與平滑升級 (`upgrade.sh`)。
+5. **完整維運與 Release 發行自動化**：包含指定路徑資料庫備份 (`backup.sh`)、安全還原 (`restore.sh`)、一鍵安裝 (`install.sh`)、GitHub Actions 自動化發行包打包 (`.github/workflows/release.yml`)、以及從 GitHub Releases 一鍵自動升級與離線套件手動升級 (`upgrade.sh`)。
 
 計畫已就緒，待您確認審查通過後，我們將立即從 **Phase 1（建立資料庫結構與初始種子資料）** 正式開始實作。
