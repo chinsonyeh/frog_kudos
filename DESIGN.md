@@ -8,15 +8,15 @@
 
 系統採用前後端整合部署設計，**「平日日常使用只需單一 Port」**，運行於本機 Linux 環境，使用現有的 PostgreSQL `frog_kudos` 資料庫。
 
-### 1.1 平日日常運行架構（單一 Port 模式，預設 Port 8000）
+#### 1.1 平日日常運行架構（單一 Port 模式，預設 Port 8000，安裝時可自訂指定）
 Vue 3 前端編譯建置為靜態資源（`dist/`），由 FastAPI 後端伺服器在單一連接埠上同時託管「前端單頁應用 (SPA)」與「後端 REST API」。
 
 ```
   家庭成員裝置 (手機 / iPad / 電腦瀏覽器)
                    │
-                   ▼ (單一連接埠: 例如 http://主機IP:8000)
+                   ▼ (單一連接埠: 例如 http://主機IP:<自訂Port>)
 +---------------------------------------------------------------------------------+
-|                       FastAPI 整合伺服器 (Port: 8000)                            |
+|                       FastAPI 整合伺服器 (Port: <自訂Port>)                       |
 |                                                                                 |
 |   ├── GET /api/*        ➔ RESTful APIs (業務邏輯、推導引擎、資料庫交易)            |
 |   └── GET /*            ➔ StaticFiles 靜態託管 (Vue 3 SPA 單頁應用 index.html)    |
@@ -40,9 +40,10 @@ Vue 3 前端編譯建置為靜態資源（`dist/`），由 FastAPI 後端伺服�
 ```
 
 - **單一 Port 優勢**：
-  1. **零設定**：不需額外安裝與設定 Nginx 反向代理，家庭主機資源消耗極低。
-  2. **連線便利**：家人手機或平板只要儲存一個書籤（如 `http://192.168.1.100:8000`）。
-  3. **無跨域問題 (Zero CORS issues)**：API 與網頁在同源同 Port，避免跨來源請求被瀏覽器安全政策阻擋。
+  1. **自訂與防衝突**：安裝時可自由指定連接埠（如 `8080`、`5000`），避免與家庭現有服務（如 NAS、Home Assistant、既有網頁）發生 Port 衝突。
+  2. **零額外組態**：不需安裝設定 Nginx 反向代理，家庭主機資源消耗極低。
+  3. **連線便利**：家人手機或平板只要儲存一個書籤（如 `http://192.168.1.100:8080`）。
+  4. **無跨域問題 (Zero CORS issues)**：API 與網頁同源同 Port，避免跨來源請求被瀏覽器安全政策阻擋。
 
 ### 1.2 本機開發模式 (Dev Mode，雙 Port 模式)
 - **前端開發伺服器**：Vite 監聽 Port `5173`，支援 HMR（模組熱更替，存檔即刷新）。
@@ -699,26 +700,68 @@ command -v npm >/dev/null 2>&1 || { echo "❌ 缺少 npm"; exit 1; }
 command -v psql >/dev/null 2>&1 || { echo "❌ 缺少 psql，請先安裝 postgresql-client"; exit 1; }
 command -v pg_dump >/dev/null 2>&1 || { echo "❌ 缺少 pg_dump"; exit 1; }
 
-# 2. 建立 .env 設定檔
+# 2. 決定並驗證運行連接埠 (Port)
+DEFAULT_PORT="8000"
+INPUT_PORT="${PORT:-}"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --port)
+            INPUT_PORT="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$INPUT_PORT" ] && [ -t 0 ]; then
+    echo "🔌 連接埠配置 (Port Configuration)："
+    read -p "   請輸入 Frog Kudos 系統運行的連接埠 [預設: ${DEFAULT_PORT}]: " USER_CHOICE
+    CHOSEN_PORT="${USER_CHOICE:-$DEFAULT_PORT}"
+else
+    CHOSEN_PORT="${INPUT_PORT:-$DEFAULT_PORT}"
+fi
+
+# 驗證 Port 合法性 (1-65535)
+if ! [[ "$CHOSEN_PORT" =~ ^[0-9]+$ ]] || [ "$CHOSEN_PORT" -lt 1 ] || [ "$CHOSEN_PORT" -gt 65535 ]; then
+    echo "❌ 錯誤: 連接埠 ${CHOSEN_PORT} 不合法，必須為 1 到 65535 之間的整數！"
+    exit 1
+fi
+
+# 檢查 Port 是否已被佔用
+if command -v ss >/dev/null 2>&1 && ss -tuln | grep -q ":${CHOSEN_PORT} "; then
+    echo "⚠️  警告: 連接埠 ${CHOSEN_PORT} 目前已被其他程式佔用，請留意後續啟動是否會發生衝突！"
+fi
+
+# 3. 建立或更新 .env 設定檔
 if [ ! -f "$ROOT_DIR/.env" ]; then
-    echo "📝 步驟 2/5: 建立預設環境設定檔 (.env)..."
-    cat << 'EOF' > "$ROOT_DIR/.env"
+    echo "📝 步驟 2/5: 建立環境設定檔 (.env，設定 PORT=${CHOSEN_PORT})..."
+    cat << EOF > "$ROOT_DIR/.env"
 DATABASE_URL=postgresql+asyncpg://postgres@localhost:5432/frog_kudos
 DB_NAME=frog_kudos
 DB_USER=postgres
 DB_HOST=localhost
 DB_PORT=5432
-PORT=8000
+PORT=${CHOSEN_PORT}
 BACKUP_DIR=/home/chinsonyeh/Code/frog_kudos/backups
 PARENT_DEFAULT_PIN=0000
 EOF
+else
+    echo "📝 步驟 2/5: 更新現有 .env 設定檔 (PORT=${CHOSEN_PORT})..."
+    if grep -q "^PORT=" "$ROOT_DIR/.env"; then
+        sed -i "s/^PORT=.*/PORT=${CHOSEN_PORT}/" "$ROOT_DIR/.env"
+    else
+        echo "PORT=${CHOSEN_PORT}" >> "$ROOT_DIR/.env"
+    fi
 fi
 
-# 3. 初始化 PostgreSQL frog_kudos 資料庫結構
+# 4. 初始化 PostgreSQL frog_kudos 資料庫結構
 echo "🐘 步驟 3/5: 初始化資料庫結構..."
 psql -U postgres -d frog_kudos -f "$ROOT_DIR/schema.sql"
 
-# 4. 建置後端 Python 虛擬環境
+# 5. 建置後端 Python 虛擬環境
 echo "🐍 步驟 4/5: 建置 Python 虛擬環境並安裝依賴..."
 cd "$ROOT_DIR"
 if [ ! -d "venv" ]; then
@@ -728,14 +771,14 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 5. 前端相依安裝與打包編譯 (支援單一 Port 託管)
+# 6. 前端相依安裝與打包編譯 (支援單一 Port 託管)
 echo "🎨 步驟 5/5: 安裝前端套件並編譯生產環境資源 (npm run build)..."
 cd "$ROOT_DIR/frontend"
 npm install
 npm run build
 
 echo "🎉 Frog Kudos 安裝完成！"
-echo "👉 執行 ./run.sh 即可啟動系統 (瀏覽器開啟: http://localhost:8000)"
+echo "👉 執行 ./run.sh 即可啟動系統 (瀏覽器開啟: http://localhost:${CHOSEN_PORT})"
 ```
 
 ### 6.4 GitHub Release 打包計畫與 CI/CD 自動化 (`.github/workflows/release.yml`)
@@ -881,7 +924,7 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 本架構設計文件完整落實：
 1. **主機 PostgreSQL `frog_kudos` 資料庫設計**：清楚標明 PK、FK 關聯約束、快照儲存與防負數 Check 限制。
 2. **前後端技術定案**：採用 **Python FastAPI** + **Vue 3 (Composition API + TailwindCSS)**。
-3. **單一 Port 整合運行**：平日家庭日常使用由 FastAPI 在單一連接埠（預設 Port 8000）同時提供 Vue 3 SPA 網頁與 RESTful APIs，家庭裝置連線最簡便。
+3. **單一 Port 整合運行（安裝時可自訂指定）**：平日家庭日常使用由 FastAPI 在單一連接埠（安裝時可自由指定，預設 Port 8000）同時提供 Vue 3 SPA 網頁與 RESTful APIs，徹底避免 Port 衝突且家庭裝置連線最簡便。
 4. **Web UI 詳細規格**：包含快速登記、即時試算動畫反饋、兌換商城、不可篡改存摺、歷史批次調整工具與規則管理中心。
 5. **完整維運與 Release 發行自動化**：包含指定路徑資料庫備份 (`backup.sh`)、安全還原 (`restore.sh`)、一鍵安裝 (`install.sh`)、GitHub Actions 自動化發行包打包 (`.github/workflows/release.yml`)、以及從 GitHub Releases 一鍵自動升級與離線套件手動升級 (`upgrade.sh`)。
 
