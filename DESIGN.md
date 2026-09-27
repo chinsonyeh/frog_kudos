@@ -6,19 +6,22 @@
 
 ## 1. 系統架構總覽 (System Architecture)
 
-系統採用前後端分離（SPA + RESTful API）架構，運行於本機 Linux 環境，使用現有的 PostgreSQL `frog_kudos` 資料庫。
+系統採用前後端整合部署設計，**「平日日常使用只需單一 Port」**，運行於本機 Linux 環境，使用現有的 PostgreSQL `frog_kudos` 資料庫。
+
+### 1.1 平日日常運行架構（單一 Port 模式，預設 Port 8000）
+Vue 3 前端編譯建置為靜態資源（`dist/`），由 FastAPI 後端伺服器在單一連接埠上同時託管「前端單頁應用 (SPA)」與「後端 REST API」。
 
 ```
+  家庭成員裝置 (手機 / iPad / 電腦瀏覽器)
+                   │
+                   ▼ (單一連接埠: 例如 http://主機IP:8000)
 +---------------------------------------------------------------------------------+
-|                                 使用者端 Client                                  |
-|   • 手機 / 平板 / 電腦瀏覽器 (響應式 RWD)                                        |
-|   • Vue 3 (Composition API) + Vite + TailwindCSS + Pinia                        |
-+---------------------------------------------------------------------------------+
-                                      │ HTTP / JSON REST APIs
-                                      ▼
-+---------------------------------------------------------------------------------+
-|                            後端伺服器 (FastAPI Server)                           |
-|   ├── routers/          (成員、規則、點數發放、商城兌換)                         |
+|                       FastAPI 整合伺服器 (Port: 8000)                            |
+|                                                                                 |
+|   ├── GET /api/*        ➔ RESTful APIs (業務邏輯、推導引擎、資料庫交易)            |
+|   └── GET /*            ➔ StaticFiles 靜態託管 (Vue 3 SPA 單頁應用 index.html)    |
+|                                                                                 |
+|   ├── routers/          (成員、規則、點數發放、批次調整、商城兌換)               |
 |   ├── services/         (智慧規則比對推導引擎 Rule Matching Engine)              |
 |   ├── schemas/          (Pydantic v2 資料驗證與型別轉換)                         |
 |   └── models/           (SQLAlchemy 2.0 Async ORM 實體)                         |
@@ -35,6 +38,16 @@
 |   └── redemptions       (兌換核銷紀錄)                                           |
 +---------------------------------------------------------------------------------+
 ```
+
+- **單一 Port 優勢**：
+  1. **零設定**：不需額外安裝與設定 Nginx 反向代理，家庭主機資源消耗極低。
+  2. **連線便利**：家人手機或平板只要儲存一個書籤（如 `http://192.168.1.100:8000`）。
+  3. **無跨域問題 (Zero CORS issues)**：API 與網頁在同源同 Port，避免跨來源請求被瀏覽器安全政策阻擋。
+
+### 1.2 本機開發模式 (Dev Mode，雙 Port 模式)
+- **前端開發伺服器**：Vite 監聽 Port `5173`，支援 HMR（模組熱更替，存檔即刷新）。
+- **後端開發伺服器**：FastAPI (Uvicorn) 監聽 Port `8000`，支援自動熱重載 (Reload)。
+- **Vite Proxy**：Vite 設定代理將 `/api` 請求無縫轉發至 Port `8000`。
 
 ---
 
@@ -508,6 +521,7 @@ CREATE INDEX IF NOT EXISTS idx_redemptions_member_created ON redemptions(member_
 本架構設計文件完整落實：
 1. **主機 PostgreSQL `frog_kudos` 資料庫設計**：清楚標明 PK、FK 關聯約束、快照儲存與防負數 Check 限制。
 2. **前後端技術定案**：採用 **Python FastAPI** + **Vue 3 (Composition API + TailwindCSS)**。
-3. **Web UI 詳細規格**：包含快速登記、即時試算動畫反饋、兌換商城、不可篡改存摺與規則管理中心。
+3. **單一 Port 整合運行**：平日家庭日常使用由 FastAPI 在單一連接埠（預設 Port 8000）同時提供 Vue 3 SPA 網頁與 RESTful APIs，家庭裝置連線最簡便。
+4. **Web UI 詳細規格**：包含快速登記、即時試算動畫反饋、兌換商城、不可篡改存摺、歷史批次調整工具與規則管理中心。
 
 計畫已就緒，待您確認審查通過後，我們將立即從 **Phase 1（建立資料庫結構與初始種子資料）** 正式開始實作。
