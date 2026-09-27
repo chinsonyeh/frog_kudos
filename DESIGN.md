@@ -919,13 +919,38 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 
 ---
 
-## 7. 總結與後續實作準備
+## 7. 需求對應檢核與總結 (Requirements Traceability & Summary)
+
+### 7.1 需求規格對應檢核矩陣 (Traceability Matrix)
+
+本詳細設計文件已逐項落實 [REQUIREMENT.md](./REQUIREMENT.md) 中定義之所有功能與非功能需求：
+
+| 需求代號 | 需求項目名稱 | 設計對應之資料表 / 檔案 | 設計對應之後端 API / 演算法 | 設計對應之前端 Web UI 畫面 | 檢核結果 |
+|---|---|---|---|---|---|
+| **FR-1** | 多成員帳號管理 | `members` 表 | `GET /api/members`<br>`POST /api/members` | 頁面頂部大頭像成員切換卡片 | ✅ 100% 符合 |
+| **FR-2** | 個別化客製獎勵規則 | `reward_rules`, `categories` | `GET/POST/PUT/DELETE /api/rules` | 畫面 4：規則管理中心（成員專屬/通用分頁） | ✅ 100% 符合 |
+| **FR-3** | 快速成就登記與智慧自動帶出 | `reward_rules`, `kudos_records` | `POST /api/kudos/preview`<br>(3.1 規則推導演算法) | 畫面 1：快速登記卡（即時試算徽章與灑花動畫） | ✅ 100% 符合 |
+| **FR-4** | 積分快照與歷史不可篡改機制 | `kudos_records` (快照欄位組) | `POST /api/kudos/record` | 畫面 2：歷史存摺清單（展示當時規則快照細節） | ✅ 100% 符合 |
+| **FR-5** | 獎勵商城與兌換機制 | `reward_items`, `redemptions` | `POST /api/redemptions`<br>(原子扣點與防負數檢查) | 畫面 3：獎勵兌換商城（錢包餘額、防超兌鎖定） | ✅ 100% 符合 |
+| **FR-6** | 家庭榮譽榜與點數存摺 | `kudos_records`, `members` | `GET /api/kudos/history` | 畫面 2：榮譽榜存摺（可用餘額、累計總額、願望進度條） | ✅ 100% 符合 |
+| **FR-7** | 歷史積分批次篩選與統一修改 | `kudos_records` (`adjustment_note`)<br>`idx_kudos_batch_filter` | `POST /api/kudos/batch-preview`<br>`POST /api/kudos/batch-adjust` (3.3 演算法) | 畫面 5：歷史積分批次調整彈窗（多條件篩選與預覽） | ✅ 100% 符合 |
+| **FR-8** | 資料庫自訂路徑備份與還原 | `scripts/backup.sh`<br>`scripts/restore.sh` | `POST /api/system/backup`<br>`GET /api/system/backups` | 畫面 6：分頁 1 備份管理（自訂路徑、立即備份、清單） | ✅ 100% 符合 |
+| **FR-9** | 系統平滑升級與 GitHub Releases 整合 | `scripts/upgrade.sh` | `GET /api/system/version`<br>`POST /api/system/upgrade` | 畫面 6：分頁 2 系統升級（檢查更新、Changelog、進度條） | ✅ 100% 符合 |
+| **FR-10**| GitHub Release 自動化打包發佈 | `.github/workflows/release.yml` | GitHub Actions CI/CD 自動構建 | 發行包內建編譯後 `dist/`，主機免裝 Node/npm | ✅ 100% 符合 |
+| **FR-11**| 安裝時使用者自訂連接埠 | `scripts/install.sh`, `.env`, `run.sh` | 支援 `--port` 與互動式輸入、佔用防呆 | 後端單一 Port 整合託管自訂 Port | ✅ 100% 符合 |
+| **NFR-1**| 易用性與行動裝置友善 | Vue 3 + TailwindCSS | - | RWD 手機/平板優先、大觸控區塊、灑花慶祝反饋 | ✅ 100% 符合 |
+| **NFR-2**| 資料交易一致性 (ACID) | PostgreSQL DB Transaction | 點數發放/扣抵/批次調整均於單一 Transaction 完成 | - | ✅ 100% 符合 |
+| **NFR-3**| 資料庫與環境相容性 | PostgreSQL `frog_kudos` | SQLAlchemy 2.0 Async + asyncpg | - | ✅ 100% 符合 |
+
+---
+
+### 7.2 總結與後續實作準備
 
 本架構設計文件完整落實：
 1. **主機 PostgreSQL `frog_kudos` 資料庫設計**：清楚標明 PK、FK 關聯約束、快照儲存與防負數 Check 限制。
 2. **前後端技術定案**：採用 **Python FastAPI** + **Vue 3 (Composition API + TailwindCSS)**。
 3. **單一 Port 整合運行（安裝時可自訂指定）**：平日家庭日常使用由 FastAPI 在單一連接埠（安裝時可自由指定，預設 Port 8000）同時提供 Vue 3 SPA 網頁與 RESTful APIs，徹底避免 Port 衝突且家庭裝置連線最簡便。
-4. **Web UI 詳細規格**：包含快速登記、即時試算動畫反饋、兌換商城、不可篡改存摺、歷史批次調整工具與規則管理中心。
+4. **Web UI 詳細規格**：包含快速登記、即時試算動畫反饋、兌換商城、不可篡改存摺、歷史批次調整工具、系統設定與維運中心。
 5. **完整維運與 Release 發行自動化**：包含指定路徑資料庫備份 (`backup.sh`)、安全還原 (`restore.sh`)、一鍵安裝 (`install.sh`)、GitHub Actions 自動化發行包打包 (`.github/workflows/release.yml`)、以及從 GitHub Releases 一鍵自動升級與離線套件手動升級 (`upgrade.sh`)。
 
 計畫已就緒，待您確認審查通過後，我們將立即從 **Phase 1（建立資料庫結構與初始種子資料）** 正式開始實作。
