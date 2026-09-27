@@ -204,6 +204,8 @@ erDiagram
 | `GET` | `/api/redemptions` | `?member_id=...` | `RedemptionOut[]` | 查詢兌換與核銷歷史 |
 | `POST` | `/api/kudos/batch-preview` | `{ member_id, target_name, start_date, end_date, mode, value }` | `BatchPreviewOut` | **歷史積分批次調整預覽試算** |
 | `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整 (ACID Transaction)** |
+| `POST` | `/api/system/backup` | `{ target_path, parent_pin }` | `{ success, backup_file, file_size, created_at }` | **觸發資料庫備份至指定目標路徑** |
+| `GET` | `/api/system/backups` | `?target_path=...` | `BackupFileInfo[]` | **查詢指定目錄歷史備份清單** |
 
 ### 3.3 歷史積分批次統一調整演算法與交易安全 (Batch Adjustment Logic & Safety)
 
@@ -422,6 +424,41 @@ flowchart TD
 
 ---
 
+### 4.7 畫面 6：系統維運與資料庫備份中心 (System Backup & Maintenance Modal)
+
+家長可在右上角齒輪選單點選【💾 系統備份與維運】，提供可指定目標路徑的備份操作與歷史備份清單。
+
+```
++-------------------------------------------------------------------------+
+|  💾 系統備份與資料庫維運 (家長專區)                                     |
++-------------------------------------------------------------------------+
+|  1. 自訂備份目的地路徑:                                                 |
+|     [ /home/chinsonyeh/Code/frog_kudos/backups                    ]     |
+|     (可修改為自訂目錄、外接硬碟或 NAS 掛載路徑)                         |
+|                                                                         |
+|  2. 家長管理 PIN 碼: [ **** ]                                           |
+|                                                                         |
+|  [ 📦 立即建立資料庫完整備份 ]                                          |
+|  ┌───────────────────────────────────────────────────────────────────┐  |
+|  │ ✅ 備份成功！檔案: frog_kudos_backup_20260927_232500.dump (42 KB) │  |
+|  └───────────────────────────────────────────────────────────────────┘  |
+|                                                                         |
+|  📁 歷史備份檔案清單:                                                   |
+|  ┌───────────────────────────────────────────────────────────────────┐  |
+|  │ • 2026-09-27 23:25 | frog_kudos_backup_20260927_232500.dump (42 KB)│  |
+|  │ • 2026-09-26 18:00 | frog_kudos_backup_20260926_180000.dump (38 KB)│  |
+|  └───────────────────────────────────────────────────────────────────┘  |
+|                                                                         |
+|  💡 資料庫還原提示：                                                    |
+|     如需還原備份，為確保安全，請於伺服器終端機執行安全還原腳本：        |
+|     $ ./scripts/restore.sh <備份檔案絕對路徑>                            |
+|                                                                         |
+|  [ 關閉 ]                                                               |
++-------------------------------------------------------------------------+
+```
+
+---
+
 ## 5. PostgreSQL DDL 建表腳本 (預備執行腳本)
 
 本腳本規劃於審查通過後，在 `frog_kudos` 資料庫中執行：
@@ -516,12 +553,202 @@ CREATE INDEX IF NOT EXISTS idx_redemptions_member_created ON redemptions(member_
 
 ---
 
-## 6. 總結與後續實作準備
+## 6. 資料庫備份、還原與維運自動化腳本 (Backup, Restore, Install & Upgrade)
+
+本系統提供獨立的維運腳本目錄 `scripts/`，並在前端家長後台提供 UI 操作介面，支援**指定備份目標路徑**、安全還原、一鍵安裝與平滑升級。
+
+### 6.1 資料庫指定路徑備份機制 (`scripts/backup.sh`)
+- **功能**：使用 PostgreSQL 原生 `pg_dump` 建立高壓縮 Custom 格式（`.dump`）備份檔。
+- **自訂目標路徑**：支援命令列傳入目標目錄（若未傳入則讀取 `.env` 中的 `BACKUP_DIR`，預設為專案目錄下之 `backups/`）。
+- **腳本內容設計**：
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 載入環境變數
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ENV_FILE="$ROOT_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+    export $(grep -v '^#' "$ENV_FILE" | xargs)
+fi
+
+DB_NAME="${DB_NAME:-frog_kudos}"
+DB_USER="${DB_USER:-postgres}"
+DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-5432}"
+
+# 取得指定目標路徑 (第 1 個引數)，若無指定則預設讀取 BACKUP_DIR 或 $ROOT_DIR/backups
+TARGET_DIR="${1:-${BACKUP_DIR:-$ROOT_DIR/backups}}"
+mkdir -p "$TARGET_DIR"
+
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+BACKUP_FILE="${TARGET_DIR}/frog_kudos_backup_${TIMESTAMP}.dump"
+
+echo "📦 開始備份資料庫 [${DB_NAME}] 至目標路徑: ${BACKUP_FILE} ..."
+pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -Fc "$DB_NAME" > "$BACKUP_FILE"
+
+FILE_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+echo "✅ 備份成功！檔案大小: ${FILE_SIZE}"
+echo "📍 完整備份路徑: ${BACKUP_FILE}"
+```
+
+### 6.2 資料庫安全還原腳本 (`scripts/restore.sh`)
+- **功能**：使用 `pg_restore` 還原資料庫，具備**前置安全快照**與**二次輸入確認**機制。
+- **腳本內容設計**：
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+if [ -z "${1:-}" ]; then
+    echo "❌ 錯誤: 請指定要還原的備份檔案路徑！"
+    echo "使用範例: ./scripts/restore.sh /path/to/frog_kudos_backup_20260927_120000.dump"
+    exit 1
+fi
+
+BACKUP_FILE="$1"
+if [ ! -f "$BACKUP_FILE" ]; then
+    echo "❌ 找不到備份檔案: $BACKUP_FILE"
+    exit 1
+fi
+
+ENV_FILE="$ROOT_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+    export $(grep -v '^#' "$ENV_FILE" | xargs)
+fi
+
+DB_NAME="${DB_NAME:-frog_kudos}"
+DB_USER="${DB_USER:-postgres}"
+DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-5432}"
+
+echo "⚠️  【危險警告】即將把備份檔案還原至資料庫 [${DB_NAME}]！"
+echo "⚠️  現有所有資料將會被該備份覆蓋！"
+echo "備份檔案: $BACKUP_FILE"
+read -p "確定要繼續執行還原嗎？(請輸入 YES 確認): " CONFIRM
+if [ "$CONFIRM" != "YES" ]; then
+    echo "🛑 已取消還原作業。"
+    exit 0
+fi
+
+# 1. 還原前自動建立安全快照，避免誤操作
+SNAPSHOT_DIR="${BACKUP_DIR:-$ROOT_DIR/backups}"
+mkdir -p "$SNAPSHOT_DIR"
+PRE_RESTORE_BACKUP="${SNAPSHOT_DIR}/pre_restore_snapshot_$(date +"%Y%m%d_%H%M%S").dump"
+echo "🛡️ 正在建立還原前安全快照: ${PRE_RESTORE_BACKUP} ..."
+pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -Fc "$DB_NAME" > "$PRE_RESTORE_BACKUP" || true
+
+# 2. 執行還原 (使用 --clean --if-exists 清除舊表後乾淨恢復)
+echo "🔄 開始執行資料庫還原..."
+pg_restore -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" --clean --if-exists "$BACKUP_FILE"
+
+echo "✅ 資料庫還原成功！已恢復至備份時間點。"
+```
+
+### 6.3 系統一鍵安裝腳本 (`scripts/install.sh`)
+- **功能**：自動檢查主機 Python/Node/PostgreSQL 環境、初始化資料庫、建置 Python 虛擬環境、打包前端並生成單一 Port 啟動器。
+- **腳本內容設計**：
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+echo "🚀 開始執行 Frog Kudos 家庭積分獎勵系統自動化安裝..."
+
+# 1. 檢查主機環境相依工具
+echo "🔍 步驟 1/5: 檢查主機環境..."
+command -v python3 >/dev/null 2>&1 || { echo "❌ 缺少 python3，請先安裝 Python 3.12+"; exit 1; }
+command -v node >/dev/null 2>&1 || { echo "❌ 缺少 node，請先安裝 Node.js 18+"; exit 1; }
+command -v npm >/dev/null 2>&1 || { echo "❌ 缺少 npm"; exit 1; }
+command -v psql >/dev/null 2>&1 || { echo "❌ 缺少 psql，請先安裝 postgresql-client"; exit 1; }
+command -v pg_dump >/dev/null 2>&1 || { echo "❌ 缺少 pg_dump"; exit 1; }
+
+# 2. 建立 .env 設定檔
+if [ ! -f "$ROOT_DIR/.env" ]; then
+    echo "📝 步驟 2/5: 建立預設環境設定檔 (.env)..."
+    cat << 'EOF' > "$ROOT_DIR/.env"
+DATABASE_URL=postgresql+asyncpg://postgres@localhost:5432/frog_kudos
+DB_NAME=frog_kudos
+DB_USER=postgres
+DB_HOST=localhost
+DB_PORT=5432
+PORT=8000
+BACKUP_DIR=/home/chinsonyeh/Code/frog_kudos/backups
+PARENT_DEFAULT_PIN=0000
+EOF
+fi
+
+# 3. 初始化 PostgreSQL frog_kudos 資料庫結構
+echo "🐘 步驟 3/5: 初始化資料庫結構..."
+psql -U postgres -d frog_kudos -f "$ROOT_DIR/schema.sql"
+
+# 4. 建置後端 Python 虛擬環境
+echo "🐍 步驟 4/5: 建置 Python 虛擬環境並安裝依賴..."
+cd "$ROOT_DIR"
+if [ ! -d "venv" ]; then
+    python3 -m venv venv
+fi
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 5. 前端相依安裝與打包編譯 (支援單一 Port 託管)
+echo "🎨 步驟 5/5: 安裝前端套件並編譯生產環境資源 (npm run build)..."
+cd "$ROOT_DIR/frontend"
+npm install
+npm run build
+
+echo "🎉 Frog Kudos 安裝完成！"
+echo "👉 執行 ./run.sh 即可啟動系統 (瀏覽器開啟: http://localhost:8000)"
+```
+
+### 6.4 系統平滑升級腳本 (`scripts/upgrade.sh`)
+- **功能**：自動備份、拉取新代碼、更新套件、資料庫 Migration、重編前端並無縫重啟。
+- **腳本內容設計**：
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+echo "🔄 開始進行 Frog Kudos 系統自動化升級..."
+
+# 1. 升級前強制備份
+echo "📦 步驟 1/5: 執行升級前強制資料庫備份..."
+"$ROOT_DIR/scripts/backup.sh"
+
+# 2. 拉取最新代碼
+echo "📥 步驟 2/5: 拉取最新代碼 (git pull)..."
+cd "$ROOT_DIR"
+git pull origin master
+
+# 3. 更新 Python 套件
+echo "🐍 步驟 3/5: 更新後端套件依賴..."
+source "$ROOT_DIR/venv/bin/activate"
+pip install -r requirements.txt
+
+# 4. 資料庫 Migration (若有資料庫欄位更新)
+echo "🐘 步驟 4/5: 執行資料庫結構更新..."
+python -m app.migrate || true
+
+# 5. 重新建置前端靜態資源
+echo "🎨 步驟 5/5: 重新編譯前端靜態資源..."
+cd "$ROOT_DIR/frontend"
+npm install
+npm run build
+
+echo "✨ 升級完成！請重啟服務或執行 ./run.sh"
+```
+
+---
+
+## 7. 總結與後續實作準備
 
 本架構設計文件完整落實：
 1. **主機 PostgreSQL `frog_kudos` 資料庫設計**：清楚標明 PK、FK 關聯約束、快照儲存與防負數 Check 限制。
 2. **前後端技術定案**：採用 **Python FastAPI** + **Vue 3 (Composition API + TailwindCSS)**。
 3. **單一 Port 整合運行**：平日家庭日常使用由 FastAPI 在單一連接埠（預設 Port 8000）同時提供 Vue 3 SPA 網頁與 RESTful APIs，家庭裝置連線最簡便。
 4. **Web UI 詳細規格**：包含快速登記、即時試算動畫反饋、兌換商城、不可篡改存摺、歷史批次調整工具與規則管理中心。
+5. **完整維運自動化**：包含指定路徑資料庫備份 (`backup.sh`)、安全還原 (`restore.sh`)、一鍵安裝 (`install.sh`) 與平滑升級 (`upgrade.sh`)。
 
 計畫已就緒，待您確認審查通過後，我們將立即從 **Phase 1（建立資料庫結構與初始種子資料）** 正式開始實作。
