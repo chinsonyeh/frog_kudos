@@ -17,5 +17,6 @@
 
 ## 📚 相關設計文件
 
-- [系統架構設計文件 (ARCHITECTURE.md)](./ARCHITECTURE.md) - 詳細 Mermaid 資料庫實體關聯 (ERD)、API 規格、Vue 3 介面線框圖與 DDL 腳本。
-- [系統規劃書 (docs/PLAN.md)](./docs/PLAN.md) - 需求分析、Vue 3 vs React 技術評估與執行階段計畫。
+- [需求規格書 (REQUIREMENT.md)](./REQUIREMENT.md) - 系統背景、角色定位、功能需求與非功能需求。
+- [系統詳細設計文件 (DESIGN.md)](./DESIGN.md) - 詳細 Mermaid 資料庫實體關聯 (ERD)、API 規格、Vue 3 介面線框圖與 PostgreSQL DDL 腳本。
+

@@ -1,6 +1,6 @@
-# Frog Kudos 家庭積分獎勵系統 - 系統架構設計文件 (Architecture Design Document)
+# Frog Kudos 家庭積分獎勵系統 - 系統詳細設計文件 (DESIGN.md)
 
-本文件定義 **Frog Kudos 家庭積分獎勵系統** 的系統全貌架構、資料庫實體關聯、後端推導引擎與 Vue 3 前端介面規格。
+本文件依據 [REQUIREMENT.md](./REQUIREMENT.md) 需求規格書，定義 **Frog Kudos 家庭積分獎勵系統** 的技術架構、PostgreSQL 資料庫實體關聯 (Mermaid ERD)、後端推導引擎演算法、RESTful API 規格以及 Vue 3 前端介面詳細設計。
 
 ---
 
