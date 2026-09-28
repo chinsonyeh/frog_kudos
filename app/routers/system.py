@@ -1,0 +1,132 @@
+import os
+import shutil
+from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File, Form
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.database import get_db
+from app.core.security import verify_parent_pin, require_parent_pin_dep
+from app.schemas.system import (
+    SystemConfigOut,
+    SystemConfigUpdate,
+    BackupCreate,
+    BackupResult,
+    BackupFileInfo,
+    LineTestIn,
+    LineTestOut,
+    VersionOut,
+    UpgradeRequest,
+    UpgradeStatusOut,
+)
+from app.services.system_service import (
+    run_backup,
+    list_backups,
+    get_system_config,
+    update_system_config,
+    check_github_version,
+    run_upgrade_process,
+    get_upgrade_status,
+)
+from app.services.line_service import test_line_push
+
+router = APIRouter(prefix="/system", tags=["System Management & Maintenance"])
+
+@router.get("/config", response_model=SystemConfigOut)
+async def read_system_config():
+    """Web 取得備份、排程、LINE 通知與系統配置 (密碼強制脫敏，NFR-4)"""
+    return get_system_config()
+
+@router.put("/config")
+async def save_system_config(
+    config_in: SystemConfigUpdate,
+    x_parent_pin: Optional[str] = Depends(require_parent_pin_dep),
+    db: AsyncSession = Depends(get_db),
+):
+    """Web 儲存自訂備份路徑、排程與 LINE 通知憑證至 .env 檔案（需家長安全鎖）"""
+    pin = config_in.parent_pin or x_parent_pin
+    if not await verify_parent_pin(db, pin):
+        raise HTTPException(status_code=403, detail="家長安全鎖 PIN 碼錯誤或未授權")
+
+    update_system_config(config_in)
+    return {"success": True, "message": "系統設定已更新並持久化保存"}
+
+@router.post("/backup", response_model=BackupResult)
+async def trigger_backup(
+    backup_in: BackupCreate,
+    x_parent_pin: Optional[str] = Depends(require_parent_pin_dep),
+    db: AsyncSession = Depends(get_db),
+):
+    """觸發資料庫備份至指定目標路徑 (FR-8)"""
+    pin = backup_in.parent_pin or x_parent_pin
+    if not await verify_parent_pin(db, pin):
+        raise HTTPException(status_code=403, detail="家長安全鎖 PIN 碼錯誤或未授權")
+
+    return await run_backup(target_path=backup_in.target_path)
+
+@router.get("/backups", response_model=List[BackupFileInfo])
+async def get_backups(
+    target_path: Optional[str] = Query(None, description="指定查詢目錄"),
+):
+    """查詢指定目錄歷史備份清單 (FR-8)"""
+    return await list_backups(target_path=target_path)
+
+@router.post("/line/test", response_model=LineTestOut)
+async def trigger_line_test(
+    test_in: LineTestIn,
+    x_parent_pin: Optional[str] = Depends(require_parent_pin_dep),
+    db: AsyncSession = Depends(get_db),
+):
+    """測試發送 LINE Messaging API 推播訊息 (FR-19)"""
+    pin = test_in.parent_pin or x_parent_pin
+    if not await verify_parent_pin(db, pin):
+        raise HTTPException(status_code=403, detail="家長安全鎖 PIN 碼錯誤或未授權")
+
+    success, msg = await test_line_push()
+    return LineTestOut(success=success, message=msg)
+
+@router.get("/version", response_model=VersionOut)
+async def get_version_info():
+    """連線 GitHub Releases API 檢查最新發行版 (FR-9)"""
+    return await check_github_version()
+
+@router.post("/upgrade")
+async def trigger_auto_upgrade(
+    upgrade_in: UpgradeRequest,
+    background_tasks: BackgroundTasks,
+    x_parent_pin: Optional[str] = Depends(require_parent_pin_dep),
+    db: AsyncSession = Depends(get_db),
+):
+    """Web 一鍵從 GitHub 下載發行包並自動升級 (FR-9)"""
+    pin = upgrade_in.parent_pin or x_parent_pin
+    if not await verify_parent_pin(db, pin):
+        raise HTTPException(status_code=403, detail="家長安全鎖 PIN 碼錯誤或未授權")
+
+    background_tasks.add_task(run_upgrade_process, upgrade_in.package_url)
+    return {"status": "STARTED", "message": "升級程序已於背景啟動，請輪詢 /api/system/upgrade-status 檢視進度"}
+
+@router.post("/upload-package")
+async def upload_offline_package(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    parent_pin: Optional[str] = Form(None),
+    x_parent_pin: Optional[str] = Depends(require_parent_pin_dep),
+    db: AsyncSession = Depends(get_db),
+):
+    """手動上傳離線安裝/升級套件 (.tar.gz) 進行升級 (FR-9)"""
+    pin = parent_pin or x_parent_pin
+    if not await verify_parent_pin(db, pin):
+        raise HTTPException(status_code=403, detail="家長安全鎖 PIN 碼錯誤或未授權")
+
+    if not file.filename.endswith(".tar.gz"):
+        raise HTTPException(status_code=400, detail="僅支援 .tar.gz 格式之升級套件")
+
+    tmp_path = f"/tmp/{file.filename}"
+    with open(tmp_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    background_tasks.add_task(run_upgrade_process, tmp_path)
+    return {"status": "STARTED", "message": "離線套件上傳成功，升級程序已於背景啟動"}
+
+@router.get("/upgrade-status", response_model=UpgradeStatusOut)
+async def check_upgrade_status():
+    """Web 輪詢即時升級進度與日誌 (FR-9)"""
+    return get_upgrade_status()
