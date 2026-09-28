@@ -130,7 +130,7 @@ echo "🎨 步驟 5/5: 檢查前端資源..."
 if [ -f "$ROOT_DIR/frontend/package.json" ]; then
     echo "   安裝前端套件並編譯生產環境資源 (npm run build)..."
     cd "$ROOT_DIR/frontend"
-    npm install
+    npm install --no-bin-links || npm install
     npm run build
 else
     echo "   ℹ️ 前端源碼目錄尚未建置，略過靜態編譯 (將於 Phase 3 前端開發時打包)"
