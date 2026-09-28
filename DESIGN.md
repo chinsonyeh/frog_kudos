@@ -877,12 +877,24 @@ echo "🛡️ 正在建立還原前安全快照: ${PRE_RESTORE_BACKUP} ..."
 
 # 安全注入資料庫密碼至子程序環境變數 (避免 ps aux 明文洩漏，NFR-4)
 export PGPASSWORD="${DB_PASSWORD:-}"
-pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -Fc "$DB_NAME" > "$PRE_RESTORE_BACKUP" || true
+if [ -n "${DB_PASSWORD:-}" ]; then
+    pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -Fc "$DB_NAME" > "$PRE_RESTORE_BACKUP" || true
+elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo -n -u postgres pg_dump -Fc "$DB_NAME" > "$PRE_RESTORE_BACKUP" || true
+else
+    pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -Fc "$DB_NAME" > "$PRE_RESTORE_BACKUP" || true
+fi
 chmod 600 "$PRE_RESTORE_BACKUP" 2>/dev/null || true
 
 # 2. 執行還原 (使用 --clean --if-exists 清除舊表後乾淨恢復)
 echo "🔄 開始執行資料庫還原..."
-pg_restore -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" --clean --if-exists "$BACKUP_FILE"
+if [ -n "${DB_PASSWORD:-}" ]; then
+    pg_restore -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" --clean --if-exists "$BACKUP_FILE"
+elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    cat "$BACKUP_FILE" | sudo -n -u postgres pg_restore -d "$DB_NAME" --clean --if-exists
+else
+    pg_restore -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" --clean --if-exists "$BACKUP_FILE"
+fi
 unset PGPASSWORD
 
 echo "✅ 資料庫還原成功！已恢復至備份時間點。"
@@ -986,28 +998,51 @@ DB_PORT="${DB_PORT:-5432}"
 echo "🐘 步驟 3/5: 初始化資料庫結構..."
 export PGPASSWORD="${DB_PASSWORD:-}"
 # 自動防呆檢查資料庫是否存在，若無則自動建立
-psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" 2>/dev/null | grep -q 1 || \
-    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -c "CREATE DATABASE $DB_NAME;" 2>/dev/null || true
-psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$ROOT_DIR/schema.sql"
+if [ -n "${DB_PASSWORD:-}" ]; then
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" 2>/dev/null | grep -q 1 || \
+        psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -c "CREATE DATABASE $DB_NAME;" 2>/dev/null || true
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$ROOT_DIR/schema.sql"
+elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo -n -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" 2>/dev/null | grep -q 1 || \
+        sudo -n -u postgres psql -c "CREATE DATABASE $DB_NAME;" 2>/dev/null || true
+    cat "$ROOT_DIR/schema.sql" | sudo -n -u postgres psql -d "$DB_NAME"
+else
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" 2>/dev/null | grep -q 1 || \
+        psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -c "CREATE DATABASE $DB_NAME;" 2>/dev/null || true
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$ROOT_DIR/schema.sql"
+fi
 unset PGPASSWORD
 
 # 5. 建置後端 Python 虛擬環境
 echo "🐍 步驟 4/5: 建置 Python 虛擬環境並安裝依賴..."
 cd "$ROOT_DIR"
 if [ ! -d "venv" ]; then
-    python3 -m venv venv
+    if python3 -m venv venv 2>/dev/null; then
+        echo "   使用 python3 -m venv 建立虛擬環境成功"
+    elif command -v virtualenv >/dev/null 2>&1; then
+        echo "   偵測到非原生符號連結檔案系統 (如 exFAT)，使用 virtualenv --always-copy 建立..."
+        virtualenv --always-copy venv
+    else
+        echo "   使用 python3 -m venv --copies 建立..."
+        python3 -m venv --copies venv
+    fi
 fi
 source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
 # 6. 前端相依安裝與打包編譯 (支援單一 Port 託管)
-echo "🎨 步驟 5/5: 安裝前端套件並編譯生產環境資源 (npm run build)..."
-cd "$ROOT_DIR/frontend"
-npm install
-npm run build
+echo "🎨 步驟 5/5: 檢查前端資源..."
+if [ -f "$ROOT_DIR/frontend/package.json" ]; then
+    echo "   安裝前端套件並編譯生產環境資源 (npm run build)..."
+    cd "$ROOT_DIR/frontend"
+    npm install
+    npm run build
+else
+    echo "   ℹ️ 前端源碼目錄尚未建置，略過靜態編譯 (將於 Phase 3 前端開發時打包)"
+fi
 
-echo "🎉 Frog Kudos 安裝完成！"
+echo "🎉 Frog Kudos 安裝與初始化完成！"
 echo "👉 執行 ./run.sh 即可啟動系統 (瀏覽器開啟: http://localhost:${CHOSEN_PORT})"
 ```
 
@@ -1197,7 +1232,13 @@ fi
 # 5. 資料庫結構遷移 (Migration - 執行冪等性 DDL)
 echo "🐘 步驟 5/6: 檢查並執行資料庫結構遷移..."
 export PGPASSWORD="${DB_PASSWORD:-}"
-psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$ROOT_DIR/schema.sql" || true
+if [ -n "${DB_PASSWORD:-}" ]; then
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$ROOT_DIR/schema.sql" || true
+elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    cat "$ROOT_DIR/schema.sql" | sudo -n -u postgres psql -d "$DB_NAME" || true
+else
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$ROOT_DIR/schema.sql" || true
+fi
 unset PGPASSWORD
 
 # 6. 清理暫存檔並完成
