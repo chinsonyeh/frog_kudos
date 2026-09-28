@@ -44,6 +44,7 @@ Vue 3 前端編譯建置為靜態資源（`dist/`），由 FastAPI 後端伺服�
   2. **零額外組態**：不需安裝設定 Nginx 反向代理，家庭主機資源消耗極低。
   3. **連線便利**：家人手機或平板只要儲存一個書籤（如 `http://192.168.1.100:8080`）。
   4. **無跨域問題 (Zero CORS issues)**：API 與網頁同源同 Port，避免跨來源請求被瀏覽器安全政策阻擋。
+  5. **Vue Router SPA 路由 Fallback 防 404 機制**：後端 `app/main.py` 實作 Catch-All 路由處理器。當使用者在瀏覽器直接輸入或按 F5 重新整理前端路由（如 `/ledger`、`/rewards`）時，若請求非 `/api/*` 且非磁碟上的實體靜態資源，後端強制回傳 `frontend/dist/index.html`，徹底杜絕 SPA 重新整理拋出 404 Not Found 的衝突問題。
 
 ### 1.2 本機開發模式 (Dev Mode，雙 Port 模式)
 - **前端開發伺服器**：Vite 監聽 Port `5173`，支援 HMR（模組熱更替，存檔即刷新）。
@@ -162,6 +163,14 @@ erDiagram
    - 當家長主動使用「批次篩選調整工具」時，系統在同一資料庫交易內更新 `points_awarded`、記錄 `adjustment_note`（調整原因）與 `updated_at`，並同步調整該成員之點數餘額，確保審計軌跡清楚透明。
 5. **`member_badges.member_id` ➔ `members.id` (`ON DELETE CASCADE`)**：
    - 綁定成員與成就勳章解鎖紀錄，設有 `UNIQUE(member_id, badge_key)` 限制，確保勳章不可重複領取。成員刪除時連帶清理。
+6. **點數雙軌帳本語義約束 (`current_points` vs `total_earned_points`)**：
+   - **`current_points` (即時可用點數錢包)**：代表成員當前可用於商城兌換之即時餘額。成就發放 (+)、兌換花費 (-)、違規扣點 (-)、批次調整 (±) 皆會影響此欄位，受 `CHECK (current_points >= 0)` 防呆約束。
+   - **`total_earned_points` (歷史累計榮譽成就值)**：代表孩子一生付出的努力總成果，解鎖勳章專用。
+     - **臨時違規扣點 (FR-14 Penalty)**：僅扣除可用點數 `current_points`，**絕不扣減 `total_earned_points`**，既保護歷史榮譽感，也防止新成員 0 點被扣點時觸發 `CHECK (total_earned_points >= 0)` 違規拋錯。
+     - **歷史成就批次調整 (FR-7 Batch Adjustment)**：因屬於回溯修正過往成績，當 $\Delta$ 變動時，同時更新 `current_points += Δ` 與 `total_earned_points += Δ`，且交易前置防呆必須同時滿足 `current_points + Δ >= 0` 與 `total_earned_points + Δ >= 0`。
+7. **家長安全鎖 PIN 碼分級驗證架構**：
+   - **系統種子 PIN (`.env` 的 `PARENT_DEFAULT_PIN`)**：僅用於系統初次安裝建立種子家長帳號（Dad/Mom）時的初始預設值（預設 `0000`）與緊急維護重設。
+   - **日常業務 API 驗證**：前端發起批次調整、兌換審核或系統設定傳入 `parent_pin` 時，後端統一查詢資料庫中 `role = 'parent'` 且 `is_active = TRUE` 的所有家長成員，使用 `bcrypt.verify` 逐一比對 `pin_code`，符合任一家長之 PIN 碼即視為驗證通過。
 
 ---
 
@@ -196,6 +205,10 @@ erDiagram
       RankPoints --> OutputResult([回傳: matched=true, rule_id, 建議點數, 規則名稱])
   ```
 
+- **轉型安全防呆機制 (Type Casting Safety)**：
+  - 當規則之 `match_type` 為 `NUM_GTE` 或 `NUM_EQ` 時，引擎以 `try ... except (ValueError, TypeError)` 包裹輸入字串轉型（`float(condition_value)`）。
+  - 若使用者輸入非純數字文字（如：「甲上」、「優」、「全部完成」），引擎安全判定為條件不符合（`is_matched = False`），並繼續比對其他候選規則或優雅降級回傳建議點數 0，絕不拋出 500 內部伺服器錯誤。
+
 ### 3.2 關鍵 API 端點規格
 
 | 方法 | 路徑 | 請求 Payload / 查詢參數 | 回應資料 | 說明 |
@@ -214,7 +227,7 @@ erDiagram
 | `POST` | `/api/items` | `{ title, description, cost_points, icon }` | `RewardItemOut` | 新增商城獎品 |
 | `POST` | `/api/redemptions` | `{ member_id, item_id, note }` | `RedemptionOut` | **兌換獎品（扣除可用點數 Transaction，狀態為 PENDING，背景任務非同步推播 LINE 通知）** |
 | `GET` | `/api/redemptions` | `?member_id=...&status=...` | `RedemptionOut[]` | 查詢兌換與核銷歷史（支援依狀態篩選） |
-| `POST` | `/api/redemptions/{id}/review` | `{ action: "APPROVE"\|"REJECT", review_note, parent_pin }` | `RedemptionOut` | **家長審核核銷或拒絕申請（拒絕時自動全額退還點數）** |
+| `POST` | `/api/redemptions/{id}/review` | `{ action: "COMPLETE"\|"REJECT", review_note, parent_pin }` | `RedemptionOut` | **家長審核核銷或退回（核銷將狀態設為 COMPLETED，退回將狀態設為 REJECTED 並自動全額退還點數；action 相容 APPROVE 別名）** |
 | `GET` | `/api/kudos/export` | `?member_id=...&start_date=...&end_date=...` | `FileStream (CSV)` | **匯出歷史成就與存摺紀錄為標準 CSV 檔案** |
 | `POST` | `/api/kudos/batch-preview` | `{ member_id, target_name, start_date, end_date, mode, value }` | `BatchPreviewOut` | **歷史積分批次調整預覽試算** |
 | `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整 (ACID Transaction)** |
@@ -241,8 +254,8 @@ flowchart TD
     Step3 --> Step4{符合筆數 > 0 ?}
     Step4 -- 否 --> ErrZero[拋出 404: 無符合之歷史紀錄]
     Step4 -- 是 --> Step5[計算各筆新點數與總變動量 Δ]
-    Step5 --> Step6{檢查餘額: current_points + Δ >= 0 ?}
-    Step6 -- 否 --> ErrNeg[拋出 400: 調降後餘額不足以支付歷史已兌換獎品]
+    Step5 --> Step6{雙軌餘額檢查:<br>current_points + Δ >= 0<br>且 total_earned_points + Δ >= 0 ?}
+    Step6 -- 否 --> ErrNeg[拋出 400: 調降後餘額不足以支付歷史已兌換獎品或導致累計為負]
     Step6 -- 是 --> Step7[批次更新 kudos_records:<br>設定 points_awarded, adjustment_note, updated_at]
     Step7 --> Step8[更新 members 表:<br>current_points += Δ<br>total_earned_points += Δ]
     Step8 --> Commit([提交 DB 交易並回傳成功結果])
@@ -251,7 +264,7 @@ flowchart TD
 - **批次調整模式 (`mode`)**：
   - `FIXED`（統一設為固定值）：所有符合紀錄的 `points_awarded` 直接更新為 `value`。各筆變動量 $\Delta_i = \text{value} - \text{old\_points}_i$。
   - `OFFSET`（統一增減點數）：所有符合紀錄的 `points_awarded` 更新為 $\text{old\_points}_i + \text{value}$。各筆變動量 $\Delta_i = \text{value}$。
-- **不可小於零防呆**：若調整為負變動量（向下扣減），系統嚴格保障會員的 `current_points + \Delta \ge 0`，避免破壞已完成之兌換扣點。
+- **不可小於零防呆 (雙軌檢查)**：因批次調整屬於回溯修正歷史成績，變動量 $\Delta$ 同步反映於可用餘額 `current_points` 與歷史累計 `total_earned_points`。若調整為負變動量（向下扣減），系統在同一交易中嚴格保障會員的 `current_points + \Delta \ge 0` 且 `total_earned_points + \Delta \ge 0`，避免破壞已完成之兌換扣點或導致歷史累計值變為負數。
 
 ---
 
@@ -864,7 +877,12 @@ chmod 600 "$ROOT_DIR/.env"
 
 # 4. 初始化 PostgreSQL frog_kudos 資料庫結構
 echo "🐘 步驟 3/5: 初始化資料庫結構..."
-psql -U postgres -d frog_kudos -f "$ROOT_DIR/schema.sql"
+export PGPASSWORD="${DB_PASSWORD:-}"
+# 自動防呆檢查資料庫是否存在，若無則自動建立
+psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" 2>/dev/null | grep -q 1 || \
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -c "CREATE DATABASE $DB_NAME;" 2>/dev/null || true
+psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$ROOT_DIR/schema.sql"
+unset PGPASSWORD
 
 # 5. 建置後端 Python 虛擬環境
 echo "🐍 步驟 4/5: 建置 Python 虛擬環境並安裝依賴..."
