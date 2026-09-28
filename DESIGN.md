@@ -208,12 +208,15 @@ erDiagram
 - **轉型安全防呆機制 (Type Casting Safety)**：
   - 當規則之 `match_type` 為 `NUM_GTE` 或 `NUM_EQ` 時，引擎以 `try ... except (ValueError, TypeError)` 包裹輸入字串轉型（`float(condition_value)`）。
   - 若使用者輸入非純數字文字（如：「甲上」、「優」、「全部完成」），引擎安全判定為條件不符合（`is_matched = False`），並繼續比對其他候選規則或優雅降級回傳建議點數 0，絕不拋出 500 內部伺服器錯誤。
+- **有效成員狀態過濾 (Active Member Filter)**：
+  - 規則推導引擎於執行前，嚴格檢驗目標成員之有效狀態（`WHERE id = :member_id AND is_active = TRUE`）。
+  - 若成員處於停用狀態（`is_active = FALSE`），系統直接終止推導並回傳未匹配（`matched = false, suggested_points = 0`），徹底避免停用成員誤套用全家通用規則。
 
 ### 3.2 關鍵 API 端點規格
 
 | 方法 | 路徑 | 請求 Payload / 查詢參數 | 回應資料 | 說明 |
 |---|---|---|---|---|
-| `GET` | `/api/members` | - | `MemberOut[]` | 取得家庭成員清單（含即時點數錢包與歷史累計） |
+| `GET` | `/api/members` | `?include_inactive=false` | `MemberOut[]` | 取得家庭成員清單（預設僅列出 `is_active=TRUE` 有效成員，避免快速登記出現停用者） |
 | `POST` | `/api/members` | `{ name, role, avatar, pin_code, parent_pin }` | `MemberOut` | 新增家庭成員（若 role=parent 需設定 4 碼 PIN，需家長鎖） |
 | `GET` | `/api/members/{id}/badges` | - | `MemberBadgeOut[]` | **查詢成員里程碑成就勳章清單與達成進度 (FR-18)** |
 | `GET` | `/api/categories` | - | `CategoryOut[]` | **取得規則與獎勵分類清單 (學業、常規、家事等)** |
@@ -224,17 +227,17 @@ erDiagram
 | `DELETE` | `/api/rules/{id}` | `{ parent_pin }` | `{ success: true }` | **停用或刪除規則（需家長安全鎖）** |
 | `POST` | `/api/kudos/preview` | `{ member_id, target_name, condition_value }` | `{ matched, suggested_points, rule_id, rule_name }` | **智慧即時試算預覽（支援輸入文字防呆降級）** |
 | `POST` | `/api/kudos/record` | `{ member_id, rule_id, target_name, condition_value, points_awarded, note, recorded_by, parent_pin }` | `KudosRecordOut` | **正式發放點數或臨時獎懲（自訂模式 condition_value 可選填，需家長鎖，回傳 newly_unlocked_badges）** |
-| `GET` | `/api/kudos/history` | `?member_id=...&limit=50` | `LedgerItemOut[]` | **查詢家庭綜合存摺流水帳（後端自動 UNION kudos_records 與已核銷 redemptions 依時間排序）** |
+| `GET` | `/api/kudos/history` | `?member_id=...&limit=50` | `LedgerItemOut[]` | **查詢家庭綜合存摺流水帳（後端自動 UNION kudos_records 與已核銷 redemptions 依時間排序；COMPLETED 記為負數支出，REJECTED 記為 0 點並標註退回原因，確保流水總和與錢包餘額一致）** |
 | `GET` | `/api/items` | `?all=false` | `RewardItemOut[]` | 查詢兌換商城品項（預設僅列出上架中品項） |
 | `POST` | `/api/items` | `{ title, description, cost_points, icon, parent_pin }` | `RewardItemOut` | **新增商城獎品（需家長安全鎖）** |
 | `PUT` | `/api/items/{id}` | `{ title, description, cost_points, icon, is_active, parent_pin }` | `RewardItemOut` | **編輯商城獎品內容、調整點數或重新上架（需家長安全鎖）** |
 | `DELETE` | `/api/items/{id}` | `{ parent_pin }` | `{ success: true }` | **軟刪除下架獎品 (is_active = FALSE，需家長安全鎖)** |
-| `POST` | `/api/redemptions` | `{ member_id, item_id, note }` | `RedemptionOut` | **小孩發起兌換申請（扣除可用點數 Transaction，狀態為 PENDING，背景任務非同步推播 LINE 通知）** |
+| `POST` | `/api/redemptions` | `{ member_id, item_id, note }` | `RedemptionOut` | **小孩發起兌換申請（行級悲觀鎖 SELECT ... FOR UPDATE 防雙擊併發，扣除可用點數 Transaction，狀態為 PENDING，背景任務非同步推播 LINE 通知）** |
 | `GET` | `/api/redemptions` | `?member_id=...&status=...` | `RedemptionOut[]` | 查詢兌換與核銷歷史（支援依狀態篩選） |
 | `POST` | `/api/redemptions/{id}/review` | `{ action: "COMPLETE"\|"REJECT", review_note, parent_pin }` | `RedemptionOut` | **家長審核核銷或退回（核銷將狀態設為 COMPLETED，退回將狀態設為 REJECTED 並自動全額退還點數；action 相容 APPROVE 別名）** |
-| `GET` | `/api/kudos/export` | `?member_id=...&start_date=...&end_date=...` | `FileStream (CSV)` | **匯出完整學期成就獲得與兌換支出之綜合存摺 CSV 檔案** |
-| `POST` | `/api/kudos/batch-preview` | `{ member_id, target_name, start_date, end_date, mode, value }` | `BatchPreviewOut` | **歷史積分批次調整預覽試算** |
-| `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整 (雙軌餘額防負檢查，ACID Transaction)** |
+| `GET` | `/api/kudos/export` | `?member_id=...&start_date=...&end_date=...` | `FileStream (CSV)` | **匯出完整學期成就獲得與兌換支出之綜合存摺 CSV 檔案（日期過濾採全日包含運算 < end_date + 1 day）** |
+| `POST` | `/api/kudos/batch-preview` | `{ member_id, target_name, start_date, end_date, mode, value }` | `BatchPreviewOut` | **歷史積分批次調整預覽試算（日期過濾採全日包含運算）** |
+| `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整（日期過濾採全日包含運算，雙軌餘額防負檢查，ACID Transaction）** |
 | `POST` | `/api/system/backup` | `{ target_path, parent_pin }` | `{ success, backup_file, file_size, created_at }` | **觸發資料庫備份至指定目標路徑** |
 | `GET` | `/api/system/backups` | `?target_path=...` | `BackupFileInfo[]` | **查詢指定目錄歷史備份清單** |
 | `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name, github_repo, auto_backup, retention_count, line_configured, line_user_id }` | **Web 取得備份、排程、LINE 通知與系統配置 (密碼欄位強制排除脫敏)** |
@@ -271,6 +274,13 @@ flowchart TD
   - `FIXED`（統一設為固定值）：所有符合紀錄的 `points_awarded` 直接更新為 `value`。各筆變動量 $\Delta_i = \text{value} - \text{old\_points}_i$。
   - `OFFSET`（統一增減點數）：所有符合紀錄的 `points_awarded` 更新為 $\text{old\_points}_i + \text{value}$。各筆變動量 $\Delta_i = \text{value}$。
 - **不可小於零防呆 (雙軌檢查)**：因批次調整屬於回溯修正歷史成績，變動量 $\Delta$ 同步反映於可用餘額 `current_points` 與歷史累計 `total_earned_points`。若調整為負變動量（向下扣減），系統在同一交易中嚴格保障會員的 `current_points + \Delta \ge 0` 且 `total_earned_points + \Delta \ge 0`，避免破壞已完成之兌換扣點或導致歷史累計值變為負數。
+- **日期篩選全日包含性邊界規範 (Inclusive End-of-Day Filtering)**：
+  - 由於 `kudos_records.created_at` 為儲存精確時分秒的 `TIMESTAMPTZ`，為避免使用 `BETWEEN` 或 `<=` 導致截止日凌晨 0 點後的紀錄被漏失，SQL 查詢強制實施標準全日包含過濾：
+    ```sql
+    WHERE created_at >= :start_date::date 
+      AND created_at < (:end_date::date + INTERVAL '1 day')
+    ```
+    確保存摺匯出與批次調整精確包含 `end_date` 當天 23:59:59 前的所有發放紀錄。
 
 ---
 
@@ -407,7 +417,12 @@ flowchart TD
 1. **點數檢核與凍結**：若成員可用點數不足，按鈕呈現反灰鎖定狀態，顯示「還差 70 點」，防止超兌；申請時點數先扣除，狀態為 `PENDING`。
 2. **核銷或退回退點**：
    - 家長確認兌現：狀態變更為 `COMPLETED`。
-   - 家長退回申請：輸入原因後狀態變更為 `REJECTED`，後端 DB Transaction **自動退回點數**（`current_points += points_spent`）。
+   - 家長退回申請：輸入原因後狀態變更為 `REJECTED`，後端 DB Transaction **自動全額退還點數**（`current_points += points_spent`）。
+3. **行級悲觀鎖防雙擊競態 (SELECT ... FOR UPDATE)**：
+   - 當孩子連續快速點擊【申請兌換】時，後端於單一 Transaction 內先鎖定該成員列：`SELECT current_points FROM members WHERE id = :member_id FOR UPDATE`。
+   - 併發的第二筆請求排隊至鎖釋放後，即時偵測到餘額已被扣減不足，優雅回傳 HTTP 400 商業錯誤（`點數不足或已有兌換進行中`），絕不觸發資料庫 500 約束崩潰。
+4. **綜合存摺財務勾稽平衡 (Ledger Reconciliation)**：
+   - 當兌換被駁回退點（`REJECTED`）時，因點數已全額退還錢包，在「家庭榮譽存摺（畫面 2）」與 CSV 匯出中，該筆流水帳金額顯示為 `0 點` 並標註灰字「已退還 (原因: ...)」，確保全存摺所有已核銷流水帳累加永遠精準等於錢包即時餘額 `current_points`。
 
 ---
 
@@ -918,7 +933,49 @@ echo "🎉 Frog Kudos 安裝完成！"
 echo "👉 執行 ./run.sh 即可啟動系統 (瀏覽器開啟: http://localhost:${CHOSEN_PORT})"
 ```
 
-### 6.4 GitHub Release 打包計畫與 CI/CD 自動化 (`.github/workflows/release.yml`)
+### 6.4 單一 Port 一鍵啟動入口腳本 (`run.sh`)
+- **功能**：讀取 `.env` 自訂連接埠、啟動虛擬環境，並以生產模式執行 Uvicorn 整合服務。
+- **腳本內容設計**：
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="$ROOT_DIR/.env"
+
+if [ ! -f "$ENV_FILE" ]; then
+    echo "❌ 找不到 .env 設定檔！請先執行 ./scripts/install.sh 進行安裝設定。"
+    exit 1
+fi
+
+# 載入環境變數 (讀取 PORT, DB 等設定)
+export $(grep -v '^#' "$ENV_FILE" | xargs)
+PORT="${PORT:-8000}"
+
+# 檢查虛擬環境
+if [ ! -d "$ROOT_DIR/venv" ]; then
+    echo "❌ 找不到 Python 虛擬環境 venv，請先執行 ./scripts/install.sh"
+    exit 1
+fi
+
+source "$ROOT_DIR/venv/bin/activate"
+
+# 檢查前端編譯資源是否存在
+if [ ! -d "$ROOT_DIR/frontend/dist" ]; then
+    echo "⚠️  未偵測到 frontend/dist 靜態編譯檔案，嘗試啟動..."
+fi
+
+echo "=========================================================="
+echo "🐸 啟動 Frog Kudos 家庭積分獎勵系統 (Single Port Mode)"
+echo "📍 服務監聽埠號: ${PORT}"
+echo "🌐 本機瀏覽請開啟: http://localhost:${PORT}"
+echo "📱 區域網路內其他裝置請開啟: http://<主機區域IP>:${PORT}"
+echo "=========================================================="
+
+exec uvicorn app.main:app --host 0.0.0.0 --port "$PORT"
+```
+
+### 6.5 GitHub Release 打包計畫與 CI/CD 自動化 (`.github/workflows/release.yml`)
 
 為實現「主機端免裝 Node.js/npm、開箱即用、版本明確」，每次發佈新版本時透過 GitHub Actions 自動打包生產環境發行包：
 
@@ -990,7 +1047,7 @@ echo "👉 執行 ./run.sh 即可啟動系統 (瀏覽器開啟: http://localhost
 
 ---
 
-### 6.5 系統雙軌平滑升級腳本 (`scripts/upgrade.sh`)
+### 6.6 系統雙軌平滑升級腳本 (`scripts/upgrade.sh`)
 - **功能**：支援**模式 A（自動連線 GitHub Releases 下載最新版）**與**模式 B（手動/離線傳入本地發行包）**。
 - **腳本內容設計**：
 ```bash
