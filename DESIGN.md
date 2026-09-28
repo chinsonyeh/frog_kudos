@@ -252,6 +252,8 @@ erDiagram
 |---|---|---|---|---|
 | `GET` | `/api/members` | `?include_inactive=false` | `MemberOut[]` | 取得家庭成員清單（預設僅列出 `is_active=TRUE` 有效成員，避免快速登記出現停用者） |
 | `POST` | `/api/members` | `{ name, role, avatar, pin_code, parent_pin }` | `MemberOut` | 新增家庭成員（若 role=parent 需設定 4 碼 PIN，需家長鎖） |
+| `PUT` | `/api/members/{id}` | `{ name, avatar, pin_code, is_active, parent_pin }` | `MemberOut` | **修改家庭成員資訊、變更家長個人 4 碼 PIN 碼或切換啟用/停用狀態（需家長安全鎖）** |
+| `DELETE` | `/api/members/{id}` | `{ parent_pin }` | `{ success: true, action: "DEACTIVATED"\|"DELETED" }` | **安全刪除或停用成員（若已有歷史積分或兌換紀錄則自動轉為軟停用 is_active=FALSE 以保全審計鏈，無歷史紀錄之全新成員則執行實體刪除；需家長安全鎖）** |
 | `GET` | `/api/members/{id}/badges` | - | `MemberBadgeOut[]` | **查詢成員里程碑成就勳章清單與達成進度 (FR-18)** |
 | `GET` | `/api/categories` | - | `CategoryOut[]` | **取得規則與獎勵分類清單 (學業、常規、家事等)** |
 | `POST` | `/api/categories` | `{ name, icon, sort_order, parent_pin }` | `CategoryOut` | **新增自訂規則分類（需家長安全鎖）** |
@@ -274,8 +276,8 @@ erDiagram
 | `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整（日期過濾採全日包含運算，雙軌餘額防負檢查，交易內同步評估並回傳新解鎖之里程碑勳章 newly_unlocked_badges，ACID Transaction）** |
 | `POST` | `/api/system/backup` | `{ target_path, parent_pin }` | `{ success, backup_file, file_size, created_at }` | **觸發資料庫備份至指定目標路徑** |
 | `GET` | `/api/system/backups` | `?target_path=...` | `BackupFileInfo[]` | **查詢指定目錄歷史備份清單** |
-| `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name, github_repo, auto_backup, retention_count, line_configured, line_user_id }` | **Web 取得備份、排程、LINE 通知與系統配置 (密碼欄位強制排除脫敏)** |
-| `PUT` | `/api/system/config` | `{ backup_dir, auto_backup, retention_count, line_channel_access_token, line_user_id, parent_pin }` | `{ success }` | **Web 儲存自訂備份路徑、排程與 LINE 通知憑證** |
+| `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name, github_repo, auto_backup, retention_count, line_configured, line_user_id }` | **Web 取得備份、排程、LINE 通知與系統配置 (密碼強制排除脫敏；auto_backup 映射 .env AUTO_BACKUP，retention_count 映射 BACKUP_RETENTION_COUNT)** |
+| `PUT` | `/api/system/config` | `{ backup_dir, auto_backup, retention_count, line_channel_access_token, line_user_id, parent_pin }` | `{ success }` | **Web 儲存自訂備份路徑、排程與 LINE 通知憑證至 .env 檔案（需家長安全鎖）** |
 | `POST` | `/api/system/line/test` | `{ parent_pin }` | `{ success, message }` | **測試發送 LINE Messaging API 推播訊息 (FR-19)** |
 | `GET` | `/api/system/version` | - | `{ current_version, latest_version, has_update, release_notes, download_url }` | **連線 GitHub Releases API 檢查最新發行版** |
 | `POST` | `/api/system/upgrade` | `{ parent_pin, package_url }` | `{ status, message }` | **Web 一鍵從 GitHub 下載發行包並自動升級** |
@@ -802,7 +804,7 @@ echo "✅ 備份成功！檔案大小: ${FILE_SIZE}"
 echo "📍 完整備份路徑: ${BACKUP_FILE}"
 
 # 執行備份保留輪替 (Retention Cleanup，預設保留最新 10 份)
-RETENTION_COUNT="${BACKUP_RETENTION_COUNT:-10}"
+RETENTION_COUNT="${BACKUP_RETENTION_COUNT:-${RETENTION_COUNT:-10}}"
 BACKUP_LIST=$(ls -1t "$TARGET_DIR"/frog_kudos_backup_*.dump 2>/dev/null || true)
 TOTAL_BACKUPS=$(echo "$BACKUP_LIST" | grep -c . || true)
 if [ "$TOTAL_BACKUPS" -gt "$RETENTION_COUNT" ]; then
@@ -817,7 +819,7 @@ fi
 ```
 
 ### 6.2 資料庫安全還原腳本 (`scripts/restore.sh`)
-- **功能**：使用 `pg_restore` 還原資料庫，具備**前置安全快照**與**二次輸入確認**機制。
+- **功能**：使用 `pg_restore` 還原資料庫，具備**前置安全快照**與**二次輸入確認**機制（支援 `-y` / `--yes` 自動化非互動模式）。
 - **腳本內容設計**：
 ```bash
 #!/usr/bin/env bash
@@ -827,7 +829,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 if [ -z "${1:-}" ]; then
     echo "❌ 錯誤: 請指定要還原的備份檔案路徑！"
-    echo "使用範例: ./scripts/restore.sh /path/to/frog_kudos_backup_20260927_120000.dump"
+    echo "使用範例: ./scripts/restore.sh /path/to/frog_kudos_backup_20260927_120000.dump [-y]"
     exit 1
 fi
 
@@ -847,13 +849,24 @@ DB_USER="${DB_USER:-postgres}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 
-echo "⚠️  【危險警告】即將把備份檔案還原至資料庫 [${DB_NAME}]！"
-echo "⚠️  現有所有資料將會被該備份覆蓋！"
-echo "備份檔案: $BACKUP_FILE"
-read -p "確定要繼續執行還原嗎？(請輸入 YES 確認): " CONFIRM
-if [ "$CONFIRM" != "YES" ]; then
-    echo "🛑 已取消還原作業。"
-    exit 0
+FORCE_RESTORE=0
+for arg in "$@"; do
+    if [ "$arg" = "-y" ] || [ "$arg" = "--yes" ]; then
+        FORCE_RESTORE=1
+    fi
+done
+
+if [ "$FORCE_RESTORE" -ne 1 ]; then
+    echo "⚠️  【危險警告】即將把備份檔案還原至資料庫 [${DB_NAME}]！"
+    echo "⚠️  現有所有資料將會被該備份覆蓋！"
+    echo "備份檔案: $BACKUP_FILE"
+    read -p "確定要繼續執行還原嗎？(請輸入 YES 確認): " CONFIRM
+    if [ "$CONFIRM" != "YES" ]; then
+        echo "🛑 已取消還原作業。"
+        exit 0
+    fi
+else
+    echo "⚡ 檢測到 --yes / -y 參數，略過互動式確認直接執行還原..."
 fi
 
 # 1. 還原前自動建立安全快照，避免誤操作
@@ -939,8 +952,11 @@ DB_PASSWORD=
 DB_HOST=localhost
 DB_PORT=5432
 PORT=${CHOSEN_PORT}
-BACKUP_DIR=/home/chinsonyeh/Code/frog_kudos/backups
+BACKUP_DIR=${ROOT_DIR}/backups
+AUTO_BACKUP=true
+BACKUP_RETENTION_COUNT=10
 PARENT_DEFAULT_PIN=0000
+GITHUB_REPO=chinsonyeh/frog_kudos
 LINE_CHANNEL_ACCESS_TOKEN=
 LINE_USER_ID=
 EOF
@@ -955,6 +971,16 @@ fi
 
 # 鎖定 .env 檔案權限為 600 (僅擁有者可讀寫，防止同機窺探 NFR-4)
 chmod 600 "$ROOT_DIR/.env"
+
+# 載入 .env 變數以供後續步驟使用 (避免 set -u 未綁定變數錯誤)
+export $(grep -v '^#' "$ROOT_DIR/.env" | xargs)
+DB_NAME="${DB_NAME:-frog_kudos}"
+DB_USER="${DB_USER:-postgres}"
+DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-5432}"
+
+# 確保本地版本標識檔存在
+[ ! -f "$ROOT_DIR/VERSION" ] && echo "v1.0.0-dev" > "$ROOT_DIR/VERSION"
 
 # 4. 初始化 PostgreSQL frog_kudos 資料庫結構
 echo "🐘 步驟 3/5: 初始化資料庫結構..."
@@ -1108,9 +1134,19 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PACKAGE_ARG="${1:-}"  # 可為本地檔案路徑或留空自動從 GitHub 取得
-GITHUB_REPO="chinsonyeh/frog_kudos"
 TMP_DIR="/tmp/frog_kudos_upgrade_$(date +%s)"
 mkdir -p "$TMP_DIR"
+
+ENV_FILE="$ROOT_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+    export $(grep -v '^#' "$ENV_FILE" | xargs)
+fi
+
+DB_NAME="${DB_NAME:-frog_kudos}"
+DB_USER="${DB_USER:-postgres}"
+DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-5432}"
+GITHUB_REPO="${GITHUB_REPO:-chinsonyeh/frog_kudos}"
 
 echo "🔄 開始進行 Frog Kudos 系統平滑升級..."
 
@@ -1181,7 +1217,7 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 
 | 需求代號 | 需求項目名稱 | 設計對應之資料表 / 檔案 | 設計對應之後端 API / 演算法 | 設計對應之前端 Web UI 畫面 | 檢核結果 |
 |---|---|---|---|---|---|
-| **FR-1** | 多成員帳號管理 | `members` 表 | `GET /api/members`<br>`POST /api/members` | 頁面頂部大頭像成員切換卡片 | ✅ 100% 符合 |
+| **FR-1** | 多成員帳號管理 | `members` 表 | `GET /api/members`<br>`POST/PUT/DELETE /api/members` | 頁面頂部大頭像成員切換卡片、成員維護與停用 | ✅ 100% 符合 |
 | **FR-2** | 個別化客製獎勵規則 | `reward_rules`, `categories` | `GET/POST/PUT/DELETE /api/rules` | 畫面 4：規則管理中心（成員專屬/通用分頁） | ✅ 100% 符合 |
 | **FR-3** | 快速成就登記與智慧自動帶出 | `reward_rules`, `kudos_records` | `POST /api/kudos/preview`<br>(3.1 規則推導演算法) | 畫面 1：快速登記卡（即時試算徽章與灑花動畫） | ✅ 100% 符合 |
 | **FR-4** | 積分快照與歷史不可篡改機制 | `kudos_records` (快照欄位組) | `POST /api/kudos/record` | 畫面 2：歷史存摺清單（展示當時規則快照細節） | ✅ 100% 符合 |
