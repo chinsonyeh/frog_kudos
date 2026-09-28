@@ -46,10 +46,43 @@ Vue 3 前端編譯建置為靜態資源（`dist/`），由 FastAPI 後端伺服�
   4. **無跨域問題 (Zero CORS issues)**：API 與網頁同源同 Port，避免跨來源請求被瀏覽器安全政策阻擋。
   5. **Vue Router SPA 路由 Fallback 防 404 機制**：後端 `app/main.py` 實作 Catch-All 路由處理器。當使用者在瀏覽器直接輸入或按 F5 重新整理前端路由（如 `/ledger`、`/rewards`）時，若請求非 `/api/*` 且非磁碟上的實體靜態資源，後端強制回傳 `frontend/dist/index.html`，徹底杜絕 SPA 重新整理拋出 404 Not Found 的衝突問題。
 
+#### 1.1.1 後端核心相依套件規格 (`requirements.txt`)
+系統後端相依套件清單嚴格定義於根目錄 `requirements.txt`，確保全新安裝或升級時環境一致性：
+```text
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+sqlalchemy>=2.0.28
+asyncpg>=0.29.0
+pydantic>=2.6.0
+python-dotenv>=1.0.1
+bcrypt>=4.1.2
+httpx>=0.27.0
+python-multipart>=0.0.9
+apscheduler>=3.10.4
+```
+
 ### 1.2 本機開發模式 (Dev Mode，雙 Port 模式)
 - **前端開發伺服器**：Vite 監聽 Port `5173`，支援 HMR（模組熱更替，存檔即刷新）。
 - **後端開發伺服器**：FastAPI (Uvicorn) 監聽 Port `8000`，支援自動熱重載 (Reload)。
 - **Vite Proxy**：Vite 設定代理將 `/api` 請求無縫轉發至 Port `8000`。
+- **後端開發 CORS 中介軟體配置 (`CORSMiddleware`)**：
+  在 `app/main.py` 中掛載 CORS 中介軟體，於本機開發模式下允許 Vite 開發伺服器跨來源請求：
+  ```python
+  from fastapi.middleware.cors import CORSMiddleware
+
+  app.add_middleware(
+      CORSMiddleware,
+      allow_origins=[
+          "http://localhost:5173",
+          "http://127.0.0.1:5173",
+      ],
+      allow_credentials=True,
+      allow_methods=["*"],
+      allow_headers=["*"],
+  )
+  ```
+  在生產環境（單一 Port 整合託管模式）下，前端靜態資源與後端 API 同源同 Port，CORS 中介軟體維持相容或由環境變數控制。
+
 
 ---
 
@@ -171,6 +204,7 @@ erDiagram
 7. **家長安全鎖 PIN 碼分級驗證架構**：
    - **系統種子 PIN (`.env` 的 `PARENT_DEFAULT_PIN`)**：僅用於系統初次安裝建立種子家長帳號（Dad/Mom）時的初始預設值（預設 `0000`）與緊急維護重設。
    - **日常業務 API 驗證**：前端發起批次調整、兌換審核或系統設定傳入 `parent_pin` 時，後端統一查詢資料庫中 `role = 'parent'` 且 `is_active = TRUE` 的所有家長成員，使用 `bcrypt.verify` 逐一比對 `pin_code`，符合任一家長之 PIN 碼即視為驗證通過。
+   - **冷啟動與初始化防呆降級 (Bootstrap Fallback)**：初次安裝時，`schema.sql` 預先插入種子家長帳號 `Dad`（預設 PIN 為 `0000` 之 bcrypt 雜湊）與小孩帳號 `Ian`。若遇到資料庫無任何有效家長成員、或家長尚未自訂 PIN 碼之極端情況，後端 PIN 碼驗證邏輯自動降級以 `.env` 之 `PARENT_DEFAULT_PIN`（預設 `0000`）進行比對，杜絕因無有效家長 PIN 導致管理員無法進入系統新增成員或進行維護的死鎖問題。
 
 ---
 
@@ -237,7 +271,7 @@ erDiagram
 | `POST` | `/api/redemptions/{id}/review` | `{ action: "COMPLETE"\|"REJECT", review_note, parent_pin }` | `RedemptionOut` | **家長審核核銷或退回（核銷將狀態設為 COMPLETED，退回將狀態設為 REJECTED 並自動全額退還點數；action 相容 APPROVE 別名）** |
 | `GET` | `/api/kudos/export` | `?member_id=...&start_date=...&end_date=...` | `FileStream (CSV)` | **匯出完整學期成就獲得與兌換支出之綜合存摺 CSV 檔案（日期過濾採全日包含運算 < end_date + 1 day）** |
 | `POST` | `/api/kudos/batch-preview` | `{ member_id, target_name, start_date, end_date, mode, value }` | `BatchPreviewOut` | **歷史積分批次調整預覽試算（日期過濾採全日包含運算）** |
-| `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整（日期過濾採全日包含運算，雙軌餘額防負檢查，ACID Transaction）** |
+| `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整（日期過濾採全日包含運算，雙軌餘額防負檢查，交易內同步評估並回傳新解鎖之里程碑勳章 newly_unlocked_badges，ACID Transaction）** |
 | `POST` | `/api/system/backup` | `{ target_path, parent_pin }` | `{ success, backup_file, file_size, created_at }` | **觸發資料庫備份至指定目標路徑** |
 | `GET` | `/api/system/backups` | `?target_path=...` | `BackupFileInfo[]` | **查詢指定目錄歷史備份清單** |
 | `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name, github_repo, auto_backup, retention_count, line_configured, line_user_id }` | **Web 取得備份、排程、LINE 通知與系統配置 (密碼欄位強制排除脫敏)** |
@@ -267,13 +301,17 @@ flowchart TD
     Step6 -- 否 --> ErrNeg[拋出 400: 調降後餘額不足以支付歷史已兌換獎品或導致累計為負]
     Step6 -- 是 --> Step7[批次更新 kudos_records:<br>設定 points_awarded, adjustment_note, updated_at]
     Step7 --> Step8[更新 members 表:<br>current_points += Δ<br>total_earned_points += Δ]
-    Step8 --> Commit([提交 DB 交易並回傳成功結果])
+    Step8 --> Step9{總變動量 Δ > 0 ?}
+    Step9 -- 是 --> StepBadge[觸發里程碑勳章評估引擎:<br>比對門檻寫入 member_badges<br>收集 newly_unlocked_badges]
+    Step9 -- 否 --> Commit
+    StepBadge --> Commit([提交 DB 交易並回傳 BatchAdjustOut 含新解鎖勳章])
 ```
 
 - **批次調整模式 (`mode`)**：
   - `FIXED`（統一設為固定值）：所有符合紀錄的 `points_awarded` 直接更新為 `value`。各筆變動量 $\Delta_i = \text{value} - \text{old\_points}_i$。
   - `OFFSET`（統一增減點數）：所有符合紀錄的 `points_awarded` 更新為 $\text{old\_points}_i + \text{value}$。各筆變動量 $\Delta_i = \text{value}$。
 - **不可小於零防呆 (雙軌檢查)**：因批次調整屬於回溯修正歷史成績，變動量 $\Delta$ 同步反映於可用餘額 `current_points` 與歷史累計 `total_earned_points`。若調整為負變動量（向下扣減），系統在同一交易中嚴格保障會員的 `current_points + \Delta \ge 0` 且 `total_earned_points + \Delta \ge 0`，避免破壞已完成之兌換扣點或導致歷史累計值變為負數。
+- **里程碑成就勳章同步評估 (Milestone Badge Evaluation)**：若批次調整使該成員之 `total_earned_points` 增加（$\Delta > 0$），系統在同一交易中觸發勳章評估引擎，自動比對該成員尚未解鎖之里程碑勳章門檻（如 100 點、500 點、1000 點）。若達成條件則自動寫入 `member_badges`，並於 `BatchAdjustOut.newly_unlocked_badges` 回傳，前端可立即彈出成就慶祝動畫。
 - **日期篩選全日包含性邊界規範 (Inclusive End-of-Day Filtering)**：
   - 由於 `kudos_records.created_at` 為儲存精確時分秒的 `TIMESTAMPTZ`，為避免使用 `BETWEEN` 或 `<=` 導致截止日凌晨 0 點後的紀錄被漏失，SQL 查詢強制實施標準全日包含過濾：
     ```sql
@@ -590,6 +628,13 @@ flowchart TD
    - 注入 `<meta name="apple-mobile-web-app-capable" content="yes">`
    - 注入 `<link rel="apple-touch-icon" href="/icons/icon-192.png">`
    - 家長與孩子只需於 Safari 點擊「分享 ➔ 加入主畫面」，即可常駐於手機桌面隨點即用。
+3. **Manifest MIME 類型與雙路徑相容機制 (MIME Type Compatibility)**：
+   - 為避免 Chrome/Edge 瀏覽器因 `.webmanifest` 副檔名之預設 MIME 類型為 `text/plain` 而拋出 `Site cannot be installed: the manifest could not be fetched, has an error or is invalid` 警告，後端 `app/main.py` 在伺服器啟動時強制註冊標準 MIME 類型：
+     ```python
+     import mimetypes
+     mimetypes.add_type("application/manifest+json", ".webmanifest")
+     ```
+   - 同時提供 `/manifest.json` 與 `/site.webmanifest` 兩條相容路由（將 `/manifest.json` 別名導向或共用回應清單），確保各廠牌行動與桌面瀏覽器皆能精確解析 PWA 安裝清單。
 
 ---
 
@@ -700,6 +745,13 @@ INSERT INTO categories (name, icon, sort_order) VALUES
     ('生活常規', '🌱', 2),
     ('家事協助', '🧹', 3),
     ('運動健康', '🏃', 4)
+ON CONFLICT (name) DO NOTHING;
+
+-- 11. 系統冷啟動預設種子成員 (Bootstrap Seed Members)
+-- Dad 預設 PIN 為 0000 (透過 pgcrypto crypt 函數產生標準 bcrypt 雜湊，與後端 bcrypt 驗證相容)
+INSERT INTO members (name, role, avatar, pin_code) VALUES
+    ('Dad', 'parent', '👨', crypt('0000', gen_salt('bf', 12))),
+    ('Ian', 'child', '🐸', NULL)
 ON CONFLICT (name) DO NOTHING;
 ```
 
