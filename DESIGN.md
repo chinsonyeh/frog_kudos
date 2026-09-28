@@ -213,33 +213,39 @@ erDiagram
 
 | 方法 | 路徑 | 請求 Payload / 查詢參數 | 回應資料 | 說明 |
 |---|---|---|---|---|
-| `GET` | `/api/members` | - | `MemberOut[]` | 取得家庭成員清單（含即時點數） |
-| `POST` | `/api/members` | `{ name, role, avatar, pin_code }` | `MemberOut` | 新增家庭成員 |
+| `GET` | `/api/members` | - | `MemberOut[]` | 取得家庭成員清單（含即時點數錢包與歷史累計） |
+| `POST` | `/api/members` | `{ name, role, avatar, pin_code, parent_pin }` | `MemberOut` | 新增家庭成員（若 role=parent 需設定 4 碼 PIN，需家長鎖） |
 | `GET` | `/api/members/{id}/badges` | - | `MemberBadgeOut[]` | **查詢成員里程碑成就勳章清單與達成進度 (FR-18)** |
+| `GET` | `/api/categories` | - | `CategoryOut[]` | **取得規則與獎勵分類清單 (學業、常規、家事等)** |
+| `POST` | `/api/categories` | `{ name, icon, sort_order, parent_pin }` | `CategoryOut` | **新增自訂規則分類（需家長安全鎖）** |
 | `GET` | `/api/rules` | `?member_id=...` | `RuleOut[]` | 取得規則清單（可過濾專屬或通用） |
-| `POST` | `/api/rules` | `{ member_id, target_name, match_type, condition_value, reward_points }` | `RuleOut` | 新增獎勵規則 |
-| `PUT` | `/api/rules/{id}` | 規則異動欄位 | `RuleOut` | 修改規則（**明示不溯及歷史點數**） |
-| `DELETE` | `/api/rules/{id}` | - | `{ success: true }` | 停用或刪除規則 |
-| `POST` | `/api/kudos/preview` | `{ member_id, target_name, condition_value }` | `{ matched, suggested_points, rule_id, rule_name }` | **智慧即時試算預覽** |
-| `POST` | `/api/kudos/record` | `{ member_id, rule_id, target_name, condition_value, points_awarded, note }` | `KudosRecordOut` | **正式發放點數（寫入快照與扣點，回傳 newly_unlocked_badges）** |
-| `GET` | `/api/kudos/history` | `?member_id=...&limit=50` | `KudosRecordOut[]` | 查詢點數獲得歷史流水帳 |
-| `GET` | `/api/items` | - | `RewardItemOut[]` | 查詢兌換商城品項 |
-| `POST` | `/api/items` | `{ title, description, cost_points, icon }` | `RewardItemOut` | 新增商城獎品 |
-| `POST` | `/api/redemptions` | `{ member_id, item_id, note }` | `RedemptionOut` | **兌換獎品（扣除可用點數 Transaction，狀態為 PENDING，背景任務非同步推播 LINE 通知）** |
+| `POST` | `/api/rules` | `{ member_id, category_id, target_name, match_type, condition_value, reward_points, description, parent_pin }` | `RuleOut` | **新增獎勵規則（需家長安全鎖，防小孩越權）** |
+| `PUT` | `/api/rules/{id}` | `{ member_id, category_id, target_name, match_type, condition_value, reward_points, description, is_active, parent_pin }` | `RuleOut` | **修改規則（明示不溯及歷史點數，需家長安全鎖）** |
+| `DELETE` | `/api/rules/{id}` | `{ parent_pin }` | `{ success: true }` | **停用或刪除規則（需家長安全鎖）** |
+| `POST` | `/api/kudos/preview` | `{ member_id, target_name, condition_value }` | `{ matched, suggested_points, rule_id, rule_name }` | **智慧即時試算預覽（支援輸入文字防呆降級）** |
+| `POST` | `/api/kudos/record` | `{ member_id, rule_id, target_name, condition_value, points_awarded, note, recorded_by, parent_pin }` | `KudosRecordOut` | **正式發放點數或臨時獎懲（自訂模式 condition_value 可選填，需家長鎖，回傳 newly_unlocked_badges）** |
+| `GET` | `/api/kudos/history` | `?member_id=...&limit=50` | `LedgerItemOut[]` | **查詢家庭綜合存摺流水帳（後端自動 UNION kudos_records 與已核銷 redemptions 依時間排序）** |
+| `GET` | `/api/items` | `?all=false` | `RewardItemOut[]` | 查詢兌換商城品項（預設僅列出上架中品項） |
+| `POST` | `/api/items` | `{ title, description, cost_points, icon, parent_pin }` | `RewardItemOut` | **新增商城獎品（需家長安全鎖）** |
+| `PUT` | `/api/items/{id}` | `{ title, description, cost_points, icon, is_active, parent_pin }` | `RewardItemOut` | **編輯商城獎品內容、調整點數或重新上架（需家長安全鎖）** |
+| `DELETE` | `/api/items/{id}` | `{ parent_pin }` | `{ success: true }` | **軟刪除下架獎品 (is_active = FALSE，需家長安全鎖)** |
+| `POST` | `/api/redemptions` | `{ member_id, item_id, note }` | `RedemptionOut` | **小孩發起兌換申請（扣除可用點數 Transaction，狀態為 PENDING，背景任務非同步推播 LINE 通知）** |
 | `GET` | `/api/redemptions` | `?member_id=...&status=...` | `RedemptionOut[]` | 查詢兌換與核銷歷史（支援依狀態篩選） |
 | `POST` | `/api/redemptions/{id}/review` | `{ action: "COMPLETE"\|"REJECT", review_note, parent_pin }` | `RedemptionOut` | **家長審核核銷或退回（核銷將狀態設為 COMPLETED，退回將狀態設為 REJECTED 並自動全額退還點數；action 相容 APPROVE 別名）** |
-| `GET` | `/api/kudos/export` | `?member_id=...&start_date=...&end_date=...` | `FileStream (CSV)` | **匯出歷史成就與存摺紀錄為標準 CSV 檔案** |
+| `GET` | `/api/kudos/export` | `?member_id=...&start_date=...&end_date=...` | `FileStream (CSV)` | **匯出完整學期成就獲得與兌換支出之綜合存摺 CSV 檔案** |
 | `POST` | `/api/kudos/batch-preview` | `{ member_id, target_name, start_date, end_date, mode, value }` | `BatchPreviewOut` | **歷史積分批次調整預覽試算** |
-| `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整 (ACID Transaction)** |
+| `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整 (雙軌餘額防負檢查，ACID Transaction)** |
 | `POST` | `/api/system/backup` | `{ target_path, parent_pin }` | `{ success, backup_file, file_size, created_at }` | **觸發資料庫備份至指定目標路徑** |
 | `GET` | `/api/system/backups` | `?target_path=...` | `BackupFileInfo[]` | **查詢指定目錄歷史備份清單** |
-| `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name, github_repo, auto_backup, retention_count, line_configured, line_user_id }` | **Web 取得備份、排程、LINE 通知與系統配置** |
+| `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name, github_repo, auto_backup, retention_count, line_configured, line_user_id }` | **Web 取得備份、排程、LINE 通知與系統配置 (密碼欄位強制排除脫敏)** |
 | `PUT` | `/api/system/config` | `{ backup_dir, auto_backup, retention_count, line_channel_access_token, line_user_id, parent_pin }` | `{ success }` | **Web 儲存自訂備份路徑、排程與 LINE 通知憑證** |
 | `POST` | `/api/system/line/test` | `{ parent_pin }` | `{ success, message }` | **測試發送 LINE Messaging API 推播訊息 (FR-19)** |
 | `GET` | `/api/system/version` | - | `{ current_version, latest_version, has_update, release_notes, download_url }` | **連線 GitHub Releases API 檢查最新發行版** |
 | `POST` | `/api/system/upgrade` | `{ parent_pin, package_url }` | `{ status, message }` | **Web 一鍵從 GitHub 下載發行包並自動升級** |
 | `POST` | `/api/system/upload-package` | `multipart: file, parent_pin` | `{ status, message }` | **手動上傳離線安裝/升級套件 (.tar.gz) 進行升級** |
 | `GET` | `/api/system/upgrade-status` | - | `{ status, progress, current_step, logs }` | **Web 輪詢即時升級進度與日誌** |
+
+> 💡 **家長安全鎖 (`parent_pin`) 傳遞彈性**：所有標註需家長鎖之 API，除了可於 JSON Payload 中傳遞 `parent_pin` 外，亦支援於 HTTP Request Header 帶入 `X-Parent-PIN: <PIN>`，方便前端在解鎖狀態下由 Axios / Fetch 攔截器統一附加。
 
 ### 3.3 歷史積分批次統一調整演算法與交易安全 (Batch Adjustment Logic & Safety)
 
@@ -623,7 +629,7 @@ CREATE TABLE IF NOT EXISTS kudos_records (
     member_id UUID NOT NULL REFERENCES members(id) ON DELETE RESTRICT,
     rule_id UUID REFERENCES reward_rules(id) ON DELETE SET NULL,
     target_name_snapshot VARCHAR(100) NOT NULL,
-    condition_snapshot VARCHAR(100) NOT NULL,
+    condition_snapshot VARCHAR(100) NOT NULL DEFAULT '自訂',
     points_awarded INTEGER NOT NULL,
     rule_detail_snapshot JSONB,
     note TEXT,
@@ -672,6 +678,14 @@ CREATE INDEX IF NOT EXISTS idx_kudos_records_member_created ON kudos_records(mem
 CREATE INDEX IF NOT EXISTS idx_kudos_batch_filter ON kudos_records(member_id, target_name_snapshot, created_at);
 CREATE INDEX IF NOT EXISTS idx_redemptions_member_created ON redemptions(member_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_member_badges_member ON member_badges(member_id);
+
+-- 10. 系統預設種子分類資料 (Categories Initial Seed Data)
+INSERT INTO categories (name, icon, sort_order) VALUES
+    ('學業成績', '📚', 1),
+    ('生活常規', '🌱', 2),
+    ('家事協助', '🧹', 3),
+    ('運動健康', '🏃', 4)
+ON CONFLICT (name) DO NOTHING;
 ```
 
 ---
@@ -1018,9 +1032,15 @@ else
     curl -L "$DOWNLOAD_URL" -o "$TARGET_TAR"
 fi
 
-# 3. 解壓縮新版本並覆蓋程式檔案 (保留 .env, backups 與 venv)
+# 3. 解壓縮新版本並覆蓋程式檔案 (保留 .env, backups, venv 與安全替換 upgrade.sh)
 echo "📂 步驟 3/6: 解壓縮並套用新版本檔案..."
-tar -xzvf "$TARGET_TAR" -C "$ROOT_DIR"
+# 先排除 scripts/upgrade.sh 解壓，避免 Linux Bash 執行時原地覆蓋引發 byte offset 錯位崩潰
+tar -xzvf "$TARGET_TAR" -C "$ROOT_DIR" --exclude='scripts/upgrade.sh'
+# 透過原子替換 (Atomic Move) 安全更新 upgrade.sh
+tar -xzvf "$TARGET_TAR" -C "$TMP_DIR" scripts/upgrade.sh
+cp "$TMP_DIR/scripts/upgrade.sh" "$ROOT_DIR/scripts/upgrade.sh.new"
+mv -f "$ROOT_DIR/scripts/upgrade.sh.new" "$ROOT_DIR/scripts/upgrade.sh"
+chmod +x "$ROOT_DIR/scripts/upgrade.sh"
 
 # 4. 更新 Python 虛擬環境套件
 echo "🐍 步驟 4/6: 更新後端 Python 套件依賴..."
@@ -1029,9 +1049,11 @@ if [ -d "$ROOT_DIR/venv" ]; then
     pip install -r "$ROOT_DIR/requirements.txt"
 fi
 
-# 5. 資料庫結構遷移 (Migration)
-echo "🐘 步驟 5/6: 檢查並執行資料庫 Migration..."
-python -m app.migrate || true
+# 5. 資料庫結構遷移 (Migration - 執行冪等性 DDL)
+echo "🐘 步驟 5/6: 檢查並執行資料庫結構遷移..."
+export PGPASSWORD="${DB_PASSWORD:-}"
+psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$ROOT_DIR/schema.sql" || true
+unset PGPASSWORD
 
 # 6. 清理暫存檔並完成
 rm -rf "$TMP_DIR"
