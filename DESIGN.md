@@ -695,7 +695,13 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 BACKUP_FILE="${TARGET_DIR}/frog_kudos_backup_${TIMESTAMP}.dump"
 
 echo "📦 開始備份資料庫 [${DB_NAME}] 至目標路徑: ${BACKUP_FILE} ..."
+# 安全注入資料庫密碼至子程序環境變數 (避免 ps aux 明文洩漏，NFR-4)
+export PGPASSWORD="${DB_PASSWORD:-}"
 pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -Fc "$DB_NAME" > "$BACKUP_FILE"
+unset PGPASSWORD
+
+# 鎖定備份檔案權限為 600
+chmod 600 "$BACKUP_FILE"
 
 FILE_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
 echo "✅ 備份成功！檔案大小: ${FILE_SIZE}"
@@ -761,11 +767,16 @@ SNAPSHOT_DIR="${BACKUP_DIR:-$ROOT_DIR/backups}"
 mkdir -p "$SNAPSHOT_DIR"
 PRE_RESTORE_BACKUP="${SNAPSHOT_DIR}/pre_restore_snapshot_$(date +"%Y%m%d_%H%M%S").dump"
 echo "🛡️ 正在建立還原前安全快照: ${PRE_RESTORE_BACKUP} ..."
+
+# 安全注入資料庫密碼至子程序環境變數 (避免 ps aux 明文洩漏，NFR-4)
+export PGPASSWORD="${DB_PASSWORD:-}"
 pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -Fc "$DB_NAME" > "$PRE_RESTORE_BACKUP" || true
+chmod 600 "$PRE_RESTORE_BACKUP" 2>/dev/null || true
 
 # 2. 執行還原 (使用 --clean --if-exists 清除舊表後乾淨恢復)
 echo "🔄 開始執行資料庫還原..."
 pg_restore -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" --clean --if-exists "$BACKUP_FILE"
+unset PGPASSWORD
 
 echo "✅ 資料庫還原成功！已恢復至備份時間點。"
 ```
@@ -830,11 +841,14 @@ if [ ! -f "$ROOT_DIR/.env" ]; then
 DATABASE_URL=postgresql+asyncpg://postgres@localhost:5432/frog_kudos
 DB_NAME=frog_kudos
 DB_USER=postgres
+DB_PASSWORD=
 DB_HOST=localhost
 DB_PORT=5432
 PORT=${CHOSEN_PORT}
 BACKUP_DIR=/home/chinsonyeh/Code/frog_kudos/backups
 PARENT_DEFAULT_PIN=0000
+LINE_CHANNEL_ACCESS_TOKEN=
+LINE_USER_ID=
 EOF
 else
     echo "📝 步驟 2/5: 更新現有 .env 設定檔 (PORT=${CHOSEN_PORT})..."
@@ -844,6 +858,9 @@ else
         echo "PORT=${CHOSEN_PORT}" >> "$ROOT_DIR/.env"
     fi
 fi
+
+# 鎖定 .env 檔案權限為 600 (僅擁有者可讀寫，防止同機窺探 NFR-4)
+chmod 600 "$ROOT_DIR/.env"
 
 # 4. 初始化 PostgreSQL frog_kudos 資料庫結構
 echo "🐘 步驟 3/5: 初始化資料庫結構..."
@@ -1037,6 +1054,7 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 | **NFR-1**| 易用性與行動裝置友善 | Vue 3 + TailwindCSS | - | RWD 手機/平板優先、大觸控區塊、灑花慶祝反饋 | ✅ 100% 符合 |
 | **NFR-2**| 資料交易一致性 (ACID) | PostgreSQL DB Transaction | 點數發放/扣抵/批次調整均於單一 Transaction 完成 | - | ✅ 100% 符合 |
 | **NFR-3**| 資料庫與環境相容性 | PostgreSQL `frog_kudos` | SQLAlchemy 2.0 Async + asyncpg | - | ✅ 100% 符合 |
+| **NFR-4**| 機敏憑證與資料庫密碼安全防護 | `.env` (`chmod 600`), `scripts/` | `PGPASSWORD` 安全銷毀、API 脫敏、日誌連線字串遮蔽 | 前端設定 API 零密碼洩漏、備份檔 600 權限鎖定 | ✅ 100% 符合 |
 
 ---
 
@@ -1048,5 +1066,52 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 3. **單一 Port 整合運行（安裝時可自訂指定）**：平日家庭日常使用由 FastAPI 在單一連接埠（安裝時可自由指定，預設 Port 8000）同時提供 Vue 3 SPA 網頁與 RESTful APIs，徹底避免 Port 衝突且家庭裝置連線最簡便。
 4. **Web UI 詳細規格**：包含快速登記、即時試算動畫反饋、兌換商城、不可篡改存摺、歷史批次調整工具、系統設定與維運中心。
 5. **完整維運與 Release 發行自動化**：包含指定路徑資料庫備份 (`backup.sh`)、安全還原 (`restore.sh`)、一鍵安裝 (`install.sh`)、GitHub Actions 自動化發行包打包 (`.github/workflows/release.yml`)、以及從 GitHub Releases 一鍵自動升級與離線套件手動升級 (`upgrade.sh`)。
+6. **五重安全防護體系**：涵蓋 `.env` 檔案權限鎖定、進程安全隔離、API 與日誌脫敏。
 
 計畫已就緒，待您確認審查通過後，我們將立即從 **Phase 1（建立資料庫結構與初始種子資料）** 正式開始實作。
+
+---
+
+## 8. 資料庫密碼與機敏憑證安全防護架構 (Database Password & Credential Security)
+
+為確保家庭主機運行時機敏憑證的安全性，系統嚴格實施「五重防護層級」：
+
+### 8.1 實體儲存隔離與嚴格檔案權限 (`.env` & `chmod 600`)
+- **隔離存放**：資料庫連線帳號與密碼（`DB_PASSWORD`）、LINE Channel Access Token 與家長預設 PIN 碼等機敏設定**僅持久化於專案根目錄 `.env` 檔案**中，禁止在任何 Python 程式碼或腳本中硬編碼（Hardcode）。
+- **權限鎖定**：安裝腳本（`scripts/install.sh`）在建立或更新 `.env` 時，強制執行：
+  ```bash
+  chmod 600 "$ROOT_DIR/.env"
+  ```
+  確保僅有執行該程式的 Linux 系統帳號具備讀寫權限，阻絕同機其他一般使用者、訪客或背景程序的未授權讀取。
+- **版本庫與發行包排除**：
+  - `.gitignore` 嚴格將 `.env`、`*.dump`、`venv/` 納入忽略清單。
+  - GitHub Actions 發行打包腳本（`.github/workflows/release.yml`）打包時明確 `--exclude='.env'`，防止機敏密碼洩漏至 GitHub 或公開發行包。
+
+### 8.2 進程防窺與安全認證（防止 `ps aux` 洩漏）
+- 在 Linux 多行程環境下，若使用命令列引數傳遞密碼（如 `--password <pass>`），同主機任何使用者皆可透過 `ps aux` 查閱到明文。
+- **子程序生命週期隔離**：在資料庫備份（`scripts/backup.sh`）與還原（`scripts/restore.sh`）執行 `pg_dump` / `pg_restore` 前，僅透過環境變數傳入子程序：
+  ```bash
+  export PGPASSWORD="${DB_PASSWORD:-}"
+  pg_dump -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -Fc "$DB_NAME" > "$BACKUP_FILE"
+  unset PGPASSWORD # 執行完畢立即銷毀
+  ```
+  執行結束立即 `unset`，密碼不留存於終端機歷史紀錄或進程列表。
+
+### 8.3 Web API 憑證零洩漏脫敏 (API Sanitization)
+- 前端透過 `GET /api/system/config` 查詢系統設定時，後端 Pydantic Response Schema 嚴格過濾：
+  - 僅回傳 `db_name`、`db_host`、`db_port` 與 `line_configured: bool`。
+  - **資料庫密碼（`DB_PASSWORD`）與 LINE Token 絕不向前端回傳**。
+  - 避免家庭成員或小孩透過瀏覽器開發者工具（F12 / Network Tab）窺探資料庫憑證。
+
+### 8.4 系統日誌與連線字串脫敏 (Logging Sanitization)
+- 後端 FastAPI 服務啟動、記錄連線或打印錯誤堆疊追蹤（Traceback）時，若涉及資料庫連線字串，必須使用 SQLAlchemy 內建安全脫敏方法：
+  ```python
+  safe_db_url = engine.url.render_as_string(hide_password=True)
+  logger.info(f"Database connected to: {safe_db_url}")
+  # 輸出範例: postgresql+asyncpg://postgres:***@localhost:5432/frog_kudos
+  ```
+- 升級進度日誌（`GET /api/system/upgrade-status`）中絕不輸出任何包含帳密的連線字串。
+
+### 8.5 備份檔案權限安全 (Backup Files Permissions)
+- `scripts/backup.sh` 與還原前快照所產生的 `.dump` 檔案，生成當下自動執行 `chmod 600 "$BACKUP_FILE"`，確保備份檔案僅有系統擁有者可讀寫。
+- PostgreSQL Custom dump 檔案僅儲存關聯資料與結構，不包含 PostgreSQL 伺服器登入帳號密碼。

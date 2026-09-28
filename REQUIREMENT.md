@@ -167,6 +167,12 @@
 ### NFR-3：資料庫與環境相容性 (Environment Compatibility)
 - 使用本機現有的 PostgreSQL 作為後端資料庫，資料庫名稱為 `frog_kudos`。
 
+### NFR-4：機敏憑證與資料庫密碼安全防護 (Security & Credential Protection)
+- **實體隔離與嚴格檔案權限**：資料庫連線密碼（`DB_PASSWORD`）、LINE Token 與家長 PIN 碼等機敏設定僅允許持久化於本機 `.env` 檔案中。安裝程式需自動將其權限鎖定為 `chmod 600`（僅檔案擁有者具備讀寫權限），防止同機其他使用者窺探。
+- **進程隔離防護 (避免 `ps aux` 洩漏)**：備份與還原腳本（`pg_dump`、`pg_restore`）必須透過子程序生命週期環境變數（`PGPASSWORD`）傳遞密碼並於執行完畢後立即銷毀（`unset`），嚴禁於終端機命令列參數直接傳遞明文密碼。
+- **Web API 與日誌脫敏 (Zero-Leak)**：系統所有對外 Web API（如 `GET /api/system/config`）絕不回傳資料庫密碼；後端啟動日誌、錯誤堆疊追蹤（Traceback）與升級進度日誌涉及資料庫連線字串時，強制啟用 SQLAlchemy 遮蔽（`hide_password=True`）。
+- **版本庫與發行包排除**：`.gitignore` 與 Release 自動化打包流程嚴格排除 `.env`，防止密碼洩漏至 GitHub 或離線安裝包。
+
 ---
 
 ## 5. 範圍界定 (Scope Boundaries)
@@ -188,8 +194,9 @@
   - 兌換商城審核核銷與拒絕退點閉環機制 (FR-15)。
   - 定期自動備份排程與歷史輪替保留 (FR-16)。
   - 學期成就紀錄 CSV 匯出功能 (FR-17)。
-  - **里程碑成就勳章系統 (FR-18)**。
-  - **LINE 兌換申請與重要事件即時推播 (FR-19)**。
+  - 里程碑成就勳章系統 (FR-18)。
+  - LINE 兌換申請與重要事件即時推播 (FR-19)。
+  - **機敏憑證與資料庫密碼安全防護 (NFR-4)**。
 - **未來擴充 (Out of Scope)**：
   - 多家庭多租戶隔離。
   - 第三方社群登入（以本機單一家庭安全鎖 PIN 碼為主）。
