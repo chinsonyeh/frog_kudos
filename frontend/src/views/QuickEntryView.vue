@@ -4,9 +4,11 @@ import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { triggerConfetti } from '@/components/Confetti'
 import BadgeUnlockModal from '@/components/BadgeUnlockModal.vue'
+import MemberModal from '@/components/MemberModal.vue'
 
 const authStore = useAuthStore()
 
+const showMemberModal = ref(false)
 const members = ref([])
 const selectedMember = ref(null)
 const mode = ref('RULE') // 'RULE' | 'CUSTOM'
@@ -192,11 +194,27 @@ async function handleSubmit() {
       <button @click="toastMsg = ''" class="text-white/80 hover:text-white">✕</button>
     </div>
 
+    <!-- 成員管理彈窗 -->
+    <MemberModal
+      :show="showMemberModal"
+      @close="showMemberModal = false"
+      @member-updated="loadMembers"
+    />
+
     <!-- 頂部：選擇對象 -->
     <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
-      <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-        <span>第一步：選擇登記對象</span>
-      </h2>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+          <span>第一步：選擇登記對象</span>
+        </h2>
+        <button
+          v-if="authStore.isParent"
+          @click="showMemberModal = true"
+          class="text-xs font-bold text-frog-600 hover:text-frog-800 transition flex items-center space-x-1"
+        >
+          <span>⚙️ 管理家庭成員</span>
+        </button>
+      </div>
 
       <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div
@@ -216,6 +234,16 @@ async function handleSubmit() {
             v-if="selectedMember?.id === m.id"
             class="absolute top-2 right-2 w-2 h-2 rounded-full bg-frog-500"
           ></div>
+        </div>
+
+        <!-- 家長模式下的 + 新增成員卡片 -->
+        <div
+          v-if="authStore.isParent"
+          @click="showMemberModal = true"
+          class="p-4 rounded-2xl border-2 border-dashed border-gray-200 hover:border-frog-500 hover:bg-frog-50/40 cursor-pointer transition flex flex-col items-center justify-center text-center text-gray-400 hover:text-frog-700 min-h-[110px]"
+        >
+          <div class="text-3xl mb-1 text-frog-500 font-bold">+</div>
+          <span class="font-bold text-xs">新增 / 管理成員</span>
         </div>
       </div>
     </div>

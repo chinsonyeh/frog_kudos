@@ -4,9 +4,11 @@ import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import BatchAdjustModal from '@/components/BatchAdjustModal.vue'
 import BadgeUnlockModal from '@/components/BadgeUnlockModal.vue'
+import MemberModal from '@/components/MemberModal.vue'
 
 const authStore = useAuthStore()
 
+const showMemberModal = ref(false)
 const members = ref([])
 const selectedMemberId = ref(null)
 const currentMember = computed(() => members.value.find(m => m.id === selectedMemberId.value) || null)
@@ -132,10 +134,17 @@ function onUnlockedBadges(bList) {
       @unlocked-badges="onUnlockedBadges"
     />
 
+    <!-- 成員管理彈窗 -->
+    <MemberModal
+      :show="showMemberModal"
+      @close="showMemberModal = false"
+      @member-updated="loadInitialData"
+    />
+
     <!-- 頂部標題與成員切換選單 -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-4 sm:p-6 rounded-3xl border border-gray-100 shadow-sm">
       <!-- 成員標籤列 -->
-      <div class="flex space-x-2 overflow-x-auto pb-1 sm:pb-0">
+      <div class="flex items-center space-x-2 overflow-x-auto pb-1 sm:pb-0">
         <button
           v-for="m in members"
           :key="m.id"
@@ -147,6 +156,16 @@ function onUnlockedBadges(bList) {
         >
           <span>{{ m.avatar }}</span>
           <span>{{ m.name }}</span>
+        </button>
+
+        <!-- 家長管理成員按鈕 -->
+        <button
+          v-if="authStore.isParent"
+          @click="showMemberModal = true"
+          class="flex items-center space-x-1 px-3 py-2 rounded-2xl text-xs font-bold border border-dashed border-gray-300 hover:border-frog-500 hover:bg-frog-50/50 text-gray-500 hover:text-frog-700 transition flex-shrink-0"
+          title="新增或維護家庭成員"
+        >
+          <span>+ 管理成員</span>
         </button>
       </div>
 
