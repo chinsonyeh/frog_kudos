@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { triggerConfetti } from '@/components/Confetti'
@@ -13,12 +13,21 @@ const members = ref([])
 const selectedMember = ref(null)
 const mode = ref('RULE') // 'RULE' | 'CUSTOM'
 
-// 模式 A 欄位
-const targetName = ref('社會科')
-const conditionValue = ref('100')
+// 模式 A 規則選單欄位
+const availableRules = ref([])
+const selectedRuleId = ref('')
+const targetName = ref('')
+const conditionValue = ref('')
 const previewResult = ref(null)
 const previewLoading = ref(false)
 const adjustedPoints = ref(null)
+
+const memberCustomRules = computed(() =>
+  availableRules.value.filter(r => r.member_id === selectedMember.value?.id)
+)
+const globalRules = computed(() =>
+  availableRules.value.filter(r => !r.member_id)
+)
 
 // 模式 B 欄位
 const customTitle = ref('')
@@ -31,9 +40,6 @@ const toastMsg = ref('')
 const errorMsg = ref('')
 const unlockedBadges = ref([])
 const showBadgeModal = ref(false)
-
-// 快捷項目標籤
-const quickTags = ['社會科', '數學科', '國語科', '英文科', '自然科', '整理房間', '幫忙洗碗', '閱讀課外書']
 
 let debounceTimer = null
 
@@ -51,22 +57,62 @@ async function loadMembers() {
         selectedMember.value = members.value[0]
         authStore.setSelectedMemberId(selectedMember.value.id)
       }
-      triggerPreviewDebounced()
+      await loadRulesForMember()
     }
   } catch (err) {
     console.error('載入成員失敗', err)
   }
 }
 
-function selectMember(m) {
+async function selectMember(m) {
   selectedMember.value = m
   authStore.setSelectedMemberId(m.id)
-  triggerPreviewDebounced()
+  await loadRulesForMember()
 }
 
-function selectTag(tag) {
-  targetName.value = tag
-  triggerPreviewDebounced()
+async function loadRulesForMember() {
+  if (!selectedMember.value) {
+    availableRules.value = []
+    selectedRuleId.value = ''
+    return
+  }
+  try {
+    const list = await api.getRules(selectedMember.value.id, true)
+    availableRules.value = list
+    if (list.length > 0) {
+      // 預設選取第一條可用規則
+      selectRule(list[0])
+    } else {
+      selectedRuleId.value = ''
+      targetName.value = ''
+      conditionValue.value = ''
+      adjustedPoints.value = 0
+      previewResult.value = null
+    }
+  } catch (err) {
+    console.error('載入成員規則失敗', err)
+  }
+}
+
+function selectRule(rule) {
+  if (!rule) return
+  selectedRuleId.value = rule.id
+  targetName.value = rule.target_name
+  conditionValue.value = rule.condition_value
+  adjustedPoints.value = rule.reward_points
+  previewResult.value = {
+    matched: true,
+    suggested_points: rule.reward_points,
+    rule_id: rule.id,
+    rule_name: `${rule.target_name} (${rule.condition_value}) - ${rule.description || ''}`.trim().replace(/ -$/, ''),
+  }
+}
+
+function onRuleSelectChange() {
+  const rule = availableRules.value.find(r => r.id === selectedRuleId.value)
+  if (rule) {
+    selectRule(rule)
+  }
 }
 
 function triggerPreviewDebounced() {
@@ -96,7 +142,8 @@ function triggerPreviewDebounced() {
   }, 300)
 }
 
-watch([targetName, conditionValue], () => {
+watch([conditionValue], () => {
+  // 僅當手動微調 conditionValue 時觸發重新比對
   triggerPreviewDebounced()
 })
 
@@ -123,7 +170,7 @@ async function handleSubmit() {
     finalTarget = targetName.value.trim()
     finalCondition = conditionValue.value ? conditionValue.value.trim() : '自訂'
     pointsToAward = adjustedPoints.value !== null ? adjustedPoints.value : (previewResult.value ? previewResult.value.suggested_points : 0)
-    ruleId = previewResult.value?.rule_id || null
+    ruleId = selectedRuleId.value || previewResult.value?.rule_id || null
   } else {
     if (!customTitle.value.trim()) {
       errorMsg.value = '請填寫自訂事項名稱'
@@ -276,39 +323,69 @@ async function handleSubmit() {
 
       <!-- 模式 A：依規則自動帶出 -->
       <div v-if="mode === 'RULE'" class="space-y-5">
-        <!-- 快捷標籤 -->
-        <div>
-          <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">快捷選擇項目</label>
+        <!-- 快捷點選可用規則 -->
+        <div v-if="availableRules.length > 0">
+          <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">常用規則快捷點選</label>
           <div class="flex flex-wrap gap-2">
             <button
-              v-for="tag in quickTags"
-              :key="tag"
-              @click="selectTag(tag)"
+              v-for="rule in availableRules"
+              :key="rule.id"
+              @click="selectRule(rule)"
               type="button"
-              class="px-3 py-1.5 rounded-xl text-xs font-medium transition"
-              :class="targetName === tag ? 'bg-frog-500 text-white shadow-sm shadow-frog-200 font-bold' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+              class="px-3 py-1.5 rounded-xl text-xs font-medium transition flex items-center space-x-1.5"
+              :class="selectedRuleId === rule.id ? 'bg-frog-500 text-white shadow-sm shadow-frog-200 font-bold' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
             >
-              {{ tag }}
+              <span>{{ rule.target_name }}</span>
+              <span class="opacity-80 text-[11px] font-mono">({{ rule.condition_value }}: +{{ rule.reward_points }}點)</span>
             </button>
           </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-              1. 目標項目名稱
-            </label>
-            <input
-              v-model="targetName"
-              type="text"
-              placeholder="例如: 社會科, 數學科, 整理房間"
-              class="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-frog-500 font-medium text-sm transition"
-            />
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                1. 目標項目名稱 (選擇規則)
+              </label>
+              <span v-if="availableRules.length === 0" class="text-xs text-amber-600 font-medium">
+                (尚無可用規則)
+              </span>
+            </div>
+            <div class="relative">
+              <select
+                v-model="selectedRuleId"
+                @change="onRuleSelectChange"
+                class="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-frog-500 font-bold text-sm text-gray-800 transition appearance-none cursor-pointer pr-10"
+              >
+                <option value="" disabled>請選擇適用的獎勵規則...</option>
+                <optgroup v-if="memberCustomRules.length > 0" label="🌟 成員專屬規則">
+                  <option
+                    v-for="r in memberCustomRules"
+                    :key="r.id"
+                    :value="r.id"
+                  >
+                    {{ r.target_name }} (條件: {{ r.condition_value }} ➔ +{{ r.reward_points }} 點){{ r.description ? ` - ${r.description}` : '' }}
+                  </option>
+                </optgroup>
+                <optgroup v-if="globalRules.length > 0" label="🌐 全家通用規則">
+                  <option
+                    v-for="r in globalRules"
+                    :key="r.id"
+                    :value="r.id"
+                  >
+                    {{ r.target_name }} (條件: {{ r.condition_value }} ➔ +{{ r.reward_points }} 點){{ r.description ? ` - ${r.description}` : '' }}
+                  </option>
+                </optgroup>
+              </select>
+              <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-400">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+              </div>
+            </div>
           </div>
 
           <div>
             <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-              2. 達成成績 / 條件數值
+              2. 達成成績 / 條件數值 (自動帶出，可微調)
             </label>
             <input
               v-model="conditionValue"
