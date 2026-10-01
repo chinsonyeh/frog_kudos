@@ -255,6 +255,11 @@ erDiagram
 | `PUT` | `/api/members/{id}` | `{ name, avatar, pin_code, is_active, parent_pin }` | `MemberOut` | **修改家庭成員資訊、變更家長個人 4 碼 PIN 碼或切換啟用/停用狀態（需家長安全鎖）** |
 | `DELETE` | `/api/members/{id}` | `{ parent_pin }` | `{ success: true, action: "DEACTIVATED"\|"DELETED" }` | **安全刪除或停用成員（若已有歷史積分或兌換紀錄則自動轉為軟停用 is_active=FALSE 以保全審計鏈，無歷史紀錄之全新成員則執行實體刪除；需家長安全鎖）** |
 | `GET` | `/api/members/{id}/badges` | - | `MemberBadgeOut[]` | **查詢成員里程碑成就勳章清單與達成進度 (FR-18)** |
+| `GET` | `/api/badges` | `?all=false` | `BadgeOut[]` | **查詢所有里程碑成就勳章定義清單 (FR-18)** |
+| `POST` | `/api/badges` | `{ badge_key, title, description, icon, condition_type, target_value, sort_order, parent_pin }` | `BadgeOut` | **新增自訂成就勳章或里程碑（需家長安全鎖）** |
+| `PUT` | `/api/badges/{id}` | `{ title, description, icon, condition_type, target_value, sort_order, is_active, parent_pin }` | `BadgeOut` | **編輯成就勳章資訊、條件門檻或啟用狀態（需家長安全鎖）** |
+| `DELETE` | `/api/badges/{id}` | `?parent_pin=...` | `{ success: true, action: "DEACTIVATED"\|"DELETED" }` | **刪除或安全停用成就勳章（需家長安全鎖）** |
+| `POST` | `/api/badges/{key}/toggle/{member_id}` | `{ unlock, parent_pin }` | `{ success: true, unlocked: bool }` | **手動為特定成員頒發或收回特定榮譽勳章（需家長安全鎖）** |
 | `GET` | `/api/categories` | - | `CategoryOut[]` | **取得規則與獎勵分類清單 (學業、常規、家事等)** |
 | `POST` | `/api/categories` | `{ name, icon, sort_order, parent_pin }` | `CategoryOut` | **新增自訂規則分類（需家長安全鎖）** |
 | `GET` | `/api/rules` | `?member_id=...` | `RuleOut[]` | 取得規則清單（可過濾專屬或通用） |
@@ -725,7 +730,21 @@ CREATE TABLE IF NOT EXISTS redemptions (
     reviewed_at TIMESTAMPTZ
 );
 
--- 8. 成員成就勳章解鎖紀錄表 (FR-18)
+-- 8. 成員成就勳章與里程碑系統 (FR-18)
+CREATE TABLE IF NOT EXISTS badges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    badge_key VARCHAR(50) UNIQUE NOT NULL,
+    title VARCHAR(100) NOT NULL,
+    description VARCHAR(255) NOT NULL,
+    icon VARCHAR(20) NOT NULL DEFAULT '🏅',
+    condition_type VARCHAR(50) NOT NULL DEFAULT 'TOTAL_POINTS', -- 'TOTAL_POINTS', 'PERFECT_SCORE_COUNT', 'CHORE_POINTS', 'CUSTOM'
+    target_value INTEGER NOT NULL DEFAULT 100,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS member_badges (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
@@ -740,6 +759,7 @@ CREATE INDEX IF NOT EXISTS idx_kudos_records_member_created ON kudos_records(mem
 CREATE INDEX IF NOT EXISTS idx_kudos_batch_filter ON kudos_records(member_id, target_name_snapshot, created_at);
 CREATE INDEX IF NOT EXISTS idx_redemptions_member_created ON redemptions(member_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_member_badges_member ON member_badges(member_id);
+CREATE INDEX IF NOT EXISTS idx_badges_active_sort ON badges(is_active, sort_order ASC, target_value ASC);
 
 -- 10. 系統預設種子分類資料 (Categories Initial Seed Data)
 INSERT INTO categories (name, icon, sort_order) VALUES
@@ -1275,7 +1295,7 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 | **FR-15**| 兌換商城審核與退回退點閉環 | `redemptions` (`PENDING` 狀態) | `POST /api/redemptions/{id}/review` | 畫面 3：分頁 2 家長審核卡片 (核銷/自動退點) | ✅ 100% 符合 |
 | **FR-16**| 定期自動備份排程與保留輪替 | `scripts/backup.sh`, `.env` | 後端定時任務 + 備份上限輪替清理 | 畫面 6：分頁 1 自動排程與保留上限設定 | ✅ 100% 符合 |
 | **FR-17**| 學期成就紀錄與存摺 CSV 匯出 | `kudos_records` | `GET /api/kudos/export` | 畫面 2：【📥 匯出存摺 (CSV)】按鈕 | ✅ 100% 符合 |
-| **FR-18**| 里程碑成就勳章系統 | `member_badges` 表 | `GET /api/members/{id}/badges`<br>成就評定邏輯 | 畫面 2：榮譽榜成就勳章牆、解鎖彈窗與灑花 | ✅ 100% 符合 |
+| **FR-18**| 里程碑成就勳章系統與勳章牆管理 | `badges` 表、`member_badges` 表 | `GET /api/badges`, `POST/PUT/DELETE /api/badges`<br>`GET /api/members/{id}/badges`<br>5,000~100,000 多階里程碑與動態評定邏輯 | 畫面 2：榮譽榜成就勳章牆、勳章管理與編輯彈窗、解鎖彈窗與灑花 | ✅ 100% 符合 |
 | **FR-19**| LINE 兌換申請即時推播通知 | 後端 `BackgroundTasks` + LINE Messaging API | `POST /api/redemptions`<br>`POST /api/system/line/test` | 畫面 6：分頁 3 LINE 推播設定與連線測試 | ✅ 100% 符合 |
 | **NFR-1**| 易用性與行動裝置友善 | Vue 3 + TailwindCSS | - | RWD 手機/平板優先、大觸控區塊、灑花慶祝反饋 | ✅ 100% 符合 |
 | **NFR-2**| 資料交易一致性 (ACID) | PostgreSQL DB Transaction | 點數發放/扣抵/批次調整均於單一 Transaction 完成 | - | ✅ 100% 符合 |

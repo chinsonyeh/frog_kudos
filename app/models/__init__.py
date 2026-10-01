@@ -6,6 +6,7 @@ from app.models.kudos_record import KudosRecord
 from app.models.reward_item import RewardItem
 from app.models.redemption import Redemption
 from app.models.member_badge import MemberBadge
+from app.models.badge import Badge
 
 __all__ = [
     "Base",
@@ -16,4 +17,5 @@ __all__ = [
     "RewardItem",
     "Redemption",
     "MemberBadge",
+    "Badge",
 ]

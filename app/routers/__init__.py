@@ -5,6 +5,7 @@ from app.routers.kudos import router as kudos_router
 from app.routers.items import router as items_router
 from app.routers.redemptions import router as redemptions_router
 from app.routers.system import router as system_router
+from app.routers.badges import router as badges_router
 
 __all__ = [
     "members_router",
@@ -14,4 +15,5 @@ __all__ = [
     "items_router",
     "redemptions_router",
     "system_router",
+    "badges_router",
 ]

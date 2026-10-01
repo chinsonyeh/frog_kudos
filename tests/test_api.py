@@ -360,3 +360,88 @@ async def test_system_endpoints():
         assert status_res.status_code == 200
         status_data = status_res.json()
         assert status_data["status"] in ("IDLE", "RUNNING", "COMPLETED", "FAILED")
+
+@pytest.mark.asyncio
+async def test_badge_management_and_milestones():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # 1. 查詢所有勳章定義清單
+        b_res = await client.get("/api/badges")
+        assert b_res.status_code == 200
+        badges = b_res.json()
+        assert len(badges) >= 15
+
+        # 驗證包含 5000 點至 100000 點之所有里程碑
+        keys = [b["badge_key"] for b in badges]
+        for milestone_key in [
+            "FIRST_100_PTS", "MILLIONAIRE_1000", "POINTS_5000", "POINTS_10000",
+            "POINTS_20000", "POINTS_30000", "POINTS_40000", "POINTS_50000",
+            "POINTS_60000", "POINTS_70000", "POINTS_80000", "POINTS_90000", "POINTS_100000"
+        ]:
+            assert milestone_key in keys
+
+        # 2. 家長新增自訂成就勳章 (需要 PIN 碼)
+        new_b_res = await client.post(
+            "/api/badges",
+            headers={"X-Parent-PIN": "0000"},
+            json={
+                "badge_key": "TEST_READING_10",
+                "title": "晨讀書香蛙",
+                "description": "連續晨讀 10 次",
+                "icon": "📖",
+                "condition_type": "CUSTOM",
+                "target_value": 10,
+                "sort_order": 99,
+            },
+        )
+        assert new_b_res.status_code == 200
+        created = new_b_res.json()
+        assert created["title"] == "晨讀書香蛙"
+        badge_id = created["id"]
+
+        # 3. 編輯成就勳章
+        edit_b_res = await client.put(
+            f"/api/badges/{badge_id}",
+            headers={"X-Parent-PIN": "0000"},
+            json={
+                "title": "晨讀博士蛙",
+                "target_value": 20,
+            },
+        )
+        assert edit_b_res.status_code == 200
+        assert edit_b_res.json()["title"] == "晨讀博士蛙"
+        assert edit_b_res.json()["target_value"] == 20
+
+        # 4. 手動為成員頒發勳章與收回
+        m_res = await client.get("/api/members")
+        ian = next(m for m in m_res.json() if m["name"] == "Ian")
+        ian_id = ian["id"]
+
+        toggle_res = await client.post(
+            f"/api/badges/TEST_READING_10/toggle/{ian_id}",
+            headers={"X-Parent-PIN": "0000"},
+            json={"unlock": True},
+        )
+        assert toggle_res.status_code == 200
+        assert toggle_res.json()["unlocked"] is True
+
+        # 檢查 Ian 的勳章清單已包含此勳章
+        ian_badges_res = await client.get(f"/api/members/{ian_id}/badges")
+        assert ian_badges_res.status_code == 200
+        ian_reading_b = next(b for b in ian_badges_res.json() if b["badge_key"] == "TEST_READING_10")
+        assert ian_reading_b["unlocked"] is True
+
+        # 收回勳章
+        toggle_off_res = await client.post(
+            f"/api/badges/TEST_READING_10/toggle/{ian_id}",
+            headers={"X-Parent-PIN": "0000"},
+            json={"unlock": False},
+        )
+        assert toggle_off_res.status_code == 200
+        assert toggle_off_res.json()["unlocked"] is False
+
+        # 5. 刪除該測試勳章
+        del_res = await client.delete(
+            f"/api/badges/{badge_id}",
+            headers={"X-Parent-PIN": "0000"},
+        )
+        assert del_res.status_code == 200

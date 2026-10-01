@@ -140,4 +140,19 @@ export const api = {
     request('/system/upload-package', { method: 'POST', body: formData }),
   getUpgradeStatus: () =>
     request('/system/upgrade-status'),
+
+  // 成就勳章管理 (FR-18)
+  getBadges: (all = true) =>
+    request(`/badges?all=${all}`),
+  createBadge: (data) =>
+    request('/badges', { method: 'POST', body: JSON.stringify(data) }),
+  updateBadge: (id, data) =>
+    request(`/badges/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteBadge: (id, parentPin = null) =>
+    request(`/badges/${id}${parentPin ? `?parent_pin=${encodeURIComponent(parentPin)}` : ''}`, { method: 'DELETE' }),
+  toggleMemberBadge: (badgeKey, memberId, unlock = null, parentPin = null) =>
+    request(`/badges/${badgeKey}/toggle/${memberId}`, {
+      method: 'POST',
+      body: JSON.stringify({ unlock, parent_pin: parentPin }),
+    }),
 }

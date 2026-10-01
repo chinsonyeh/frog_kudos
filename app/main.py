@@ -20,6 +20,7 @@ from app.routers import (
     items_router,
     redemptions_router,
     system_router,
+    badges_router,
 )
 from app.services.system_service import run_backup
 
@@ -102,6 +103,7 @@ app.include_router(kudos_router, prefix="/api")
 app.include_router(items_router, prefix="/api")
 app.include_router(redemptions_router, prefix="/api")
 app.include_router(system_router, prefix="/api")
+app.include_router(badges_router, prefix="/api")
 
 @app.get("/api/health")
 async def health_check():

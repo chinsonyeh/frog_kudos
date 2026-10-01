@@ -5,10 +5,12 @@ import { useAuthStore } from '@/stores/auth'
 import BatchAdjustModal from '@/components/BatchAdjustModal.vue'
 import BadgeUnlockModal from '@/components/BadgeUnlockModal.vue'
 import MemberModal from '@/components/MemberModal.vue'
+import BadgeManageModal from '@/components/BadgeManageModal.vue'
 
 const authStore = useAuthStore()
 
 const showMemberModal = ref(false)
+const showBadgeManageModal = ref(false)
 const members = ref([])
 const selectedMemberId = ref(null)
 const currentMember = computed(() => members.value.find(m => m.id === selectedMemberId.value) || null)
@@ -141,6 +143,14 @@ function onUnlockedBadges(bList) {
       @member-updated="loadInitialData"
     />
 
+    <!-- 勳章管理與編輯彈窗 (FR-18) -->
+    <BadgeManageModal
+      :show="showBadgeManageModal"
+      :current-member="currentMember"
+      @close="showBadgeManageModal = false"
+      @badges-updated="loadMemberDetails"
+    />
+
     <!-- 頂部標題與成員切換選單 -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-4 sm:p-6 rounded-3xl border border-gray-100 shadow-sm">
       <!-- 成員標籤列 -->
@@ -245,18 +255,37 @@ function onUnlockedBadges(bList) {
         <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
           <span>🏅 榮譽成就勳章牆 (Milestone Badges)</span>
         </h3>
-        <span class="text-xs font-semibold text-gray-400">已解鎖 {{ badges.filter(b => b.unlocked).length }} / {{ badges.length }}</span>
+        <div class="flex items-center space-x-3">
+          <span class="text-xs font-semibold text-gray-400">已解鎖 {{ badges.filter(b => b.unlocked).length }} / {{ badges.length }}</span>
+          <button
+            v-if="authStore.isParent"
+            @click="showBadgeManageModal = true"
+            class="text-xs font-bold text-frog-600 hover:text-frog-800 transition flex items-center space-x-1"
+          >
+            <span>⚙️ 編輯 / 管理勳章</span>
+          </button>
+        </div>
       </div>
 
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+      <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3 sm:gap-4">
         <div
           v-for="b in badges"
           :key="b.badge_key"
-          class="p-4 rounded-2xl border transition-all duration-200 flex flex-col items-center text-center relative overflow-hidden"
+          class="p-4 rounded-2xl border transition-all duration-200 flex flex-col items-center text-center relative overflow-hidden group"
           :class="b.unlocked
             ? 'bg-gradient-to-b from-amber-50/60 to-yellow-50/30 border-amber-200 shadow-sm'
             : 'bg-gray-50/60 border-gray-100 opacity-60 grayscale'"
         >
+          <!-- 家長模式下的快速編輯按鈕 -->
+          <button
+            v-if="authStore.isParent"
+            @click.stop="showBadgeManageModal = true"
+            class="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-frog-600 text-xs p-1 rounded-lg hover:bg-white/80 transition shadow-sm"
+            title="編輯勳章"
+          >
+            ✏️
+          </button>
+
           <div
             class="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl mb-2.5 shadow-sm"
             :class="b.unlocked ? 'bg-amber-400 text-white shadow-amber-200' : 'bg-gray-200 text-gray-400'"
