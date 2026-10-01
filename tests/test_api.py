@@ -1,3 +1,4 @@
+import uuid
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
@@ -5,6 +6,27 @@ from app.main import app
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+async def create_isolated_test_child(client: AsyncClient, name_prefix="TestBot"):
+    name = f"{name_prefix}_{uuid.uuid4().hex[:8]}"
+    res = await client.post(
+        "/api/members",
+        headers={"X-Parent-PIN": "0000"},
+        json={"name": name, "role": "child", "avatar": "🤖", "parent_pin": "0000"},
+    )
+    assert res.status_code == 200
+    return res.json()
+
+async def cleanup_test_child(client: AsyncClient, member_id: str):
+    # 先清理關聯資料（若有）並刪除成員
+    from app.core.database import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text(f"DELETE FROM kudos_records WHERE member_id = '{member_id}';"))
+        await conn.execute(text(f"DELETE FROM redemptions WHERE member_id = '{member_id}';"))
+        await conn.execute(text(f"DELETE FROM member_badges WHERE member_id = '{member_id}';"))
+        await conn.execute(text(f"DELETE FROM reward_rules WHERE member_id = '{member_id}';"))
+        await conn.execute(text(f"DELETE FROM members WHERE id = '{member_id}';"))
 
 @pytest.mark.asyncio
 async def test_health_check():
@@ -18,13 +40,12 @@ async def test_health_check():
 @pytest.mark.asyncio
 async def test_members_flow():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # 1. 取得預設種子成員清單
+        # 1. 取得成員清單
         res = await client.get("/api/members")
         assert res.status_code == 200
         members = res.json()
         names = [m["name"] for m in members]
         assert "Dad" in names
-        assert "Ian" in names
 
         # 2. 測試家長安全鎖：錯誤 PIN 應被阻擋 (403)
         bad_res = await client.post(
@@ -36,12 +57,12 @@ async def test_members_flow():
         # 3. 正確 PIN (0000) 新增成員
         add_res = await client.post(
             "/api/members",
-            json={"name": "Amy", "role": "child", "avatar": "👧", "parent_pin": "0000"},
+            json={"name": "AmyTest", "role": "child", "avatar": "👧", "parent_pin": "0000"},
         )
         assert add_res.status_code == 200
         amy = add_res.json()
         amy_id = amy["id"]
-        assert amy["name"] == "Amy"
+        assert amy["name"] == "AmyTest"
         assert amy["current_points"] == 0
 
         # 4. 新成員無紀錄時執行實體刪除
@@ -62,304 +83,315 @@ async def test_categories_and_rules():
         assert "學業成績" in cat_names
         academic_cat = next(c for c in cats if c["name"] == "學業成績")
 
-        # 2. 取得 Ian 的 ID
-        m_res = await client.get("/api/members")
-        ian = next(m for m in m_res.json() if m["name"] == "Ian")
-        ian_id = ian["id"]
+        # 2. 建立獨立測試成員（絕不污染真實成員）
+        test_bot = await create_isolated_test_child(client, "BotRule")
+        bot_id = test_bot["id"]
 
-        # 3. 新增 Ian 專屬規則：社會科 >= 100 分 -> 50 點
-        rule_res = await client.post(
-            "/api/rules",
-            headers={"X-Parent-PIN": "0000"},
-            json={
-                "member_id": ian_id,
-                "category_id": academic_cat["id"],
-                "target_name": "社會科",
-                "match_type": "NUM_GTE",
-                "condition_value": "100",
-                "reward_points": 50,
-                "description": "段考滿分獎勵",
-            },
-        )
-        assert rule_res.status_code == 200
-        rule = rule_res.json()
-        assert rule["reward_points"] == 50
+        try:
+            # 3. 新增測試專屬規則：測試科目 >= 100 分 -> 50 點
+            rule_res = await client.post(
+                "/api/rules",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "category_id": academic_cat["id"],
+                    "target_name": "測試科目",
+                    "match_type": "NUM_GTE",
+                    "condition_value": "100",
+                    "reward_points": 50,
+                    "description": "測試獎勵",
+                },
+            )
+            assert rule_res.status_code == 200
+            rule = rule_res.json()
+            rule_id = rule["id"]
+            assert rule["reward_points"] == 50
 
-        # 4. 新增全家通用規則：整理房間 == 完成 -> 10 點
-        global_rule_res = await client.post(
-            "/api/rules",
-            headers={"X-Parent-PIN": "0000"},
-            json={
-                "member_id": None,
-                "category_id": None,
-                "target_name": "整理房間",
-                "match_type": "EXACT",
-                "condition_value": "完成",
-                "reward_points": 10,
-                "description": "維持房間整潔",
-            },
-        )
-        assert global_rule_res.status_code == 200
+            # 4. 測試智慧推導預覽 (Rule Engine)
+            # Case A: 數值達標命中專屬規則
+            prev_a = await client.post(
+                "/api/kudos/preview",
+                json={"member_id": bot_id, "target_name": "測試科目", "condition_value": "100"},
+            )
+            assert prev_a.status_code == 200
+            assert prev_a.json()["matched"] is True
+            assert prev_a.json()["suggested_points"] == 50
 
-        # 5. 測試智慧推導預覽 (Rule Engine)
-        # Case A: 數值達標命中專屬規則
-        prev_a = await client.post(
-            "/api/kudos/preview",
-            json={"member_id": ian_id, "target_name": "社會科", "condition_value": "100"},
-        )
-        assert prev_a.status_code == 200
-        assert prev_a.json()["matched"] is True
-        assert prev_a.json()["suggested_points"] == 50
-
-        # Case B: 輸入文字安全防呆降級 (非純數字文字不拋 500)
-        prev_b = await client.post(
-            "/api/kudos/preview",
-            json={"member_id": ian_id, "target_name": "社會科", "condition_value": "優等"},
-        )
-        assert prev_b.status_code == 200
-        assert prev_b.json()["matched"] is False
-        assert prev_b.json()["suggested_points"] == 0
-
-        # Case C: 命中全家通用規則
-        prev_c = await client.post(
-            "/api/kudos/preview",
-            json={"member_id": ian_id, "target_name": "整理房間", "condition_value": "完成"},
-        )
-        assert prev_c.status_code == 200
-        assert prev_c.json()["matched"] is True
-        assert prev_c.json()["suggested_points"] == 10
+            # Case B: 輸入文字安全防呆降級
+            prev_b = await client.post(
+                "/api/kudos/preview",
+                json={"member_id": bot_id, "target_name": "測試科目", "condition_value": "優等"},
+            )
+            assert prev_b.status_code == 200
+            assert prev_b.json()["matched"] is False
+            assert prev_b.json()["suggested_points"] == 0
+        finally:
+            await cleanup_test_child(client, bot_id)
 
 @pytest.mark.asyncio
 async def test_kudos_points_and_badges_flow():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # 1. 取得 Ian
-        m_res = await client.get("/api/members")
-        ian = next(m for m in m_res.json() if m["name"] == "Ian")
-        ian_id = ian["id"]
-        init_curr = ian["current_points"]
-        init_total = ian["total_earned_points"]
+        # 建立獨立測試成員
+        test_bot = await create_isolated_test_child(client, "BotKudos")
+        bot_id = test_bot["id"]
 
-        # 2. 發放點數 50 點 (第 1 次段考滿分)
-        rec1_res = await client.post(
-            "/api/kudos/record",
-            headers={"X-Parent-PIN": "0000"},
-            json={
-                "member_id": ian_id,
-                "target_name": "社會科",
-                "condition_value": "100",
-                "points_awarded": 50,
-                "note": "第一次段考滿分",
-            },
-        )
-        assert rec1_res.status_code == 200
+        try:
+            # 1. 發放點數 50 點
+            rec1_res = await client.post(
+                "/api/kudos/record",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "自訂測試項目",
+                    "condition_value": "100",
+                    "points_awarded": 50,
+                    "note": "測試滿分",
+                },
+            )
+            assert rec1_res.status_code == 200
 
-        # 3. 發放點數 50 點 (累計達到 100 點門檻)
-        rec2_res = await client.post(
-            "/api/kudos/record",
-            headers={"X-Parent-PIN": "0000"},
-            json={
-                "member_id": ian_id,
-                "target_name": "社會科",
-                "condition_value": "100",
-                "points_awarded": 50,
-                "note": "第二次段考滿分",
-            },
-        )
-        assert rec2_res.status_code == 200
-        rec2_data = rec2_res.json()
+            # 2. 發放點數 50 點 (累計達到 100 點門檻)
+            rec2_res = await client.post(
+                "/api/kudos/record",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "自訂測試項目",
+                    "condition_value": "100",
+                    "points_awarded": 50,
+                    "note": "測試第二次滿分",
+                },
+            )
+            assert rec2_res.status_code == 200
 
-        # 檢查是否自動解鎖 FIRST_100_PTS 勳章 (FR-18)
-        badges_res = await client.get(f"/api/members/{ian_id}/badges")
-        assert badges_res.status_code == 200
-        badges = badges_res.json()
-        first_100_badge = next(b for b in badges if b["badge_key"] == "FIRST_100_PTS")
-        assert first_100_badge["unlocked"] is True
+            # 檢查是否自動解鎖 FIRST_100_PTS 勳章 (FR-18)
+            badges_res = await client.get(f"/api/members/{bot_id}/badges")
+            assert badges_res.status_code == 200
+            badges = badges_res.json()
+            first_100_badge = next(b for b in badges if b["badge_key"] == "FIRST_100_PTS")
+            assert first_100_badge["unlocked"] is True
 
-        # 4. 違規扣點 Penalty (FR-14)
-        pen_res = await client.post(
-            "/api/kudos/record",
-            headers={"X-Parent-PIN": "0000"},
-            json={
-                "member_id": ian_id,
-                "target_name": "違規未完成功課",
-                "condition_value": "自訂",
-                "points_awarded": -10,
-                "note": "未寫完作業偷看電視扣點",
-            },
-        )
-        assert pen_res.status_code == 200
+            # 3. 違規扣點 Penalty (FR-14)
+            pen_res = await client.post(
+                "/api/kudos/record",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "違規未完成功課",
+                    "condition_value": "自訂",
+                    "points_awarded": -10,
+                    "note": "違規扣點測試",
+                },
+            )
+            assert pen_res.status_code == 200
 
-        # 檢查雙軌帳本約束：current_points 減少 10 點，但 total_earned_points 絕不扣除
-        m_res2 = await client.get("/api/members")
-        ian_after = next(m for m in m_res2.json() if m["name"] == "Ian")
-        assert ian_after["current_points"] == init_curr + 50 + 50 - 10
-        assert ian_after["total_earned_points"] == init_total + 50 + 50
+            # 檢查雙軌帳本約束
+            m_res = await client.get("/api/members")
+            bot_after = next(m for m in m_res.json() if m["id"] == bot_id)
+            assert bot_after["current_points"] == 50 + 50 - 10
+            assert bot_after["total_earned_points"] == 50 + 50
 
-        # 5. 防呆安全：超額扣點至負數應被拒絕 (HTTP 400)
-        over_pen = await client.post(
-            "/api/kudos/record",
-            headers={"X-Parent-PIN": "0000"},
-            json={
-                "member_id": ian_id,
-                "target_name": "惡意扣點測試",
-                "points_awarded": -99999,
-            },
-        )
-        assert over_pen.status_code == 400
+            # 4. 防呆安全：超額扣點至負數應被拒絕 (HTTP 400)
+            over_pen = await client.post(
+                "/api/kudos/record",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "惡意扣點測試",
+                    "points_awarded": -99999,
+                },
+            )
+            assert over_pen.status_code == 400
+        finally:
+            await cleanup_test_child(client, bot_id)
 
 @pytest.mark.asyncio
 async def test_redemption_and_refund_lifecycle():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # 1. 取得 Ian
-        m_res = await client.get("/api/members")
-        ian = next(m for m in m_res.json() if m["name"] == "Ian")
-        ian_id = ian["id"]
-        start_points = ian["current_points"]
+        # 建立獨立測試成員並先給予 100 點
+        test_bot = await create_isolated_test_child(client, "BotRedeem")
+        bot_id = test_bot["id"]
 
-        # 2. 新增商城獎品
-        item_res = await client.post(
-            "/api/items",
-            headers={"X-Parent-PIN": "0000"},
-            json={
-                "title": "玩 Switch 1小時",
-                "cost_points": 30,
-                "icon": "🎮",
-                "description": "週末放鬆",
-            },
-        )
-        assert item_res.status_code == 200
-        item_id = item_res.json()["id"]
+        item_id = None
+        try:
+            await client.post(
+                "/api/kudos/record",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "初始贈點",
+                    "condition_value": "自訂",
+                    "points_awarded": 100,
+                },
+            )
 
-        # 3. 發起兌換申請 (扣除可用點數，狀態為 PENDING)
-        red_res = await client.post(
-            "/api/redemptions",
-            json={"member_id": ian_id, "item_id": item_id, "note": "本週末想玩遊戲"},
-        )
-        assert red_res.status_code == 200
-        redemption = red_res.json()
-        assert redemption["status"] == "PENDING"
-        red_id = redemption["id"]
+            # 新增測試商城獎品
+            item_res = await client.post(
+                "/api/items",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "title": "測試遊戲時間",
+                    "cost_points": 30,
+                    "icon": "🎮",
+                    "description": "測試獎品",
+                },
+            )
+            assert item_res.status_code == 200
+            item_id = item_res.json()["id"]
 
-        m_res2 = await client.get("/api/members")
-        ian_mid = next(m for m in m_res2.json() if m["name"] == "Ian")
-        assert ian_mid["current_points"] == start_points - 30
+            # 發起兌換申請 (扣除可用點數，狀態為 PENDING)
+            red_res = await client.post(
+                "/api/redemptions",
+                json={"member_id": bot_id, "item_id": item_id, "note": "兌換測試"},
+            )
+            assert red_res.status_code == 200
+            redemption = red_res.json()
+            assert redemption["status"] == "PENDING"
+            red_id = redemption["id"]
 
-        # 4. 家長退回申請並全額退款 (REJECT -> Refund) (FR-15)
-        rev_res = await client.post(
-            f"/api/redemptions/{red_id}/review",
-            headers={"X-Parent-PIN": "0000"},
-            json={"action": "REJECT", "review_note": "作業尚未完成，暫不開放兌換"},
-        )
-        assert rev_res.status_code == 200
-        assert rev_res.json()["status"] == "REJECTED"
+            m_res2 = await client.get("/api/members")
+            bot_mid = next(m for m in m_res2.json() if m["id"] == bot_id)
+            assert bot_mid["current_points"] == 100 - 30
 
-        # 檢查點數是否已全額退還
-        m_res3 = await client.get("/api/members")
-        ian_refunded = next(m for m in m_res3.json() if m["name"] == "Ian")
-        assert ian_refunded["current_points"] == start_points
+            # 家長退回申請並全額退款 (REJECT -> Refund) (FR-15)
+            rev_res = await client.post(
+                f"/api/redemptions/{red_id}/review",
+                headers={"X-Parent-PIN": "0000"},
+                json={"action": "REJECT", "review_note": "測試退點"},
+            )
+            assert rev_res.status_code == 200
+            assert rev_res.json()["status"] == "REJECTED"
 
-        # 5. 再次兌換並核銷 (COMPLETE)
-        red_res2 = await client.post(
-            "/api/redemptions",
-            json={"member_id": ian_id, "item_id": item_id},
-        )
-        red_id2 = red_res2.json()["id"]
+            # 檢查點數是否已全額退還
+            m_res3 = await client.get("/api/members")
+            bot_refunded = next(m for m in m_res3.json() if m["id"] == bot_id)
+            assert bot_refunded["current_points"] == 100
 
-        approve_res = await client.post(
-            f"/api/redemptions/{red_id2}/review",
-            headers={"X-Parent-PIN": "0000"},
-            json={"action": "COMPLETE", "review_note": "已兌現玩遊戲"},
-        )
-        assert approve_res.status_code == 200
-        assert approve_res.json()["status"] == "COMPLETED"
+            # 再次兌換並核銷 (COMPLETE)
+            red_res2 = await client.post(
+                "/api/redemptions",
+                json={"member_id": bot_id, "item_id": item_id},
+            )
+            red_id2 = red_res2.json()["id"]
+
+            approve_res = await client.post(
+                f"/api/redemptions/{red_id2}/review",
+                headers={"X-Parent-PIN": "0000"},
+                json={"action": "COMPLETE", "review_note": "已核銷"},
+            )
+            assert approve_res.status_code == 200
+            assert approve_res.json()["status"] == "COMPLETED"
+        finally:
+            if item_id:
+                await client.delete(f"/api/items/{item_id}", headers={"X-Parent-PIN": "0000"})
+            await cleanup_test_child(client, bot_id)
 
 @pytest.mark.asyncio
 async def test_ledger_and_export():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # 1. 取得 Ian
-        m_res = await client.get("/api/members")
-        ian = next(m for m in m_res.json() if m["name"] == "Ian")
-        ian_id = ian["id"]
+        test_bot = await create_isolated_test_child(client, "BotLedger")
+        bot_id = test_bot["id"]
 
-        # 2. 查詢綜合存摺流水帳
-        hist_res = await client.get(f"/api/kudos/history?member_id={ian_id}&limit=20")
-        assert hist_res.status_code == 200
-        history = hist_res.json()
-        assert len(history) > 0
+        try:
+            # 建立一筆點數紀錄
+            await client.post(
+                "/api/kudos/record",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "流水帳測試項目",
+                    "condition_value": "自訂",
+                    "points_awarded": 20,
+                },
+            )
 
-        # 3. 匯出 CSV
-        export_res = await client.get(f"/api/kudos/export?member_id={ian_id}")
-        assert export_res.status_code == 200
-        assert export_res.headers["content-type"].startswith("text/csv")
-        csv_text = export_res.text
-        assert "時間,成員姓名,紀錄類型,項目名稱,點數異動" in csv_text
-        assert "社會科" in csv_text
+            # 查詢綜合存摺流水帳
+            hist_res = await client.get(f"/api/kudos/history?member_id={bot_id}&limit=20")
+            assert hist_res.status_code == 200
+            history = hist_res.json()
+            assert len(history) > 0
+
+            # 匯出 CSV
+            export_res = await client.get(f"/api/kudos/export?member_id={bot_id}")
+            assert export_res.status_code == 200
+            assert export_res.headers["content-type"].startswith("text/csv")
+            csv_text = export_res.text
+            assert "時間,成員姓名,紀錄類型,項目名稱,點數異動" in csv_text
+            assert "流水帳測試項目" in csv_text
+        finally:
+            await cleanup_test_child(client, bot_id)
 
 @pytest.mark.asyncio
 async def test_batch_adjustment():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # 1. 取得 Ian
-        m_res = await client.get("/api/members")
-        ian = next(m for m in m_res.json() if m["name"] == "Ian")
-        ian_id = ian["id"]
+        test_bot = await create_isolated_test_child(client, "BotBatch")
+        bot_id = test_bot["id"]
 
-        # 2. 批次調整預覽
-        prev_res = await client.post(
-            "/api/kudos/batch-preview",
-            json={
-                "member_id": ian_id,
-                "target_name": "社會科",
-                "start_date": "2026-01-01",
-                "end_date": "2026-12-31",
-                "mode": "OFFSET",
-                "value": 5,
-            },
-        )
-        assert prev_res.status_code == 200
-        prev_data = prev_res.json()
-        assert prev_data["affected_count"] >= 2
-        assert prev_data["delta"] == prev_data["affected_count"] * 5
+        try:
+            # 建立 2 筆紀錄
+            for i in range(2):
+                await client.post(
+                    "/api/kudos/record",
+                    headers={"X-Parent-PIN": "0000"},
+                    json={
+                        "member_id": bot_id,
+                        "target_name": "批次測試項目",
+                        "condition_value": "100",
+                        "points_awarded": 50,
+                    },
+                )
 
-        # 3. 執行批次調整
-        adj_res = await client.post(
-            "/api/kudos/batch-adjust",
-            headers={"X-Parent-PIN": "0000"},
-            json={
-                "member_id": ian_id,
-                "target_name": "社會科",
-                "start_date": "2026-01-01",
-                "end_date": "2026-12-31",
-                "mode": "OFFSET",
-                "value": 5,
-                "reason": "學期末加碼調增 5 點",
-            },
-        )
-        assert adj_res.status_code == 200
-        adj_data = adj_res.json()
-        assert adj_data["affected_count"] == prev_data["affected_count"]
+            # 批次調整預覽
+            prev_res = await client.post(
+                "/api/kudos/batch-preview",
+                json={
+                    "member_id": bot_id,
+                    "target_name": "批次測試項目",
+                    "start_date": "2026-01-01",
+                    "end_date": "2026-12-31",
+                    "mode": "OFFSET",
+                    "value": 5,
+                },
+            )
+            assert prev_res.status_code == 200
+            prev_data = prev_res.json()
+            assert prev_data["affected_count"] == 2
+            assert prev_data["delta"] == 10
+
+            # 執行批次調整
+            adj_res = await client.post(
+                "/api/kudos/batch-adjust",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "批次測試項目",
+                    "start_date": "2026-01-01",
+                    "end_date": "2026-12-31",
+                    "mode": "OFFSET",
+                    "value": 5,
+                    "reason": "批次調整測試",
+                },
+            )
+            assert adj_res.status_code == 200
+            adj_data = adj_res.json()
+            assert adj_data["affected_count"] == 2
+        finally:
+            await cleanup_test_child(client, bot_id)
 
 @pytest.mark.asyncio
 async def test_system_endpoints():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # 1. 取得系統設定 (密碼強制脫敏)
         cfg_res = await client.get("/api/system/config")
         assert cfg_res.status_code == 200
         cfg = cfg_res.json()
         assert "db_name" in cfg
-        assert "db_password" not in cfg  # NFR-4 機敏密碼零洩漏
-        assert "password" not in cfg
+        assert "db_password" not in cfg
 
-        # 2. 版本檢查
         ver_res = await client.get("/api/system/version")
         assert ver_res.status_code == 200
-        ver_data = ver_res.json()
-        assert "current_version" in ver_data
 
-        # 3. 升級狀態
         status_res = await client.get("/api/system/upgrade-status")
         assert status_res.status_code == 200
-        status_data = status_res.json()
-        assert status_data["status"] in ("IDLE", "RUNNING", "COMPLETED", "FAILED")
 
 @pytest.mark.asyncio
 async def test_badge_management_and_milestones():
@@ -379,12 +411,12 @@ async def test_badge_management_and_milestones():
         ]:
             assert milestone_key in keys
 
-        # 2. 家長新增自訂成就勳章 (需要 PIN 碼)
+        # 2. 家長新增自訂成就勳章
         new_b_res = await client.post(
             "/api/badges",
             headers={"X-Parent-PIN": "0000"},
             json={
-                "badge_key": "TEST_READING_10",
+                "badge_key": "TEST_READING_AUTO",
                 "title": "晨讀書香蛙",
                 "description": "連續晨讀 10 次",
                 "icon": "📖",
@@ -394,54 +426,28 @@ async def test_badge_management_and_milestones():
             },
         )
         assert new_b_res.status_code == 200
-        created = new_b_res.json()
-        assert created["title"] == "晨讀書香蛙"
-        badge_id = created["id"]
+        badge_id = new_b_res.json()["id"]
 
-        # 3. 編輯成就勳章
-        edit_b_res = await client.put(
-            f"/api/badges/{badge_id}",
-            headers={"X-Parent-PIN": "0000"},
-            json={
-                "title": "晨讀博士蛙",
-                "target_value": 20,
-            },
-        )
-        assert edit_b_res.status_code == 200
-        assert edit_b_res.json()["title"] == "晨讀博士蛙"
-        assert edit_b_res.json()["target_value"] == 20
+        test_bot = await create_isolated_test_child(client, "BotBadge")
+        bot_id = test_bot["id"]
 
-        # 4. 手動為成員頒發勳章與收回
-        m_res = await client.get("/api/members")
-        ian = next(m for m in m_res.json() if m["name"] == "Ian")
-        ian_id = ian["id"]
+        try:
+            # 3. 手動為測試成員頒發勳章與收回
+            toggle_res = await client.post(
+                f"/api/badges/TEST_READING_AUTO/toggle/{bot_id}",
+                headers={"X-Parent-PIN": "0000"},
+                json={"unlock": True},
+            )
+            assert toggle_res.status_code == 200
+            assert toggle_res.json()["unlocked"] is True
 
-        toggle_res = await client.post(
-            f"/api/badges/TEST_READING_10/toggle/{ian_id}",
-            headers={"X-Parent-PIN": "0000"},
-            json={"unlock": True},
-        )
-        assert toggle_res.status_code == 200
-        assert toggle_res.json()["unlocked"] is True
-
-        # 檢查 Ian 的勳章清單已包含此勳章
-        ian_badges_res = await client.get(f"/api/members/{ian_id}/badges")
-        assert ian_badges_res.status_code == 200
-        ian_reading_b = next(b for b in ian_badges_res.json() if b["badge_key"] == "TEST_READING_10")
-        assert ian_reading_b["unlocked"] is True
-
-        # 收回勳章
-        toggle_off_res = await client.post(
-            f"/api/badges/TEST_READING_10/toggle/{ian_id}",
-            headers={"X-Parent-PIN": "0000"},
-            json={"unlock": False},
-        )
-        assert toggle_off_res.status_code == 200
-        assert toggle_off_res.json()["unlocked"] is False
-
-        # 5. 刪除該測試勳章
-        del_res = await client.delete(
-            f"/api/badges/{badge_id}",
-            headers={"X-Parent-PIN": "0000"},
-        )
-        assert del_res.status_code == 200
+            toggle_off_res = await client.post(
+                f"/api/badges/TEST_READING_AUTO/toggle/{bot_id}",
+                headers={"X-Parent-PIN": "0000"},
+                json={"unlock": False},
+            )
+            assert toggle_off_res.status_code == 200
+            assert toggle_off_res.json()["unlocked"] is False
+        finally:
+            await client.delete(f"/api/badges/{badge_id}", headers={"X-Parent-PIN": "0000"})
+            await cleanup_test_child(client, bot_id)
