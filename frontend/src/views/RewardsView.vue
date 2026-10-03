@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import MemberPinModal from '@/components/MemberPinModal.vue'
@@ -15,6 +15,10 @@ const selectedMemberId = ref(null)
 const currentMember = computed(() => members.value.find(m => m.id === selectedMemberId.value) || null)
 
 const items = ref([])
+const activeItems = computed(() => items.value.filter(item => item.is_active))
+const inactiveItems = computed(() => items.value.filter(item => !item.is_active))
+const showInactiveSection = ref(false)
+
 const pendingRedemptions = ref([])
 const loading = ref(false)
 const toastMsg = ref('')
@@ -32,6 +36,14 @@ const rejectReason = ref('')
 
 onMounted(async () => {
   await loadInitialData()
+})
+
+// 監聽家長鎖狀態變更，自動更新品項與待審核清單
+watch(() => authStore.isParent, async (isParent) => {
+  await loadItems()
+  if (isParent) {
+    await loadPendingReviews()
+  }
 })
 
 async function loadInitialData() {
@@ -58,6 +70,7 @@ async function loadInitialData() {
 }
 
 async function loadItems() {
+  // 家長模式載入完整資料 (由前端 computed 分流上架中與已下架)；小孩模式僅載入上架品項
   items.value = await api.getItems(authStore.isParent)
 }
 
@@ -197,13 +210,41 @@ async function handleSaveItem() {
   }
 }
 
-async function handleDeleteItem(id) {
-  if (!confirm('確定要下架此獎品嗎？')) return
+async function handleDeleteItem(item) {
+  if (!confirm(`確定要下架「${item.title}」嗎？下架後該獎品將從商城隱藏，小孩將無法兌換。`)) return
   try {
-    await api.deleteItem(id)
+    await api.deleteItem(item.id)
+    toastMsg.value = `📦「${item.title}」已成功下架！`
+    setTimeout(() => { toastMsg.value = '' }, 3000)
     await loadItems()
   } catch (err) {
     errorMsg.value = err.message || '下架失敗'
+  }
+}
+
+async function handleRestoreItem(item) {
+  try {
+    await api.updateItem(item.id, {
+      is_active: true,
+      parent_pin: authStore.parentPin,
+    })
+    toastMsg.value = `🎉 已重新上架「${item.title}」！`
+    setTimeout(() => { toastMsg.value = '' }, 3000)
+    await loadItems()
+  } catch (err) {
+    errorMsg.value = err.message || '重新上架失敗'
+  }
+}
+
+async function handlePermanentDeleteItem(item) {
+  if (!confirm(`確定要永久刪除「${item.title}」嗎？若該商品有歷史兌換紀錄，系統將自動保護為下架存檔。`)) return
+  try {
+    const res = await api.deleteItem(item.id, true)
+    toastMsg.value = res.message || '已處理'
+    setTimeout(() => { toastMsg.value = '' }, 3000)
+    await loadItems()
+  } catch (err) {
+    errorMsg.value = err.message || '刪除失敗'
   }
 }
 </script>
@@ -298,45 +339,106 @@ async function handleDeleteItem(id) {
     </div>
 
     <!-- 【分頁 1: 可兌換品項清單】 -->
-    <div v-if="activeTab === 'items'" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-      <div
-        v-for="item in items"
-        :key="item.id"
-        class="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition flex flex-col justify-between"
-      >
-        <div>
-          <div class="text-4xl mb-3">{{ item.icon || '🎁' }}</div>
-          <h4 class="text-base font-bold text-gray-900 mb-1">{{ item.title }}</h4>
-          <p class="text-xs text-gray-500 mb-4 min-h-[32px]">{{ item.description || '暫無額外限制說明' }}</p>
-        </div>
-
-        <div class="pt-4 border-t border-gray-100">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-medium text-gray-400">所需點數</span>
-            <span class="text-lg font-black font-mono text-frog-600">🪙 {{ item.cost_points }} 點</span>
+    <div v-if="activeTab === 'items'" class="space-y-6">
+      <!-- 上架中商城獎品清單 -->
+      <div v-if="activeItems.length === 0" class="bg-white rounded-3xl p-12 text-center text-gray-400 text-sm border border-gray-100">
+        🎁 目前商城沒有上架中的獎品{{ authStore.isParent ? '，請點擊上方按鈕新增獎品或從下方庫存重新上架！' : '，敬請期待家長新增！' }}
+      </div>
+      <div v-else class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+        <div
+          v-for="item in activeItems"
+          :key="item.id"
+          class="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm hover:shadow-md transition flex flex-col justify-between"
+        >
+          <div>
+            <div class="text-4xl mb-3">{{ item.icon || '🎁' }}</div>
+            <h4 class="text-base font-bold text-gray-900 mb-1">{{ item.title }}</h4>
+            <p class="text-xs text-gray-500 mb-4 min-h-[32px]">{{ item.description || '暫無額外限制說明' }}</p>
           </div>
 
-          <!-- 申請兌換按鈕 -->
-          <button
-            @click="handleApplyRedemption(item)"
-            :disabled="!currentMember || currentMember.current_points < item.cost_points"
-            class="w-full py-2.5 rounded-xl font-bold text-xs transition flex items-center justify-center space-x-1"
-            :class="currentMember && currentMember.current_points >= item.cost_points
-              ? 'bg-frog-500 hover:bg-frog-600 text-white shadow-md shadow-frog-200'
-              : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
-          >
-            <span>
-              {{ currentMember && currentMember.current_points >= item.cost_points
-                ? '🟢 申請兌換 (凍結扣點)'
-                : `還差 ${currentMember ? item.cost_points - currentMember.current_points : 0} 點` }}
-            </span>
-          </button>
+          <div class="pt-4 border-t border-gray-100">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-xs font-medium text-gray-400">所需點數</span>
+              <span class="text-lg font-black font-mono text-frog-600">🪙 {{ item.cost_points }} 點</span>
+            </div>
 
-          <!-- 家長編輯/刪除按鈕 -->
-          <div v-if="authStore.isParent" class="flex justify-end space-x-2 mt-3 pt-2 border-t border-gray-50 text-xs">
-            <button @click="openEditItemModal(item)" class="text-gray-500 hover:text-gray-800">編輯</button>
-            <span class="text-gray-200">|</span>
-            <button @click="handleDeleteItem(item.id)" class="text-red-500 hover:text-red-700">下架</button>
+            <!-- 申請兌換按鈕 -->
+            <button
+              type="button"
+              @click="handleApplyRedemption(item)"
+              :disabled="!currentMember || currentMember.current_points < item.cost_points"
+              class="w-full py-2.5 rounded-xl font-bold text-xs transition flex items-center justify-center space-x-1"
+              :class="currentMember && currentMember.current_points >= item.cost_points
+                ? 'bg-frog-500 hover:bg-frog-600 text-white shadow-md shadow-frog-200 cursor-pointer'
+                : 'bg-gray-100 text-gray-400 cursor-not-allowed'"
+            >
+              <span>
+                {{ currentMember && currentMember.current_points >= item.cost_points
+                  ? '🟢 申請兌換 (凍結扣點)'
+                  : `還差 ${currentMember ? item.cost_points - currentMember.current_points : 0} 點` }}
+              </span>
+            </button>
+
+            <!-- 家長編輯/下架按鈕 -->
+            <div v-if="authStore.isParent" class="flex justify-end space-x-2 mt-3 pt-2 border-t border-gray-50 text-xs">
+              <button type="button" @click="openEditItemModal(item)" class="text-gray-500 hover:text-gray-800 cursor-pointer">編輯</button>
+              <span class="text-gray-200">|</span>
+              <button type="button" @click="handleDeleteItem(item)" class="text-red-500 hover:text-red-700 cursor-pointer">下架</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 家長專屬：已下架商品收合管理區 (可重新上架或永久清除) -->
+      <div v-if="authStore.isParent && inactiveItems.length > 0" class="mt-8 pt-6 border-t border-gray-200">
+        <button
+          type="button"
+          @click="showInactiveSection = !showInactiveSection"
+          class="flex items-center space-x-2 text-xs font-bold text-gray-600 hover:text-gray-900 transition cursor-pointer select-none"
+        >
+          <span>{{ showInactiveSection ? '▼' : '▶' }}</span>
+          <span>📦 已下架商品庫存 ({{ inactiveItems.length }})</span>
+          <span class="text-[11px] text-gray-400 font-normal">（可在此重新上架或永久刪除）</span>
+        </button>
+
+        <div v-if="showInactiveSection" class="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          <div
+            v-for="item in inactiveItems"
+            :key="item.id"
+            class="bg-gray-50/80 rounded-3xl p-6 border border-dashed border-gray-300 transition flex flex-col justify-between opacity-80 hover:opacity-100"
+          >
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-3xl grayscale">{{ item.icon || '🎁' }}</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-200 text-gray-600">已下架</span>
+              </div>
+              <h4 class="text-sm font-bold text-gray-700 mb-1 line-through">{{ item.title }}</h4>
+              <p class="text-xs text-gray-400 mb-4 min-h-[32px]">{{ item.description || '暫無限制說明' }}</p>
+            </div>
+
+            <div class="pt-3 border-t border-gray-200">
+              <div class="flex items-center justify-between mb-3 text-xs text-gray-500 font-mono">
+                <span>所需點數</span>
+                <span class="font-bold">🪙 {{ item.cost_points }} 點</span>
+              </div>
+              <div class="flex space-x-2">
+                <button
+                  type="button"
+                  @click="handleRestoreItem(item)"
+                  class="flex-1 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold transition cursor-pointer"
+                >
+                  🟢 重新上架
+                </button>
+                <button
+                  type="button"
+                  @click="handlePermanentDeleteItem(item)"
+                  class="px-2.5 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-bold transition cursor-pointer"
+                  title="永久刪除此無關聯品項"
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

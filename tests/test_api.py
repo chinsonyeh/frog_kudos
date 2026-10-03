@@ -315,9 +315,9 @@ async def test_redemption_and_refund_lifecycle():
             assert approve_res.status_code == 200
             assert approve_res.json()["status"] == "COMPLETED"
         finally:
-            if item_id:
-                await client.delete(f"/api/items/{item_id}", headers={"X-Parent-PIN": "0000"})
             await cleanup_test_child(client, bot_id)
+            if item_id:
+                await client.delete(f"/api/items/{item_id}?permanent=true", headers={"X-Parent-PIN": "0000"})
 
 @pytest.mark.asyncio
 async def test_ledger_and_export():
@@ -644,8 +644,8 @@ async def test_child_pin_and_self_points_restrictions():
             )
             assert v_old.status_code == 403
         finally:
-            if item_id:
-                await client.delete(f"/api/items/{item_id}", headers={"X-Parent-PIN": "0000"})
             await cleanup_test_child(client, a_id)
             await cleanup_test_child(client, b_id)
+            if item_id:
+                await client.delete(f"/api/items/{item_id}?permanent=true", headers={"X-Parent-PIN": "0000"})
 

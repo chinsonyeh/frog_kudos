@@ -110,8 +110,8 @@ export const api = {
     request('/items', { method: 'POST', body: JSON.stringify(data) }),
   updateItem: (id, data) =>
     request(`/items/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteItem: (id) =>
-    request(`/items/${id}`, { method: 'DELETE' }),
+  deleteItem: (id, permanent = false) =>
+    request(`/items/${id}${permanent ? '?permanent=true' : ''}`, { method: 'DELETE' }),
 
   // 兌換審核
   requestRedemption: (data) =>

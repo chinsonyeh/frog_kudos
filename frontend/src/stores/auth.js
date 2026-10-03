@@ -1,24 +1,80 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
+const SESSION_KEY = 'frog_kudos_auth'
+
+function readSession() {
+  try {
+    if (typeof sessionStorage === 'undefined') return null
+    const raw = sessionStorage.getItem(SESSION_KEY)
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch (e) {
+    console.error('Failed to read auth session:', e)
+    return null
+  }
+}
+
+function writeSession(data) {
+  try {
+    if (typeof sessionStorage === 'undefined') return
+    if (data) {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(data))
+    } else {
+      sessionStorage.removeItem(SESSION_KEY)
+    }
+  } catch (e) {
+    console.error('Failed to write auth session:', e)
+  }
+}
+
 export const useAuthStore = defineStore('auth', () => {
-  // 家長鎖解鎖狀態與 PIN 碼
-  const isParent = ref(false)
-  const parentPin = ref('')
-
-  // 目前選取的成員
-  const selectedMemberId = ref(null)
-
   // 15 分鐘無操作自動安全鎖定 (FR-13)
   const IDLE_TIMEOUT_MS = 15 * 60 * 1000 // 15 分鐘
-  const lastActiveTime = ref(Date.now())
-  const remainingSeconds = ref(15 * 60)
+
+  const initialSession = readSession()
+  const initialElapsed = initialSession?.lastActiveTime ? (Date.now() - initialSession.lastActiveTime) : Infinity
+  const isSessionValid = Boolean(
+    initialSession &&
+    initialSession.isParent &&
+    initialSession.parentPin &&
+    initialElapsed < IDLE_TIMEOUT_MS
+  )
+
+  // 家長鎖解鎖狀態與 PIN 碼
+  const isParent = ref(isSessionValid)
+  const parentPin = ref(isSessionValid ? initialSession.parentPin : '')
+
+  // 目前選取的成員
+  const selectedMemberId = ref(initialSession?.selectedMemberId || null)
+
+  const lastActiveTime = ref(isSessionValid ? initialSession.lastActiveTime : Date.now())
+  const remainingSeconds = ref(
+    isSessionValid
+      ? Math.max(0, Math.floor((IDLE_TIMEOUT_MS - initialElapsed) / 1000))
+      : 15 * 60
+  )
 
   let timerInterval = null
+  let eventListenersAttached = false
+
+  function persistSession() {
+    if (isParent.value) {
+      writeSession({
+        isParent: true,
+        parentPin: parentPin.value,
+        lastActiveTime: lastActiveTime.value,
+        selectedMemberId: selectedMemberId.value,
+      })
+    } else {
+      writeSession(selectedMemberId.value ? { selectedMemberId: selectedMemberId.value } : null)
+    }
+  }
 
   function resetIdleTimer() {
     lastActiveTime.value = Date.now()
     remainingSeconds.value = Math.floor(IDLE_TIMEOUT_MS / 1000)
+    persistSession()
   }
 
   function startIdleMonitor() {
@@ -37,15 +93,24 @@ export const useAuthStore = defineStore('auth', () => {
 
     timerInterval = setInterval(updateTimer, 1000)
 
-    // 監聽使用者互動事件
-    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll']
-    events.forEach(evt => {
-      window.addEventListener(evt, () => {
-        if (isParent.value) {
-          lastActiveTime.value = Date.now()
-        }
-      }, { passive: true })
-    })
+    // 監聽使用者互動事件以重設閒置時間
+    if (!eventListenersAttached && typeof window !== 'undefined') {
+      eventListenersAttached = true
+      const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll']
+      events.forEach(evt => {
+        window.addEventListener(evt, () => {
+          if (isParent.value) {
+            lastActiveTime.value = Date.now()
+            persistSession()
+          }
+        }, { passive: true })
+      })
+    }
+  }
+
+  // 若網頁重新整理時仍處於有效 Session 期間，自動重啟閒置計時器
+  if (isSessionValid) {
+    startIdleMonitor()
   }
 
   function unlockParent(pin) {
@@ -58,6 +123,7 @@ export const useAuthStore = defineStore('auth', () => {
   function lockParent() {
     isParent.value = false
     parentPin.value = ''
+    persistSession()
     if (timerInterval) {
       clearInterval(timerInterval)
       timerInterval = null
@@ -66,6 +132,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   function setSelectedMemberId(id) {
     selectedMemberId.value = id
+    persistSession()
   }
 
   const remainingMinutesFormatted = computed(() => {

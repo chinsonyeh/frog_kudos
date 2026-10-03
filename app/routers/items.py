@@ -80,11 +80,12 @@ async def update_item(
 @router.delete("/{item_id}")
 async def delete_item(
     item_id: uuid.UUID,
+    permanent: bool = Query(False, description="是否永久實體刪除 (僅在無兌換紀錄時允許)"),
     parent_pin: Optional[str] = None,
     x_parent_pin: Optional[str] = Depends(require_parent_pin_dep),
     db: AsyncSession = Depends(get_db),
 ):
-    """下架軟刪除商城獎品 (is_active = FALSE，需家長安全鎖)"""
+    """下架軟刪除商城獎品 (is_active = FALSE，需家長安全鎖)；若 permanent=True 且無兌換關聯則實體刪除"""
     pin = parent_pin or x_parent_pin
     if not await verify_parent_pin(db, pin):
         raise HTTPException(status_code=403, detail="家長安全鎖 PIN 碼錯誤或未授權")
@@ -93,6 +94,18 @@ async def delete_item(
     if not item:
         raise HTTPException(status_code=404, detail="獎品不存在")
 
+    if permanent:
+        from app.models.redemption import Redemption
+        chk = await db.execute(select(Redemption).where(Redemption.item_id == item_id))
+        if chk.scalars().first():
+            item.is_active = False
+            await db.commit()
+            return {"success": True, "message": "獎品已有歷史兌換紀錄，已安全保留並設定為下架狀態"}
+        await db.delete(item)
+        await db.commit()
+        return {"success": True, "message": "獎品已永久刪除"}
+
     item.is_active = False
     await db.commit()
     return {"success": True, "message": "獎品已下架"}
+
