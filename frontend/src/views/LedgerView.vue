@@ -24,6 +24,11 @@ const showBatchModal = ref(false)
 const showBadgeModal = ref(false)
 const unlockedBadges = ref([])
 
+// 監聽全域成員異動，自動重新載入成員與存摺清單
+watch(() => authStore.memberRefreshKey, async () => {
+  await loadInitialData()
+})
+
 onMounted(async () => {
   await loadInitialData()
 })

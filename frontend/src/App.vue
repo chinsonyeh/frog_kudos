@@ -3,9 +3,13 @@ import { ref } from 'vue'
 import Navbar from '@/components/Navbar.vue'
 import ParentPinModal from '@/components/ParentPinModal.vue'
 import SystemSettingsModal from '@/components/SystemSettingsModal.vue'
+import MemberModal from '@/components/MemberModal.vue'
+import { useAuthStore } from '@/stores/auth'
 
+const authStore = useAuthStore()
 const showPinModal = ref(false)
 const showSystemModal = ref(false)
+const showMemberModal = ref(false)
 </script>
 
 <template>
@@ -14,6 +18,7 @@ const showSystemModal = ref(false)
     <Navbar
       @open-pin-modal="showPinModal = true"
       @open-system-modal="showSystemModal = true"
+      @open-member-modal="showMemberModal = true"
     />
 
     <!-- 主要內容區 -->
@@ -32,6 +37,13 @@ const showSystemModal = ref(false)
     <SystemSettingsModal
       :show="showSystemModal"
       @close="showSystemModal = false"
+    />
+
+    <!-- 家庭成員管理彈窗 (FR-2 / FR-13) -->
+    <MemberModal
+      :show="showMemberModal"
+      @close="showMemberModal = false"
+      @member-updated="authStore.triggerMemberRefresh()"
     />
 
     <!-- 底部版權宣告 -->

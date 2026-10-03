@@ -74,15 +74,23 @@ export const useAuthStore = defineStore('auth', () => {
     return `${mins}分${secs < 10 ? '0' : ''}${secs}秒`
   })
 
+  // 全域成員異動更新觸發計數器 (FR-2 / FR-13)
+  const memberRefreshKey = ref(0)
+  function triggerMemberRefresh() {
+    memberRefreshKey.value++
+  }
+
   return {
     isParent,
     parentPin,
     selectedMemberId,
     remainingSeconds,
     remainingMinutesFormatted,
+    memberRefreshKey,
     unlockParent,
     lockParent,
     resetIdleTimer,
     setSelectedMemberId,
+    triggerMemberRefresh,
   }
 })

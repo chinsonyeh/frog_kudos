@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-const emit = defineEmits(['openPinModal', 'openSystemModal'])
+const emit = defineEmits(['openPinModal', 'openSystemModal', 'openMemberModal'])
 
 const router = useRouter()
 const route = useRoute()
@@ -11,18 +11,19 @@ const authStore = useAuthStore()
 
 const currentPath = computed(() => route.path)
 
-const navLinks = computed(() => {
+const navItems = computed(() => {
   if (authStore.isParent) {
     return [
-      { name: '快速登記', path: '/record', icon: '📝' },
-      { name: '榮譽存摺', path: '/ledger', icon: '🏆' },
-      { name: '商城與審核', path: '/rewards', icon: '🎁' },
-      { name: '規則管理', path: '/rules', icon: '⚙️' },
+      { type: 'link', name: '快速登記', path: '/record', icon: '📝' },
+      { type: 'link', name: '榮譽存摺', path: '/ledger', icon: '🏆' },
+      { type: 'link', name: '商城與審核', path: '/rewards', icon: '🎁' },
+      { type: 'button', name: '家庭成員', action: () => emit('openMemberModal'), icon: '👥', title: '管理家庭成員清單與自訂成員' },
+      { type: 'link', name: '規則管理', path: '/rules', icon: '⚙️' },
     ]
   } else {
     return [
-      { name: '榮譽存摺', path: '/ledger', icon: '🏆' },
-      { name: '兌換商城', path: '/rewards', icon: '🎁' },
+      { type: 'link', name: '榮譽存摺', path: '/ledger', icon: '🏆' },
+      { type: 'link', name: '兌換商城', path: '/rewards', icon: '🎁' },
     ]
   }
 })
@@ -66,18 +67,29 @@ function handleOpenSystem() {
           </div>
         </div>
 
-        <!-- 桌面版主要導航 Navigation Links -->
-        <nav class="hidden md:flex space-x-1 lg:space-x-2">
-          <router-link
-            v-for="link in navLinks"
-            :key="link.path"
-            :to="link.path"
-            class="px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center space-x-1.5"
-            :class="currentPath === link.path ? 'bg-frog-50 text-frog-700 shadow-sm' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'"
-          >
-            <span>{{ link.icon }}</span>
-            <span>{{ link.name }}</span>
-          </router-link>
+        <!-- 桌面版主要導航 Navigation Links (家庭成員置於規則管理左側) -->
+        <nav class="hidden md:flex space-x-1 lg:space-x-2 items-center">
+          <template v-for="item in navItems" :key="item.name">
+            <router-link
+              v-if="item.type === 'link'"
+              :to="item.path"
+              class="px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center space-x-1.5"
+              :class="currentPath === item.path ? 'bg-frog-50 text-frog-700 shadow-sm' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'"
+            >
+              <span>{{ item.icon }}</span>
+              <span>{{ item.name }}</span>
+            </router-link>
+            <button
+              v-else-if="item.type === 'button'"
+              @click="item.action"
+              type="button"
+              class="px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center space-x-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-50 active:bg-gray-100 cursor-pointer"
+              :title="item.title || item.name"
+            >
+              <span>{{ item.icon }}</span>
+              <span>{{ item.name }}</span>
+            </button>
+          </template>
         </nav>
 
         <!-- 右側：模式切換與設定按鈕 -->
@@ -120,18 +132,28 @@ function handleOpenSystem() {
       </div>
     </div>
 
-    <!-- 行動裝置底部快速導航 (Mobile Tab Bar) -->
+    <!-- 行動裝置底部快速導航 (Mobile Tab Bar) (家庭成員置於規則管理左側) -->
     <div class="md:hidden border-t border-gray-100 bg-white/95 px-2 py-1.5 flex justify-around shadow-sm">
-      <router-link
-        v-for="link in navLinks"
-        :key="link.path"
-        :to="link.path"
-        class="flex flex-col items-center py-1 px-3 rounded-lg text-xs font-medium transition"
-        :class="currentPath === link.path ? 'text-frog-600 font-bold' : 'text-gray-500 hover:text-gray-800'"
-      >
-        <span class="text-lg leading-none mb-0.5">{{ link.icon }}</span>
-        <span>{{ link.name }}</span>
-      </router-link>
+      <template v-for="item in navItems" :key="item.name">
+        <router-link
+          v-if="item.type === 'link'"
+          :to="item.path"
+          class="flex flex-col items-center py-1 px-2.5 rounded-lg text-xs font-medium transition"
+          :class="currentPath === item.path ? 'text-frog-600 font-bold' : 'text-gray-500 hover:text-gray-800'"
+        >
+          <span class="text-lg leading-none mb-0.5">{{ item.icon }}</span>
+          <span>{{ item.name }}</span>
+        </router-link>
+        <button
+          v-else-if="item.type === 'button'"
+          @click="item.action"
+          type="button"
+          class="flex flex-col items-center py-1 px-2.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-800 transition"
+        >
+          <span class="text-lg leading-none mb-0.5">{{ item.icon }}</span>
+          <span>{{ item.name }}</span>
+        </button>
+      </template>
     </div>
   </header>
 </template>
