@@ -26,6 +26,7 @@ class KudosRecordCreate(BaseModel):
     note: Optional[str] = None
     recorded_by: str = Field(default="Parent", max_length=50)
     parent_pin: Optional[str] = None
+    pin: Optional[str] = None
 
 class KudosRecordOut(BaseModel):
     id: uuid.UUID

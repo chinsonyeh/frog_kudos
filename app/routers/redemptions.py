@@ -3,7 +3,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.core.security import require_parent_pin_dep
+from app.core.security import require_parent_pin_dep, require_any_pin_dep
 from app.schemas.redemption import RedemptionCreate, RedemptionReview, RedemptionOut
 from app.services.redemption_service import (
     create_redemption,
@@ -17,10 +17,12 @@ router = APIRouter(prefix="/redemptions", tags=["Redemptions"])
 async def request_redemption(
     redemption_in: RedemptionCreate,
     background_tasks: BackgroundTasks,
+    x_pin: Optional[str] = Depends(require_any_pin_dep),
     db: AsyncSession = Depends(get_db),
 ):
     """
     發起獎勵兌換申請 (FR-5)
+    - 驗證成員個人 PIN 碼或家長 PIN 碼 (小孩只能使用自己點數)
     - 行級悲觀鎖防併發
     - 扣除即時可用點數並建立 PENDING 申請
     - 背景非同步發送 LINE 提醒家長 (FR-19)
@@ -29,6 +31,7 @@ async def request_redemption(
         db=db,
         req=redemption_in,
         background_tasks=background_tasks,
+        pin_header=x_pin,
     )
 
 @router.get("", response_model=List[RedemptionOut])

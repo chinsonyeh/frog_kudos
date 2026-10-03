@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel, Field
@@ -66,4 +67,13 @@ class PinVerifyIn(BaseModel):
 
 class PinVerifyOut(BaseModel):
     valid: bool
+    message: str
+
+class MemberPinVerifyIn(BaseModel):
+    member_id: uuid.UUID
+    pin: str
+
+class MemberPinVerifyOut(BaseModel):
+    valid: bool
+    role: str
     message: str

@@ -275,7 +275,7 @@ async def test_redemption_and_refund_lifecycle():
             # 發起兌換申請 (扣除可用點數，狀態為 PENDING)
             red_res = await client.post(
                 "/api/redemptions",
-                json={"member_id": bot_id, "item_id": item_id, "note": "兌換測試"},
+                json={"member_id": bot_id, "item_id": item_id, "note": "兌換測試", "pin": "0000"},
             )
             assert red_res.status_code == 200
             redemption = red_res.json()
@@ -303,7 +303,7 @@ async def test_redemption_and_refund_lifecycle():
             # 再次兌換並核銷 (COMPLETE)
             red_res2 = await client.post(
                 "/api/redemptions",
-                json={"member_id": bot_id, "item_id": item_id},
+                json={"member_id": bot_id, "item_id": item_id, "pin": "0000"},
             )
             red_id2 = red_res2.json()["id"]
 
@@ -515,3 +515,137 @@ async def test_badge_management_and_milestones():
         finally:
             await client.delete(f"/api/badges/{badge_id}", headers={"X-Parent-PIN": "0000"})
             await cleanup_test_child(client, bot_id)
+
+@pytest.mark.asyncio
+async def test_child_pin_and_self_points_restrictions():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # 1. 建立兩個獨立測試小孩：ChildA (PIN 1111) 與 ChildB (PIN 2222)
+        res_a = await client.post(
+            "/api/members",
+            headers={"X-Parent-PIN": "0000"},
+            json={"name": f"ChildA_{uuid.uuid4().hex[:6]}", "role": "child", "avatar": "👦", "pin_code": "1111"},
+        )
+        assert res_a.status_code == 200
+        child_a = res_a.json()
+        a_id = child_a["id"]
+
+        res_b = await client.post(
+            "/api/members",
+            headers={"X-Parent-PIN": "0000"},
+            json={"name": f"ChildB_{uuid.uuid4().hex[:6]}", "role": "child", "avatar": "👧", "pin_code": "2222"},
+        )
+        assert res_b.status_code == 200
+        child_b = res_b.json()
+        b_id = child_b["id"]
+
+        item_id = None
+        try:
+            # 2. 驗證成員 PIN 碼 API (/api/system/verify-member-pin)
+            v_ok = await client.post(
+                "/api/system/verify-member-pin",
+                json={"member_id": a_id, "pin": "1111"},
+            )
+            assert v_ok.status_code == 200
+            assert v_ok.json()["valid"] is True
+            assert v_ok.json()["role"] == "child"
+
+            v_bad = await client.post(
+                "/api/system/verify-member-pin",
+                json={"member_id": a_id, "pin": "9999"},
+            )
+            assert v_bad.status_code == 403
+
+            # 3. 小孩為自己申請增加點數 (points_awarded > 0) -> 成功，recorded_by 為小孩姓名
+            add_self = await client.post(
+                "/api/kudos/record",
+                json={
+                    "member_id": a_id,
+                    "target_name": "自主晨讀",
+                    "condition_value": "完成",
+                    "points_awarded": 30,
+                    "pin": "1111",
+                },
+            )
+            assert add_self.status_code == 200
+            assert add_self.json()["recorded_by"] == child_a["name"]
+
+            # 4. 小孩不可為自己登記違規扣點 (points_awarded <= 0) -> 403 Forbidden
+            neg_self = await client.post(
+                "/api/kudos/record",
+                json={
+                    "member_id": a_id,
+                    "target_name": "自扣點數",
+                    "points_awarded": -10,
+                    "pin": "1111",
+                },
+            )
+            assert neg_self.status_code == 403
+
+            # 5. 小孩不可使用自己 PIN 為其他手足登記點數 -> 403 Forbidden
+            hack_sibling = await client.post(
+                "/api/kudos/record",
+                json={
+                    "member_id": b_id,
+                    "target_name": "挪用登記",
+                    "points_awarded": 30,
+                    "pin": "1111",
+                },
+            )
+            assert hack_sibling.status_code == 403
+
+            # 6. 新增測試獎品
+            item_res = await client.post(
+                "/api/items",
+                headers={"X-Parent-PIN": "0000"},
+                json={"title": "小孩自選獎勵", "cost_points": 20, "icon": "🎁"},
+            )
+            assert item_res.status_code == 200
+            item_id = item_res.json()["id"]
+
+            # 7. 小孩使用自己 PIN 申請兌換自己的點數 -> 成功
+            redeem_ok = await client.post(
+                "/api/redemptions",
+                json={"member_id": a_id, "item_id": item_id, "pin": "1111"},
+            )
+            assert redeem_ok.status_code == 200
+            assert redeem_ok.json()["status"] == "PENDING"
+
+            # 8. 小孩不可使用自己 PIN 兌換手足點數 -> 403 Forbidden
+            redeem_bad = await client.post(
+                "/api/redemptions",
+                json={"member_id": b_id, "item_id": item_id, "pin": "1111"},
+            )
+            assert redeem_bad.status_code == 403
+
+            # 9. 小孩修改自己的 PIN 碼 (/api/members/{member_id}/change-pin)
+            change_bad = await client.post(
+                f"/api/members/{a_id}/change-pin",
+                json={"old_pin": "wrong", "new_pin": "3333"},
+            )
+            assert change_bad.status_code == 403
+
+            change_ok = await client.post(
+                f"/api/members/{a_id}/change-pin",
+                json={"old_pin": "1111", "new_pin": "3333"},
+            )
+            assert change_ok.status_code == 200
+
+            # 驗證新 PIN 碼生效
+            v_new = await client.post(
+                "/api/system/verify-member-pin",
+                json={"member_id": a_id, "pin": "3333"},
+            )
+            assert v_new.status_code == 200
+
+            # 舊 PIN 碼失效
+            v_old = await client.post(
+                "/api/system/verify-member-pin",
+                json={"member_id": a_id, "pin": "1111"},
+            )
+            assert v_old.status_code == 403
+        finally:
+            if item_id:
+                await client.delete(f"/api/items/{item_id}", headers={"X-Parent-PIN": "0000"})
+            await cleanup_test_child(client, a_id)
+            await cleanup_test_child(client, b_id)
+

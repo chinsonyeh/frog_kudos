@@ -7,7 +7,7 @@ class MemberCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
     role: str = Field(default="child", pattern="^(parent|child)$")
     avatar: str = Field(default="🐸", max_length=100)
-    pin_code: Optional[str] = Field(default=None, description="若 role=parent 需設定 4 碼 PIN")
+    pin_code: Optional[str] = Field(default=None, description="成員 4 碼 PIN 碼 (預設 0000)")
     parent_pin: Optional[str] = None
 
 class MemberUpdate(BaseModel):
@@ -20,6 +20,11 @@ class MemberUpdate(BaseModel):
 
 class MemberAvatarUpdate(BaseModel):
     avatar: str = Field(..., min_length=1, max_length=100)
+
+class MemberChangePinIn(BaseModel):
+    old_pin: Optional[str] = None
+    new_pin: str = Field(..., min_length=4, max_length=6)
+    parent_pin: Optional[str] = None
 
 class MemberOut(BaseModel):
     id: uuid.UUID

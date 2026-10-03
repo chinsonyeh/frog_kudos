@@ -7,6 +7,8 @@ class RedemptionCreate(BaseModel):
     member_id: uuid.UUID
     item_id: uuid.UUID
     note: Optional[str] = None
+    pin: Optional[str] = None
+    parent_pin: Optional[str] = None
 
 class RedemptionReview(BaseModel):
     action: str = Field(..., pattern="^(COMPLETE|REJECT|APPROVE)$")  # 支援 APPROVE 作為 COMPLETE 別名

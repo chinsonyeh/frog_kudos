@@ -8,20 +8,27 @@ from app.models.member import Member
 from app.models.reward_item import RewardItem
 from app.models.redemption import Redemption
 from app.schemas.redemption import RedemptionCreate, RedemptionReview, RedemptionOut
-from app.core.security import verify_parent_pin
+from app.core.security import verify_parent_pin, verify_member_or_parent_pin
 from app.services.line_service import send_line_push
 
 async def create_redemption(
     db: AsyncSession,
     req: RedemptionCreate,
     background_tasks: BackgroundTasks,
+    pin_header: Optional[str] = None,
 ) -> RedemptionOut:
     """
     發起獎品兌換申請 (FR-5, FR-15, FR-19)
+    - 驗證申請人 (成員) 個人 PIN 碼或家長 PIN 碼 (小孩只能使用自己點數)
     - 行級悲觀鎖 SELECT ... FOR UPDATE 防連點與超兌
     - 扣減即時可用點數 (狀態為 PENDING)
     - 背景非同步推播 LINE 兌換申請通知
     """
+    pin = req.pin or req.parent_pin or pin_header
+    valid, _ = await verify_member_or_parent_pin(db, req.member_id, pin)
+    if not valid:
+        raise HTTPException(status_code=403, detail="成員 PIN 碼錯誤或未授權")
+
     # 1. 鎖定成員
     member_stmt = select(Member).where(Member.id == req.member_id).with_for_update()
     res_m = await db.execute(member_stmt)

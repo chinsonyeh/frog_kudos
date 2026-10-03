@@ -144,5 +144,5 @@ ON CONFLICT (badge_key) DO NOTHING;
 -- Dad 預設 PIN 為 0000 (標準 bcrypt 雜湊，與後端驗證相容)
 INSERT INTO members (name, role, avatar, pin_code) VALUES
     ('Dad', 'parent', '👨', '$2b$12$f7BXSELglKbgS3y6GdeQr.M1aNHcMIIlkEsPrUYBXF8rT2YCB8zQu'),
-    ('Ian', 'child', '🐸', NULL)
+    ('Ian', 'child', '🐸', '$2b$12$f7BXSELglKbgS3y6GdeQr.M1aNHcMIIlkEsPrUYBXF8rT2YCB8zQu')
 ON CONFLICT (name) DO NOTHING;

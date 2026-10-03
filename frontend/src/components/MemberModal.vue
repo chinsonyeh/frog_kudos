@@ -11,7 +11,7 @@ const emit = defineEmits(['close', 'memberUpdated'])
 const authStore = useAuthStore()
 
 const viewMode = ref('list') // 'list' | 'form'
-const formMode = ref('create') // 'create' | 'edit' | 'avatar'
+const formMode = ref('create') // 'create' | 'edit' | 'avatar' | 'change_pin'
 const membersList = ref([])
 const loading = ref(false)
 const errorMsg = ref('')
@@ -24,6 +24,11 @@ const role = ref('child')
 const avatar = ref('🐸')
 const pinCode = ref('')
 const isActive = ref(true)
+
+// 修改 PIN 碼專用欄位
+const oldPin = ref('')
+const newPin = ref('')
+const confirmPin = ref('')
 
 // 豐富多元的代表頭像清單 (32 款動物、角色、運動與趣味 Emoji)
 const commonAvatars = [
@@ -80,7 +85,54 @@ function openEditForm(member) {
   viewMode.value = 'form'
 }
 
+function openChangePinForm(member) {
+  formMode.value = 'change_pin'
+  editingMemberId.value = member.id
+  name.value = member.name
+  oldPin.value = ''
+  newPin.value = ''
+  confirmPin.value = ''
+  errorMsg.value = ''
+  viewMode.value = 'form'
+}
+
 async function handleSave() {
+  // 修改 PIN 碼模式 (小孩自主變更或家長重設)
+  if (formMode.value === 'change_pin') {
+    if (!authStore.isParent && !oldPin.value.trim()) {
+      errorMsg.value = '請輸入目前使用的 4 位數 PIN 碼'
+      return
+    }
+    if (!newPin.value.trim() || newPin.value.trim().length < 4) {
+      errorMsg.value = '新 PIN 碼必須至少為 4 位數字'
+      return
+    }
+    if (newPin.value.trim() !== confirmPin.value.trim()) {
+      errorMsg.value = '兩次輸入的新 PIN 碼不一致'
+      return
+    }
+
+    loading.value = true
+    errorMsg.value = ''
+    try {
+      await api.changeMemberPin(editingMemberId.value, {
+        old_pin: oldPin.value.trim() || null,
+        new_pin: newPin.value.trim(),
+        parent_pin: authStore.parentPin,
+      })
+      successMsg.value = `✅ 已成功變更「${name.value}」的 PIN 碼！`
+      setTimeout(() => { successMsg.value = '' }, 3000)
+      emit('memberUpdated')
+      await loadMembers()
+      viewMode.value = 'list'
+    } catch (err) {
+      errorMsg.value = err.message || '變更 PIN 碼失敗'
+    } finally {
+      loading.value = false
+    }
+    return
+  }
+
   // 未解鎖狀態：僅更換代表頭像 (無須 PIN 碼)
   if (!authStore.isParent || formMode.value === 'avatar') {
     loading.value = true
@@ -120,7 +172,7 @@ async function handleSave() {
         name: name.value.trim(),
         role: role.value,
         avatar: avatar.value,
-        pin_code: role.value === 'parent' ? pinCode.value : null,
+        pin_code: pinCode.value ? pinCode.value.trim() : (role.value === 'parent' ? null : '0000'),
         parent_pin: authStore.parentPin,
       })
       successMsg.value = `✅ 已成功新增家庭成員「${name.value}」！`
@@ -129,7 +181,7 @@ async function handleSave() {
         name: name.value.trim(),
         role: role.value,
         avatar: avatar.value,
-        pin_code: pinCode.value ? pinCode.value : undefined,
+        pin_code: pinCode.value && pinCode.value.trim() ? pinCode.value.trim() : undefined,
         is_active: isActive.value,
         parent_pin: authStore.parentPin,
       })
@@ -180,10 +232,10 @@ async function handleDelete(member) {
           <span class="text-2xl">{{ authStore.isParent ? '👨‍👩‍👧' : '🎨' }}</span>
           <h3 class="text-lg font-bold text-gray-900">
             <template v-if="!authStore.isParent">
-              {{ viewMode === 'list' ? '更換成員代表頭像' : `為「${name}」挑選代表頭像` }}
+              {{ viewMode === 'list' ? '更換成員代表頭像 / PIN 碼' : (formMode === 'change_pin' ? `變更「${name}」的個人 PIN 碼` : `為「${name}」挑選代表頭像`) }}
             </template>
             <template v-else>
-              {{ viewMode === 'list' ? '家庭成員管理' : (formMode === 'create' ? '新增家庭成員' : '編輯成員資訊') }}
+              {{ viewMode === 'list' ? '家庭成員管理' : (formMode === 'create' ? '新增家庭成員' : (formMode === 'change_pin' ? `變更「${name}」的個人 PIN 碼` : '編輯成員資訊')) }}
             </template>
           </h3>
         </div>
@@ -206,7 +258,7 @@ async function handleDelete(member) {
       <div v-if="viewMode === 'list'" class="flex-1 overflow-y-auto py-4 space-y-4">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">
-            {{ authStore.isParent ? `目前家庭成員清單 (${membersList.length})` : '請點選成員以自訂代表頭像' }}
+            {{ authStore.isParent ? `目前家庭成員清單 (${membersList.length})` : '請點選成員以自訂頭像或 PIN 碼' }}
           </span>
           <!-- 僅家長模式顯示 + 新增成員；未解鎖時嚴格隱藏 -->
           <button
@@ -271,15 +323,24 @@ async function handleDelete(member) {
               >
                 編輯
               </button>
-              <!-- 未解鎖狀態：僅更換頭像按鈕 -->
-              <button
-                v-else
-                @click.stop="openEditForm(m)"
-                type="button"
-                class="px-3 py-1.5 rounded-xl bg-frog-50 hover:bg-frog-100 border border-frog-200 text-xs font-bold text-frog-700 transition flex items-center space-x-1 cursor-pointer"
-              >
-                <span>🎨 更換頭像</span>
-              </button>
+              <!-- 未解鎖狀態：更換頭像與修改 PIN 按鈕 -->
+              <template v-else>
+                <button
+                  @click.stop="openEditForm(m)"
+                  type="button"
+                  class="px-2.5 py-1.5 rounded-xl bg-frog-50 hover:bg-frog-100 border border-frog-200 text-xs font-bold text-frog-700 transition flex items-center space-x-1 cursor-pointer"
+                >
+                  <span>🎨 頭像</span>
+                </button>
+                <button
+                  @click.stop="openChangePinForm(m)"
+                  type="button"
+                  class="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-xs font-bold text-amber-700 transition flex items-center space-x-1 cursor-pointer"
+                  title="變更個人 PIN 碼"
+                >
+                  <span>🔑 PIN</span>
+                </button>
+              </template>
 
               <!-- 僅家長模式顯示刪除/停用按鈕，未解鎖時嚴格隱藏且禁用 -->
               <button
@@ -295,85 +356,128 @@ async function handleDelete(member) {
         </div>
       </div>
 
-      <!-- 【模式 2: 表單 (新增/編輯/更換頭像)】 -->
+      <!-- 【模式 2: 表單 (新增/編輯/更換頭像/修改 PIN)】 -->
       <div v-else class="flex-1 overflow-y-auto py-4 space-y-4">
-        <!-- 姓名 (僅家長模式顯示；未解鎖時嚴格隱藏與禁用) -->
-        <div v-if="authStore.isParent">
-          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-            成員姓名 / 暱稱
-          </label>
-          <input
-            v-model="name"
-            type="text"
-            placeholder="例如: Ian, Amy, Mom, Dad"
-            class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-medium focus:ring-2 focus:ring-frog-500 transition"
-          />
-        </div>
-
-        <!-- 角色類型 (僅家長模式顯示；未解鎖時嚴格隱藏與禁用) -->
-        <div v-if="authStore.isParent">
-          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-            角色類型
-          </label>
-          <div class="grid grid-cols-2 gap-3">
-            <label
-              class="flex items-center space-x-2 p-3 rounded-xl border cursor-pointer transition text-xs font-medium"
-              :class="role === 'child' ? 'border-frog-500 bg-frog-50/50 text-frog-800 font-bold' : 'border-gray-200 text-gray-600'"
-            >
-              <input type="radio" v-model="role" value="child" class="text-frog-600" />
-              <span>👦 小孩 (預設唯讀/成就存摺)</span>
+        <!-- 變更個人 PIN 碼模式 -->
+        <template v-if="formMode === 'change_pin'">
+          <div v-if="!authStore.isParent">
+            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+              目前 PIN 碼 (舊密碼，預設為 0000)
             </label>
-            <label
-              class="flex items-center space-x-2 p-3 rounded-xl border cursor-pointer transition text-xs font-medium"
-              :class="role === 'parent' ? 'border-blue-500 bg-blue-50/50 text-blue-800 font-bold' : 'border-gray-200 text-gray-600'"
-            >
-              <input type="radio" v-model="role" value="parent" class="text-blue-600" />
-              <span>👨 家長 (管理員/需 4 碼 PIN)</span>
+            <input
+              v-model="oldPin"
+              type="password"
+              maxlength="6"
+              placeholder="請輸入目前 4 位數 PIN 碼"
+              class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-mono tracking-widest"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+              設定新 PIN 碼 (4 位數)
+            </label>
+            <input
+              v-model="newPin"
+              type="password"
+              maxlength="6"
+              placeholder="請輸入新 4 位數 PIN 碼"
+              class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-mono tracking-widest"
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+              再次確認新 PIN 碼
+            </label>
+            <input
+              v-model="confirmPin"
+              type="password"
+              maxlength="6"
+              placeholder="請再次輸入新 4 位數 PIN 碼"
+              class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-mono tracking-widest"
+            />
+          </div>
+        </template>
+
+        <template v-else>
+          <!-- 姓名 (僅家長模式顯示；未解鎖時嚴格隱藏與禁用) -->
+          <div v-if="authStore.isParent">
+            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+              成員姓名 / 暱稱
+            </label>
+            <input
+              v-model="name"
+              type="text"
+              placeholder="例如: Ian, Amy, Mom, Dad"
+              class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-medium focus:ring-2 focus:ring-frog-500 transition"
+            />
+          </div>
+
+          <!-- 角色類型 (僅家長模式顯示；未解鎖時嚴格隱藏與禁用) -->
+          <div v-if="authStore.isParent">
+            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+              角色類型
+            </label>
+            <div class="grid grid-cols-2 gap-3">
+              <label
+                class="flex items-center space-x-2 p-3 rounded-xl border cursor-pointer transition text-xs font-medium"
+                :class="role === 'child' ? 'border-frog-500 bg-frog-50/50 text-frog-800 font-bold' : 'border-gray-200 text-gray-600'"
+              >
+                <input type="radio" v-model="role" value="child" class="text-frog-600" />
+                <span>👦 小孩 (自主申請增加/兌換)</span>
+              </label>
+              <label
+                class="flex items-center space-x-2 p-3 rounded-xl border cursor-pointer transition text-xs font-medium"
+                :class="role === 'parent' ? 'border-blue-500 bg-blue-50/50 text-blue-800 font-bold' : 'border-gray-200 text-gray-600'"
+              >
+                <input type="radio" v-model="role" value="parent" class="text-blue-600" />
+                <span>👨 家長 (管理員/需 4 碼 PIN)</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 代表頭像選擇 (無論是否解鎖皆可自由挑選) -->
+          <div>
+            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+              {{ authStore.isParent ? `代表頭像 Emoji (目前: ${avatar})` : `為「${name}」選擇代表頭像 (目前: ${avatar})` }}
+            </label>
+            <div class="flex flex-wrap gap-2 mb-2 p-3 bg-gray-50 rounded-2xl border border-gray-100 max-h-48 overflow-y-auto">
+              <button
+                v-for="av in commonAvatars"
+                :key="av"
+                type="button"
+                @click="avatar = av"
+                class="w-10 h-10 rounded-xl flex items-center justify-center text-2xl transition hover:scale-110 cursor-pointer"
+                :class="avatar === av ? 'bg-frog-200 ring-2 ring-frog-500 shadow-inner' : 'hover:bg-white bg-white/70 shadow-xs'"
+              >
+                {{ av }}
+              </button>
+            </div>
+          </div>
+
+          <!-- PIN 碼設定 (家長模式下為所有成員設定；未解鎖時嚴格隱藏) -->
+          <div v-if="authStore.isParent">
+            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+              {{ role === 'parent' ? '家長安全鎖 4 位數 PIN 碼' : '小孩個人專屬 4 位數 PIN 碼 (預設 0000)' }}
+              {{ formMode === 'edit' ? '(留空表示不變更)' : '' }}
+            </label>
+            <input
+              v-model="pinCode"
+              type="password"
+              maxlength="6"
+              placeholder="請輸入 4 位數 PIN 碼"
+              class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-mono tracking-widest"
+            />
+          </div>
+
+          <!-- 啟用狀態 (僅家長編輯模式時顯示；未解鎖時嚴格隱藏) -->
+          <div v-if="authStore.isParent && formMode === 'edit'" class="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+            <span class="text-xs font-bold text-gray-700">帳號啟用狀態：</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" v-model="isActive" class="sr-only peer" />
+              <div class="w-10 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-frog-500"></div>
             </label>
           </div>
-        </div>
-
-        <!-- 代表頭像選擇 (無論是否解鎖皆可自由挑選) -->
-        <div>
-          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-            {{ authStore.isParent ? `代表頭像 Emoji (目前: ${avatar})` : `為「${name}」選擇代表頭像 (目前: ${avatar})` }}
-          </label>
-          <div class="flex flex-wrap gap-2 mb-2 p-3 bg-gray-50 rounded-2xl border border-gray-100 max-h-48 overflow-y-auto">
-            <button
-              v-for="av in commonAvatars"
-              :key="av"
-              type="button"
-              @click="avatar = av"
-              class="w-10 h-10 rounded-xl flex items-center justify-center text-2xl transition hover:scale-110 cursor-pointer"
-              :class="avatar === av ? 'bg-frog-200 ring-2 ring-frog-500 shadow-inner' : 'hover:bg-white bg-white/70 shadow-xs'"
-            >
-              {{ av }}
-            </button>
-          </div>
-        </div>
-
-        <!-- 家長 PIN 碼 (僅家長模式且為家長角色時顯示；未解鎖時嚴格隱藏) -->
-        <div v-if="authStore.isParent && role === 'parent'">
-          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-            家長安全鎖 4 位數 PIN 碼 {{ formMode === 'edit' ? '(留空表示不變更)' : '' }}
-          </label>
-          <input
-            v-model="pinCode"
-            type="password"
-            maxlength="6"
-            placeholder="請輸入 4 位數 PIN 碼"
-            class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-mono tracking-widest"
-          />
-        </div>
-
-        <!-- 啟用狀態 (僅家長編輯模式時顯示；未解鎖時嚴格隱藏) -->
-        <div v-if="authStore.isParent && formMode === 'edit'" class="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
-          <span class="text-xs font-bold text-gray-700">帳號啟用狀態：</span>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" v-model="isActive" class="sr-only peer" />
-            <div class="w-10 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-frog-500"></div>
-          </label>
-        </div>
+        </template>
 
         <!-- 表單操作按鈕 -->
         <div class="flex space-x-3 pt-3">
@@ -390,7 +494,7 @@ async function handleDelete(member) {
             type="button"
             class="flex-1 py-2.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-md shadow-frog-200 transition disabled:opacity-50 cursor-pointer"
           >
-            {{ loading ? '儲存中...' : (authStore.isParent ? (formMode === 'create' ? '確認新增' : '儲存修改') : '確認更換頭像') }}
+            {{ loading ? '儲存中...' : (formMode === 'change_pin' ? '確認變更 PIN 碼' : (authStore.isParent ? (formMode === 'create' ? '確認新增' : '儲存修改') : '確認更換頭像')) }}
           </button>
         </div>
       </div>

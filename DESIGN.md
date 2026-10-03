@@ -1298,6 +1298,7 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 | **FR-17**| 學期成就紀錄與存摺 CSV 匯出 | `kudos_records` | `GET /api/kudos/export` | 畫面 2：【📥 匯出存摺 (CSV)】按鈕 | ✅ 100% 符合 |
 | **FR-18**| 里程碑成就勳章系統與勳章牆管理 | `badges` 表、`member_badges` 表 | `GET /api/badges`, `POST/PUT/DELETE /api/badges`<br>`GET /api/members/{id}/badges`<br>5,000~100,000 多階里程碑與動態評定邏輯 | 畫面 2：榮譽榜成就勳章牆、勳章管理與編輯彈窗、解鎖彈窗與灑花 | ✅ 100% 符合 |
 | **FR-19**| LINE 兌換申請即時推播通知 | 後端 `BackgroundTasks` + LINE Messaging API | `POST /api/redemptions`<br>`POST /api/system/line/test` | 畫面 6：分頁 3 LINE 推播設定與連線測試 | ✅ 100% 符合 |
+| **FR-20**| 全成員個人 PIN 碼授權與小孩自主點數邊界 | `members` (`pin_code`) | `POST /api/system/verify-member-pin`<br>`POST /api/members/{id}/change-pin`<br>`verify_member_or_parent_pin` | `MemberPinModal.vue` 數字鍵盤、點數登記小孩身分防護、商城個人 PIN 兌換 | ✅ 100% 符合 |
 | **NFR-1**| 易用性與行動裝置友善 | Vue 3 + TailwindCSS | - | RWD 手機/平板優先、大觸控區塊、灑花慶祝反饋 | ✅ 100% 符合 |
 | **NFR-2**| 資料交易一致性 (ACID) | PostgreSQL DB Transaction | 點數發放/扣抵/批次調整均於單一 Transaction 完成 | - | ✅ 100% 符合 |
 | **NFR-3**| 資料庫與環境相容性 | PostgreSQL `frog_kudos` | SQLAlchemy 2.0 Async + asyncpg | - | ✅ 100% 符合 |
@@ -1362,3 +1363,29 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 ### 8.5 備份檔案權限安全 (Backup Files Permissions)
 - `scripts/backup.sh` 與還原前快照所產生的 `.dump` 檔案，生成當下自動執行 `chmod 600 "$BACKUP_FILE"`，確保備份檔案僅有系統擁有者可讀寫。
 - PostgreSQL Custom dump 檔案僅儲存關聯資料與結構，不包含 PostgreSQL 伺服器登入帳號密碼。
+
+### 8.6 全成員個人 PIN 碼授權體系與小孩自主點數邊界防護 (Member PIN & Child Boundary Security)
+- **bcrypt 12-round 加鹽單向雜湊存儲**：
+  所有成員（包含家長與小孩）之 `pin_code` 於資料庫中均經過 bcrypt 單向加鹽雜湊存儲，絕不明文存放。對外 API 回傳 `MemberOut` 時，Pydantic Schema 強制排除 `pin_code` 欄位（NFR-4）。
+- **雙階身分鑑權演算法 (`verify_member_or_parent_pin`)**：
+  ```python
+  async def verify_member_or_parent_pin(db, target_member_id, pin):
+      # 1. 優先比對是否具備有效家長 PIN 碼 (或 .env PARENT_DEFAULT_PIN)
+      if await validate_parent_pin(db, pin):
+          return True, "parent"
+      # 2. 比對目標成員個人之 pin_code
+      member = await db.get(Member, target_member_id)
+      if member and verify_pin(pin, member.pin_code):
+          return True, member.role
+      return False, "none"
+  ```
+- **小孩自主點數申請嚴格約束**：
+  1. **點數增加 (`POST /api/kudos/record`)**：
+     - 小孩操作時強制要求 `points_awarded > 0`，不允許自訂負數扣點。
+     - 紀錄建立時 `recorded_by` 鎖定為小孩本人姓名（如 `Ian`），確保審計日誌不被偽造。
+     - 若意圖使用自己 PIN 碼為其他手足登記點數，因目標成員 ID 不符且非家長權限，系統即時拒絕並拋出 HTTP 403 Forbidden。
+  2. **點數使用 (`POST /api/redemptions`)**：
+     - 小孩兌換獎勵時必須輸入個人 PIN 碼驗證身分，僅能扣除自己帳戶之可用點數，嚴禁挪用其他手足點數。
+  3. **個人 PIN 碼自主變更 (`POST /api/members/{id}/change-pin`)**：
+     - 小孩可於未解鎖介面自主點擊「🔑 PIN」，輸入目前舊 PIN 碼通過驗證後，自訂新的 4 碼 PIN 碼；家長亦可持家長 PIN 碼為任何成員直接重設。
+

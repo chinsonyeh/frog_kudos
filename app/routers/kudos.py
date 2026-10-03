@@ -4,7 +4,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.core.security import require_parent_pin_dep
+from app.core.security import require_parent_pin_dep, require_any_pin_dep
 from app.schemas.kudos import (
     PreviewIn,
     PreviewOut,
@@ -43,14 +43,14 @@ async def preview_kudos_rule(
 @router.post("/record", response_model=KudosRecordOut)
 async def create_kudos_record(
     record_in: KudosRecordCreate,
-    x_parent_pin: Optional[str] = Depends(require_parent_pin_dep),
+    x_pin: Optional[str] = Depends(require_any_pin_dep),
     db: AsyncSession = Depends(get_db),
 ):
     """正式發放點數或自訂臨時獎懲 (FR-3, FR-4, FR-14)"""
     return await record_kudos(
         db=db,
         record_in=record_in,
-        parent_pin_header=x_parent_pin,
+        parent_pin_header=x_pin,
     )
 
 @router.get("/history", response_model=List[LedgerItemOut])

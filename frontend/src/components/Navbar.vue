@@ -22,8 +22,10 @@ const navItems = computed(() => {
     ]
   } else {
     return [
+      { type: 'link', name: '點數登記', path: '/record', icon: '📝' },
       { type: 'link', name: '榮譽存摺', path: '/ledger', icon: '🏆' },
       { type: 'link', name: '兌換商城', path: '/rewards', icon: '🎁' },
+      { type: 'button', name: '家庭成員', action: () => emit('openMemberModal'), icon: '👥', title: '更換代表頭像與個人 PIN 碼' },
     ]
   }
 })
@@ -31,7 +33,7 @@ const navItems = computed(() => {
 function handleModeToggle() {
   if (authStore.isParent) {
     authStore.lockParent()
-    if (route.path === '/record' || route.path === '/rules') {
+    if (route.path === '/rules') {
       router.push('/ledger')
     }
   } else {
@@ -115,7 +117,7 @@ function handleOpenSystem() {
             @click="handleModeToggle"
             class="flex items-center space-x-1.5 bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 rounded-full px-3 py-1.5 text-xs font-semibold transition"
           >
-            <span>👦 小孩模式 (唯讀)</span>
+            <span>👦 小孩模式</span>
             <span class="text-gray-400">|</span>
             <span class="text-frog-700 font-bold hover:underline">🔐 解鎖</span>
           </button>

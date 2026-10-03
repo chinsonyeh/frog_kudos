@@ -2,8 +2,12 @@
 import { ref, onMounted, computed } from 'vue'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import MemberPinModal from '@/components/MemberPinModal.vue'
 
 const authStore = useAuthStore()
+
+const showMemberPinModal = ref(false)
+const pendingRedeemItem = ref(null)
 
 const activeTab = ref('items') // 'items' | 'review'
 const members = ref([])
@@ -74,11 +78,29 @@ async function handleApplyRedemption(item) {
   }
 
   errorMsg.value = ''
+
+  if (!authStore.isParent) {
+    pendingRedeemItem.value = item
+    showMemberPinModal.value = true
+    return
+  }
+
+  await executeRedemption(item, authStore.parentPin)
+}
+
+async function onMemberPinConfirmed({ pin }) {
+  if (!pendingRedeemItem.value) return
+  await executeRedemption(pendingRedeemItem.value, pin)
+}
+
+async function executeRedemption(item, pin) {
+  errorMsg.value = ''
   try {
     await api.requestRedemption({
       member_id: currentMember.value.id,
       item_id: item.id,
       note: '小孩自主發起心願兌換',
+      pin: pin,
     })
     toastMsg.value = `🎉 已成功送出「${item.title}」兌換申請！請提醒家長審核核銷。`
     setTimeout(() => { toastMsg.value = '' }, 4000)
@@ -88,6 +110,7 @@ async function handleApplyRedemption(item) {
     if (authStore.isParent) {
       await loadPendingReviews()
     }
+    pendingRedeemItem.value = null
   } catch (err) {
     errorMsg.value = err.message || '申請兌換失敗'
   }
@@ -187,6 +210,15 @@ async function handleDeleteItem(id) {
 
 <template>
   <div class="max-w-4xl mx-auto space-y-6">
+    <!-- 成員 PIN 碼驗證彈窗 -->
+    <MemberPinModal
+      :show="showMemberPinModal"
+      :member="currentMember"
+      action-title="獎品兌換申請"
+      :description="`請輸入「${currentMember?.name}」的 4 位數 PIN 碼以確認兌換「${pendingRedeemItem?.title}」`"
+      @close="showMemberPinModal = false"
+      @confirmed="onMemberPinConfirmed"
+    />
     <!-- Toast 成功通知 -->
     <div
       v-if="toastMsg"

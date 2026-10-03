@@ -18,7 +18,6 @@ const routes = [
     path: '/record',
     name: 'Record',
     component: QuickEntryView,
-    meta: { requiresParent: true },
   },
   {
     path: '/ledger',

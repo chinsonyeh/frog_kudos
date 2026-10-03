@@ -4,7 +4,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File, Form, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.core.security import verify_parent_pin, require_parent_pin_dep
+from app.core.security import verify_parent_pin, verify_member_or_parent_pin, require_parent_pin_dep
 from app.schemas.system import (
     SystemConfigOut,
     SystemConfigUpdate,
@@ -18,6 +18,8 @@ from app.schemas.system import (
     UpgradeStatusOut,
     PinVerifyIn,
     PinVerifyOut,
+    MemberPinVerifyIn,
+    MemberPinVerifyOut,
 )
 from app.services.system_service import (
     run_backup,
@@ -152,4 +154,22 @@ async def verify_parent_pin_endpoint(
             detail="家長安全鎖 PIN 碼錯誤，請重新輸入",
         )
     return PinVerifyOut(valid=True, message="家長安全鎖 PIN 碼驗證成功")
+
+@router.post("/verify-member-pin", response_model=MemberPinVerifyOut)
+async def verify_member_pin_endpoint(
+    verify_in: MemberPinVerifyIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    即時驗證特定成員的個人 PIN 碼 (或家長 PIN 碼)
+    驗證成功回傳 200 與角色 (parent/child)，錯誤拋出 403 Forbidden。
+    """
+    valid, role = await verify_member_or_parent_pin(db, verify_in.member_id, verify_in.pin)
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="PIN 碼錯誤，請重新輸入",
+        )
+    return MemberPinVerifyOut(valid=True, role=role, message="PIN 碼驗證成功")
+
 

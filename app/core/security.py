@@ -1,3 +1,4 @@
+import uuid
 import bcrypt
 from typing import Optional
 from fastapi import HTTPException, Header, Depends, status
@@ -62,8 +63,53 @@ async def validate_parent_pin(
 
 verify_parent_pin = validate_parent_pin
 
+async def verify_member_or_parent_pin(
+    db: AsyncSession,
+    target_member_id: uuid.UUID,
+    input_pin: Optional[str] = None,
+    header_pin: Optional[str] = None,
+) -> tuple[bool, str]:
+    """
+    成員或家長 PIN 碼權限驗證:
+    1. 取得輸入 PIN (優先 input_pin，其次 header_pin)
+    2. 比對有效家長之 PIN 碼 (或 .env PARENT_DEFAULT_PIN)，若相符回傳 (True, "parent")
+    3. 比對目標成員 (target_member_id) 之 pin_code，若相符回傳 (True, member.role)
+    4. 其餘情況回傳 (False, "none")
+    """
+    pin = (input_pin or header_pin or "").strip()
+    if not pin:
+        return False, "none"
+
+    # 1. 優先檢查是否具有家長權限
+    if await validate_parent_pin(db, input_pin=pin):
+        return True, "parent"
+
+    # 2. 檢查是否符合目標成員的個人 PIN 碼
+    from app.models.member import Member
+    member = await db.get(Member, target_member_id)
+    if not member or not member.is_active:
+        return False, "none"
+
+    if member.pin_code:
+        if verify_pin(pin, member.pin_code):
+            return True, member.role
+    else:
+        # 未自訂 PIN 碼前，預設允許 0000
+        if pin == "0000":
+            return True, member.role
+
+    return False, "none"
+
 async def require_parent_pin_dep(
     x_parent_pin: Optional[str] = Header(None, alias="X-Parent-PIN"),
 ) -> Optional[str]:
     """FastAPI header dependency for X-Parent-PIN"""
     return x_parent_pin
+
+async def require_any_pin_dep(
+    x_parent_pin: Optional[str] = Header(None, alias="X-Parent-PIN"),
+    x_member_pin: Optional[str] = Header(None, alias="X-Member-PIN"),
+) -> Optional[str]:
+    """FastAPI header dependency for X-Parent-PIN or X-Member-PIN"""
+    return x_parent_pin or x_member_pin
+

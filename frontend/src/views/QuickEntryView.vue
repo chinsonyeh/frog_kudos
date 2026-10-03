@@ -4,8 +4,12 @@ import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { triggerConfetti } from '@/components/Confetti'
 import BadgeUnlockModal from '@/components/BadgeUnlockModal.vue'
+import MemberPinModal from '@/components/MemberPinModal.vue'
 
 const authStore = useAuthStore()
+
+const showMemberPinModal = ref(false)
+const pendingKudosData = ref(null)
 
 const members = ref([])
 const selectedMember = ref(null)
@@ -157,7 +161,6 @@ async function handleSubmit() {
   }
 
   errorMsg.value = ''
-  submitting.value = true
 
   let pointsToAward = 0
   let finalTarget = ''
@@ -167,7 +170,6 @@ async function handleSubmit() {
   if (mode.value === 'RULE') {
     if (!targetName.value.trim()) {
       errorMsg.value = '請填寫目標項目'
-      submitting.value = false
       return
     }
     finalTarget = targetName.value.trim()
@@ -177,31 +179,62 @@ async function handleSubmit() {
   } else {
     if (!customTitle.value.trim()) {
       errorMsg.value = '請填寫自訂事項名稱'
-      submitting.value = false
       return
     }
     finalTarget = customTitle.value.trim()
     pointsToAward = parseInt(customPoints.value, 10)
   }
 
+  const payload = {
+    member_id: selectedMember.value.id,
+    rule_id: ruleId,
+    target_name: finalTarget,
+    condition_value: finalCondition,
+    points_awarded: pointsToAward,
+    note: note.value.trim() || null,
+  }
+
+  // 小孩模式驗證：點數必須 > 0，並彈出 PIN 碼鍵盤
+  if (!authStore.isParent) {
+    if (pointsToAward <= 0) {
+      errorMsg.value = '小孩僅能申請增加自身點數，不可自訂扣點'
+      return
+    }
+    pendingKudosData.value = payload
+    showMemberPinModal.value = true
+    return
+  }
+
+  // 家長模式：直接以家長 PIN 發送
+  await executeKudosSubmit({
+    ...payload,
+    parent_pin: authStore.parentPin,
+    recorded_by: 'Parent',
+  })
+}
+
+async function onMemberPinConfirmed({ pin }) {
+  if (!pendingKudosData.value) return
+  await executeKudosSubmit({
+    ...pendingKudosData.value,
+    pin: pin,
+    recorded_by: selectedMember.value?.name || 'Child',
+  })
+}
+
+async function executeKudosSubmit(data) {
+  submitting.value = true
+  errorMsg.value = ''
+
   try {
-    const res = await api.recordKudos({
-      member_id: selectedMember.value.id,
-      rule_id: ruleId,
-      target_name: finalTarget,
-      condition_value: finalCondition,
-      points_awarded: pointsToAward,
-      note: note.value.trim() || null,
-      recorded_by: 'Parent',
-      parent_pin: authStore.parentPin,
-    })
+    const res = await api.recordKudos(data)
 
     // 成功慶祝動效
-    if (pointsToAward > 0) {
+    if (data.points_awarded > 0) {
       triggerConfetti()
     }
 
-    toastMsg.value = `🎉 已成功為 ${selectedMember.value.name} ${pointsToAward >= 0 ? `增加 ${pointsToAward}` : `扣除 ${-pointsToAward}`} 點！`
+    toastMsg.value = `🎉 已成功為 ${selectedMember.value.name} ${data.points_awarded >= 0 ? `增加 ${data.points_awarded}` : `扣除 ${-data.points_awarded}`} 點！`
     setTimeout(() => { toastMsg.value = '' }, 4000)
 
     // 清理輸入
@@ -209,6 +242,7 @@ async function handleSubmit() {
     if (mode.value === 'CUSTOM') {
       customTitle.value = ''
     }
+    pendingKudosData.value = null
 
     // 檢查是否有新解鎖勳章
     if (res.newly_unlocked_badges && res.newly_unlocked_badges.length > 0) {
@@ -228,6 +262,15 @@ async function handleSubmit() {
 
 <template>
   <div class="max-w-3xl mx-auto space-y-6">
+    <!-- 成員 PIN 碼驗證彈窗 -->
+    <MemberPinModal
+      :show="showMemberPinModal"
+      :member="selectedMember"
+      action-title="點數申請確認"
+      :description="`請輸入「${selectedMember?.name}」的 4 位數 PIN 碼以核准點數申請`"
+      @close="showMemberPinModal = false"
+      @confirmed="onMemberPinConfirmed"
+    />
     <!-- 成就解鎖慶祝彈窗 -->
     <BadgeUnlockModal
       v-if="showBadgeModal"
@@ -451,6 +494,7 @@ async function handleSubmit() {
                 +20
               </button>
               <button
+                v-if="authStore.isParent"
                 @click="customPoints = -10"
                 type="button"
                 class="px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-xs font-semibold text-red-600"
@@ -487,7 +531,7 @@ async function handleSubmit() {
         type="button"
         class="w-full py-4 rounded-2xl bg-gradient-to-r from-frog-500 to-emerald-600 hover:from-frog-600 hover:to-emerald-700 text-white font-bold text-base shadow-lg shadow-frog-200 transition transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 flex items-center justify-center space-x-2"
       >
-        <span>{{ submitting ? '處理中...' : '🎉 確認發放點數 / 登記獎懲' }}</span>
+        <span>{{ submitting ? '處理中...' : (authStore.isParent ? '🎉 確認發放點數 / 登記獎懲' : '📝 確認申請點數 (需輸入個人 PIN 碼)') }}</span>
       </button>
     </div>
   </div>

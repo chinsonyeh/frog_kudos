@@ -20,7 +20,7 @@ from app.schemas.kudos import (
     BatchAdjustIn,
     BatchAdjustOut,
 )
-from app.core.security import verify_parent_pin
+from app.core.security import verify_parent_pin, verify_member_or_parent_pin
 from app.services.badge_service import evaluate_and_unlock_badges
 
 async def record_kudos(
@@ -37,9 +37,10 @@ async def record_kudos(
     - 封存規則細節快照與歷史紀錄
     - 評估並觸發里程碑成就勳章 (FR-18)
     """
-    pin = record_in.parent_pin or parent_pin_header
-    if not await verify_parent_pin(db, pin):
-        raise HTTPException(status_code=403, detail="家長安全鎖 PIN 碼錯誤或未授權")
+    pin = record_in.pin or record_in.parent_pin or parent_pin_header
+    valid, auth_role = await verify_member_or_parent_pin(db, record_in.member_id, pin)
+    if not valid:
+        raise HTTPException(status_code=403, detail="PIN 碼錯誤或未授權")
 
     # 1. 悲觀鎖查詢成員
     member_stmt = select(Member).where(Member.id == record_in.member_id).with_for_update()
@@ -48,8 +49,17 @@ async def record_kudos(
     if not member or not member.is_active:
         raise HTTPException(status_code=400, detail="成員不存在或已被停用")
 
-    # 2. 點數雙軌約束邏輯
     pts = record_in.points_awarded
+
+    # 小孩操作權限限制：小孩僅能申請增加自身點數 (pts > 0)
+    if auth_role != "parent":
+        if pts <= 0:
+            raise HTTPException(status_code=403, detail="小孩僅能申請增加自身點數，不可自訂扣點")
+        actor_name = member.name
+    else:
+        actor_name = record_in.recorded_by or "Parent"
+
+    # 2. 點數雙軌約束邏輯
     if pts < 0:
         # 違規扣點防負數檢查
         if member.current_points + pts < 0:
@@ -86,7 +96,7 @@ async def record_kudos(
         points_awarded=pts,
         rule_detail_snapshot=rule_snapshot,
         note=record_in.note,
-        recorded_by=record_in.recorded_by or "Parent",
+        recorded_by=actor_name,
     )
     db.add(kudos)
     await db.flush()

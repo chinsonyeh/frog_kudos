@@ -53,6 +53,8 @@ export const api = {
     request(`/members/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   updateMemberAvatar: (id, avatar) =>
     request(`/members/${id}/avatar`, { method: 'PATCH', body: JSON.stringify({ avatar }) }),
+  changeMemberPin: (id, data) =>
+    request(`/members/${id}/change-pin`, { method: 'POST', body: JSON.stringify(data) }),
   deleteMember: (id, pin) =>
     request(`/members/${id}${pin ? `?parent_pin=${encodeURIComponent(pin)}` : ''}`, { method: 'DELETE' }),
   getMemberBadges: (id) =>
@@ -146,6 +148,11 @@ export const api = {
     request('/system/verify-pin', {
       method: 'POST',
       body: JSON.stringify({ parent_pin: pin }),
+    }),
+  verifyMemberPin: (memberId, pin) =>
+    request('/system/verify-member-pin', {
+      method: 'POST',
+      body: JSON.stringify({ member_id: memberId, pin }),
     }),
 
   // 成就勳章管理 (FR-18)

@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from app.core.database import get_db
-from app.core.security import verify_parent_pin, hash_pin, require_parent_pin_dep
+from app.core.security import verify_parent_pin, hash_pin, require_parent_pin_dep, verify_member_or_parent_pin
 from app.models.member import Member
 from app.models.kudos_record import KudosRecord
 from app.models.redemption import Redemption
-from app.schemas.member import MemberCreate, MemberUpdate, MemberAvatarUpdate, MemberOut
+from app.schemas.member import MemberCreate, MemberUpdate, MemberAvatarUpdate, MemberOut, MemberChangePinIn
 from app.schemas.badge import MemberBadgeOut
 from app.services.badge_service import get_member_badges
 
@@ -48,6 +48,10 @@ async def create_member(
         if not member_in.pin_code:
             raise HTTPException(status_code=400, detail="新增家長成員時必須設定 4 碼 PIN 碼")
         hashed_pin = hash_pin(member_in.pin_code)
+    else:
+        # 小孩成員：自訂 PIN 或預設 0000
+        pin_val = member_in.pin_code.strip() if member_in.pin_code and member_in.pin_code.strip() else "0000"
+        hashed_pin = hash_pin(pin_val)
 
     new_member = Member(
         name=member_in.name.strip(),
@@ -104,7 +108,8 @@ async def update_member(
     if member_in.avatar is not None:
         member.avatar = member_in.avatar
     if member_in.pin_code is not None:
-        member.pin_code = hash_pin(member_in.pin_code) if member_in.pin_code.strip() else None
+        if member_in.pin_code.strip():
+            member.pin_code = hash_pin(member_in.pin_code.strip())
     if member_in.is_active is not None:
         member.is_active = member_in.is_active
 
@@ -126,6 +131,34 @@ async def update_member_avatar(
     await db.commit()
     await db.refresh(member)
     return member
+
+@router.post("/{member_id}/change-pin")
+async def change_member_pin(
+    member_id: uuid.UUID,
+    pin_in: MemberChangePinIn,
+    x_parent_pin: Optional[str] = Depends(require_parent_pin_dep),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    變更成員個人 PIN 碼:
+    - 小孩可輸入目前 PIN 碼驗證後變更為新 PIN 碼
+    - 家長亦可輸入家長 PIN 碼直接重設小孩或自己的 PIN 碼
+    """
+    member = await db.get(Member, member_id)
+    if not member or not member.is_active:
+        raise HTTPException(status_code=404, detail="成員不存在或已被停用")
+
+    pin_to_verify = pin_in.old_pin or pin_in.parent_pin or x_parent_pin
+    valid, _ = await verify_member_or_parent_pin(db, member_id, pin_to_verify)
+    if not valid:
+        raise HTTPException(status_code=403, detail="目前 PIN 碼驗證錯誤，無法變更")
+
+    if not pin_in.new_pin or len(pin_in.new_pin.strip()) < 4:
+        raise HTTPException(status_code=400, detail="新 PIN 碼必須為至少 4 位數字")
+
+    member.pin_code = hash_pin(pin_in.new_pin.strip())
+    await db.commit()
+    return {"success": True, "message": f"已成功變更「{member.name}」的 PIN 碼"}
 
 @router.delete("/{member_id}")
 async def delete_or_deactivate_member(
