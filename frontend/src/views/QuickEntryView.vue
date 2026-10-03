@@ -71,7 +71,20 @@ async function loadMembers() {
   }
 }
 
+watch(() => authStore.unlockedMemberId, (newId) => {
+  if (authStore.isChild && newId && members.value.length > 0) {
+    const target = members.value.find(m => m.id === newId)
+    if (target) {
+      selectMember(target)
+    }
+  }
+})
+
 async function selectMember(m) {
+  if (authStore.isChild && m.id !== authStore.unlockedMemberId) {
+    errorMsg.value = `目前以「${authStore.unlockedMember?.name}」身分解鎖，不可切換幫其他成員登記！`
+    return
+  }
   selectedMember.value = m
   authStore.setSelectedMemberId(m.id)
   await loadRulesForMember()
@@ -194,10 +207,27 @@ async function handleSubmit() {
     note: note.value.trim() || null,
   }
 
-  // 小孩模式驗證：點數必須 > 0，並彈出 PIN 碼鍵盤
-  if (!authStore.isParent) {
+  // 1. 小孩解鎖模式：直接以獨立會話發送 (後端驗證 Session Token)
+  if (authStore.isChild) {
     if (pointsToAward <= 0) {
       errorMsg.value = '小孩僅能申請增加自身點數，不可自訂扣點'
+      return
+    }
+    if (selectedMember.value.id !== authStore.unlockedMemberId) {
+      errorMsg.value = '您僅能為自己的帳號申請點數'
+      return
+    }
+    await executeKudosSubmit({
+      ...payload,
+      recorded_by: authStore.unlockedMember?.name || 'Child',
+    })
+    return
+  }
+
+  // 2. 未解鎖訪客模式：點數必須 > 0，並彈出 PIN 碼鍵盤驗證
+  if (!authStore.isUnlocked) {
+    if (pointsToAward <= 0) {
+      errorMsg.value = '未解鎖狀態僅能申請增加自身點數，扣點需家長安全鎖'
       return
     }
     pendingKudosData.value = payload
@@ -205,7 +235,7 @@ async function handleSubmit() {
     return
   }
 
-  // 家長模式：直接以家長 PIN 發送
+  // 3. 家長模式：直接以家長 PIN / Session 發送
   await executeKudosSubmit({
     ...payload,
     parent_pin: authStore.parentPin,
@@ -293,6 +323,9 @@ async function executeKudosSubmit(data) {
         <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
           <span>第一步：選擇登記對象</span>
         </h2>
+        <span v-if="authStore.isChild" class="text-xs font-bold text-frog-700 bg-frog-50 px-2.5 py-1 rounded-full border border-frog-200">
+          🔒 已鎖定「{{ authStore.unlockedMember?.name }}」小孩專屬帳號
+        </span>
       </div>
 
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
@@ -300,10 +333,14 @@ async function executeKudosSubmit(data) {
           v-for="m in members"
           :key="m.id"
           @click="selectMember(m)"
-          class="p-4 rounded-2xl border-2 cursor-pointer transition-all duration-200 flex flex-col items-center text-center relative overflow-hidden"
-          :class="selectedMember?.id === m.id
-            ? 'border-frog-500 bg-frog-50/40 shadow-md shadow-frog-100 scale-102 ring-2 ring-frog-400/20'
-            : 'border-gray-100 hover:border-gray-200 bg-gray-50/50 hover:bg-gray-50'"
+          class="p-4 rounded-2xl border-2 transition-all duration-200 flex flex-col items-center text-center relative overflow-hidden"
+          :class="[
+            selectedMember?.id === m.id
+              ? 'border-frog-500 bg-frog-50/40 shadow-md shadow-frog-100 scale-102 ring-2 ring-frog-400/20 cursor-pointer'
+              : (authStore.isChild && m.id !== authStore.unlockedMemberId
+                ? 'opacity-40 cursor-not-allowed border-gray-100 bg-gray-50/50'
+                : 'cursor-pointer border-gray-100 hover:border-gray-200 bg-gray-50/50 hover:bg-gray-50')
+          ]"
         >
           <div class="text-4xl mb-2">{{ m.avatar }}</div>
           <span class="font-bold text-gray-800 text-base leading-tight">{{ m.name }}</span>
@@ -531,7 +568,7 @@ async function executeKudosSubmit(data) {
         type="button"
         class="w-full py-4 rounded-2xl bg-gradient-to-r from-frog-500 to-emerald-600 hover:from-frog-600 hover:to-emerald-700 text-white font-bold text-base shadow-lg shadow-frog-200 transition transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 flex items-center justify-center space-x-2"
       >
-        <span>{{ submitting ? '處理中...' : (authStore.isParent ? '🎉 確認發放點數 / 登記獎懲' : '📝 確認申請點數 (需輸入個人 PIN 碼)') }}</span>
+        <span>{{ submitting ? '處理中...' : (authStore.isParent ? '🎉 確認發放點數 / 登記獎懲' : (authStore.isChild ? `📝 確認申請點數 (${authStore.unlockedMember?.name} 專屬)` : '📝 確認申請點數 (需輸入個人 PIN 碼)')) }}</span>
       </button>
     </div>
   </div>

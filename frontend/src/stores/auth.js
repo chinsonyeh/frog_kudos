@@ -36,18 +36,42 @@ export const useAuthStore = defineStore('auth', () => {
   const initialElapsed = initialSession?.lastActiveTime ? (Date.now() - initialSession.lastActiveTime) : Infinity
   const isSessionValid = Boolean(
     initialSession &&
-    initialSession.isParent &&
+    (initialSession.unlockedMember || initialSession.isParent) &&
     (initialSession.sessionToken || initialSession.parentPin) &&
     initialElapsed < IDLE_TIMEOUT_MS
   )
 
-  // 家長鎖解鎖狀態、此瀏覽器專屬之獨立 Session Token 與 PIN 碼
-  const isParent = ref(isSessionValid)
+  // 解鎖成員資訊 (含 id, name, role: 'parent' | 'child', avatar)
+  let initialMember = null
+  if (isSessionValid) {
+    if (initialSession.unlockedMember) {
+      initialMember = initialSession.unlockedMember
+    } else if (initialSession.isParent) {
+      initialMember = {
+        id: initialSession.selectedMemberId || null,
+        name: '家長',
+        role: 'parent',
+        avatar: '👑',
+      }
+    }
+  }
+
+  const unlockedMember = ref(initialMember)
+  const isUnlocked = computed(() => Boolean(unlockedMember.value))
+  const isParent = computed(() => unlockedMember.value?.role === 'parent')
+  const isChild = computed(() => unlockedMember.value?.role === 'child')
+  const unlockedMemberId = computed(() => unlockedMember.value?.id || null)
+
+  // 此瀏覽器專屬之獨立 Session Token 與 PIN 碼
   const sessionToken = ref(isSessionValid ? (initialSession.sessionToken || '') : '')
   const parentPin = ref(isSessionValid ? (initialSession.parentPin || '') : '')
 
-  // 目前選取的成員
-  const selectedMemberId = ref(initialSession?.selectedMemberId || null)
+  // 目前選取的成員 (若為小孩解鎖模式，強制鎖定為該小孩)
+  const selectedMemberId = ref(
+    initialMember?.role === 'child' && initialMember.id
+      ? initialMember.id
+      : (initialSession?.selectedMemberId || null)
+  )
 
   const lastActiveTime = ref(isSessionValid ? initialSession.lastActiveTime : Date.now())
   const remainingSeconds = ref(
@@ -60,9 +84,10 @@ export const useAuthStore = defineStore('auth', () => {
   let eventListenersAttached = false
 
   function persistSession() {
-    if (isParent.value) {
+    if (isUnlocked.value) {
       writeSession({
-        isParent: true,
+        unlockedMember: unlockedMember.value,
+        isParent: isParent.value,
         sessionToken: sessionToken.value,
         parentPin: parentPin.value,
         lastActiveTime: lastActiveTime.value,
@@ -83,13 +108,13 @@ export const useAuthStore = defineStore('auth', () => {
     if (timerInterval) clearInterval(timerInterval)
 
     const updateTimer = () => {
-      if (!isParent.value) return
+      if (!isUnlocked.value) return
       const elapsed = Date.now() - lastActiveTime.value
       const remain = Math.max(0, Math.floor((IDLE_TIMEOUT_MS - elapsed) / 1000))
       remainingSeconds.value = remain
 
       if (elapsed >= IDLE_TIMEOUT_MS) {
-        lockParent()
+        lock()
       }
     }
 
@@ -101,7 +126,7 @@ export const useAuthStore = defineStore('auth', () => {
       const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll']
       events.forEach(evt => {
         window.addEventListener(evt, () => {
-          if (isParent.value) {
+          if (isUnlocked.value) {
             lastActiveTime.value = Date.now()
             persistSession()
           }
@@ -115,17 +140,37 @@ export const useAuthStore = defineStore('auth', () => {
     startIdleMonitor()
   }
 
-  function unlockParent(pin, token = '') {
-    isParent.value = true
-    parentPin.value = pin
+  function unlock(member, token = '', pin = '') {
+    const memObj = {
+      id: member.id || member.member_id || null,
+      name: member.name || member.member_name || (member.role === 'parent' ? '家長' : '小孩'),
+      role: member.role || 'parent',
+      avatar: member.avatar || member.member_avatar || (member.role === 'parent' ? '👑' : '👦'),
+    }
+    unlockedMember.value = memObj
     sessionToken.value = token
+    parentPin.value = pin
+
+    // 若為小孩模式，強制切換並鎖定目前選取之成員
+    if (memObj.role === 'child' && memObj.id) {
+      selectedMemberId.value = memObj.id
+    }
+
     resetIdleTimer()
     startIdleMonitor()
   }
 
-  function lockParent() {
+  function unlockParent(pin, token = '', member = null) {
+    unlock(
+      member || { id: null, name: '家長', role: 'parent', avatar: '👑' },
+      token,
+      pin
+    )
+  }
+
+  function lock() {
     const tokenToRevoke = sessionToken.value
-    isParent.value = false
+    unlockedMember.value = null
     sessionToken.value = ''
     parentPin.value = ''
     persistSession()
@@ -143,7 +188,17 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  function lockParent() {
+    lock()
+  }
+
   function setSelectedMemberId(id) {
+    // 若為小孩解鎖模式，禁止切換成其他成員
+    if (isChild.value && unlockedMemberId.value) {
+      selectedMemberId.value = unlockedMemberId.value
+      persistSession()
+      return
+    }
     selectedMemberId.value = id
     persistSession()
   }
@@ -161,14 +216,20 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
+    unlockedMember,
+    isUnlocked,
     isParent,
+    isChild,
+    unlockedMemberId,
     sessionToken,
     parentPin,
     selectedMemberId,
     remainingSeconds,
     remainingMinutesFormatted,
     memberRefreshKey,
+    unlock,
     unlockParent,
+    lock,
     lockParent,
     resetIdleTimer,
     setSelectedMemberId,

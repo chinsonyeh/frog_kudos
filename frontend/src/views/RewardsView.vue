@@ -78,7 +78,17 @@ async function loadPendingReviews() {
   pendingRedemptions.value = await api.getRedemptions(null, 'PENDING')
 }
 
+watch(() => authStore.unlockedMemberId, (newId) => {
+  if (authStore.isChild && newId) {
+    selectedMemberId.value = newId
+  }
+})
+
 function handleSelectMember(id) {
+  if (authStore.isChild && id !== authStore.unlockedMemberId) {
+    errorMsg.value = `目前以「${authStore.unlockedMember?.name}」身分解鎖，不可切換幫其他手足兌換！`
+    return
+  }
   selectedMemberId.value = id
   authStore.setSelectedMemberId(id)
 }
@@ -92,12 +102,20 @@ async function handleApplyRedemption(item) {
 
   errorMsg.value = ''
 
-  if (!authStore.isParent) {
+  // 1. 小孩解鎖模式：直接送出兌換申請 (後端透過 Session Token 驗證)
+  if (authStore.isChild) {
+    await executeRedemption(item, '')
+    return
+  }
+
+  // 2. 未解鎖訪客模式：彈出 PIN 碼鍵盤驗證
+  if (!authStore.isUnlocked) {
     pendingRedeemItem.value = item
     showMemberPinModal.value = true
     return
   }
 
+  // 3. 家長模式：直接以家長 PIN 送出
   await executeRedemption(item, authStore.parentPin)
 }
 
@@ -277,15 +295,23 @@ async function handlePermanentDeleteItem(item) {
     <!-- 頂部：成員選擇與餘額展示 -->
     <div class="bg-white p-4 sm:p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <!-- 成員按鈕切換 -->
-      <div class="flex space-x-2 overflow-x-auto pb-1 sm:pb-0">
+      <div class="flex items-center space-x-2 overflow-x-auto pb-1 sm:pb-0">
+        <span v-if="authStore.isChild" class="text-xs font-bold text-frog-700 bg-frog-50 px-2.5 py-1 rounded-full border border-frog-200 mr-1 flex-shrink-0">
+          🔒 已鎖定「{{ authStore.unlockedMember?.name }}」
+        </span>
         <button
           v-for="m in members"
           :key="m.id"
           @click="handleSelectMember(m.id)"
+          type="button"
           class="flex items-center space-x-2 px-4 py-2 rounded-2xl text-sm font-bold transition flex-shrink-0"
-          :class="selectedMemberId === m.id
-            ? 'bg-frog-500 text-white shadow-md shadow-frog-200'
-            : 'bg-gray-100 hover:bg-gray-200 text-gray-700'"
+          :class="[
+            selectedMemberId === m.id
+              ? 'bg-frog-500 text-white shadow-md shadow-frog-200 cursor-pointer'
+              : (authStore.isChild && m.id !== authStore.unlockedMemberId
+                ? 'opacity-40 cursor-not-allowed bg-gray-100 text-gray-500'
+                : 'bg-gray-100 hover:bg-gray-200 text-gray-700 cursor-pointer')
+          ]"
         >
           <span>{{ m.avatar }}</span>
           <span>{{ m.name }}</span>

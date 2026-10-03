@@ -149,11 +149,15 @@ export const api = {
     request('/system/upload-package', { method: 'POST', body: formData }),
   getUpgradeStatus: () =>
     request('/system/upgrade-status'),
-  verifyParentPin: (pin) =>
-    request('/system/verify-pin', {
+  verifyParentPin: (param) => {
+    const body = typeof param === 'object' && param !== null
+      ? param
+      : { parent_pin: param }
+    return request('/system/verify-pin', {
       method: 'POST',
-      body: JSON.stringify({ parent_pin: pin }),
-    }),
+      body: JSON.stringify(body),
+    })
+  },
   lockParentSession: (sessionToken) =>
     request('/system/lock-session', {
       method: 'POST',

@@ -7,41 +7,69 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 
-# 各瀏覽器獨立家長 Session 儲存 (Per-Browser Session Store)
-# key: session_token (str) -> dict: {"created_at": float, "last_active": float}
+# 各瀏覽器獨立 Session 儲存 (Per-Browser Session Store)
+# key: session_token (str) -> dict: {"member_id": str, "role": str, "name": str, "avatar": str, "created_at": float, "last_active": float}
 PARENT_SESSION_TIMEOUT_SECONDS = 15 * 60  # 15 分鐘
-PARENT_SESSIONS: Dict[str, dict] = {}
+USER_SESSIONS: Dict[str, dict] = {}
+PARENT_SESSIONS = USER_SESSIONS  # 相容性別名
 
-def create_parent_session() -> str:
-    """簽發專屬此瀏覽器/客戶端的獨立家長 Session Token"""
-    token = f"fps_{uuid.uuid4().hex}"
+def create_user_session(
+    member_id: uuid.UUID,
+    role: str,
+    name: str = "",
+    avatar: str = ""
+) -> str:
+    """簽發專屬此瀏覽器之獨立用戶 Session Token (家長或小孩)"""
+    token = f"fks_{uuid.uuid4().hex}"
     now = time.time()
-    PARENT_SESSIONS[token] = {
+    USER_SESSIONS[token] = {
+        "member_id": str(member_id),
+        "role": role,
+        "name": name,
+        "avatar": avatar,
         "created_at": now,
         "last_active": now,
     }
     return token
 
-def revoke_parent_session(token: str) -> bool:
+def create_parent_session(
+    member_id: Optional[uuid.UUID] = None,
+    name: str = "家長",
+    avatar: str = "🔐"
+) -> str:
+    """相容性：簽發家長獨立 Session Token"""
+    return create_user_session(
+        member_id=member_id or uuid.uuid4(),
+        role="parent",
+        name=name,
+        avatar=avatar,
+    )
+
+def revoke_user_session(token: str) -> bool:
     """銷毀指定之瀏覽器 Session Token"""
-    if token and token in PARENT_SESSIONS:
-        del PARENT_SESSIONS[token]
+    if token and token in USER_SESSIONS:
+        del USER_SESSIONS[token]
         return True
     return False
 
-def validate_parent_session(token: Optional[str]) -> bool:
-    """驗證指定瀏覽器 Session Token 是否有效且未超時 (15 分鐘滑動窗口)"""
-    if not token or token not in PARENT_SESSIONS:
-        return False
-    session = PARENT_SESSIONS[token]
+revoke_parent_session = revoke_user_session
+
+def get_user_session(token: Optional[str]) -> Optional[dict]:
+    """取得指定瀏覽器 Session Token 並滑動續期 (15 分鐘)"""
+    if not token or token not in USER_SESSIONS:
+        return None
+    session = USER_SESSIONS[token]
     now = time.time()
     if now - session["last_active"] > PARENT_SESSION_TIMEOUT_SECONDS:
-        # 已逾時，自動清除
-        del PARENT_SESSIONS[token]
-        return False
-    # 滑動續期
+        del USER_SESSIONS[token]
+        return None
     session["last_active"] = now
-    return True
+    return session
+
+def validate_parent_session(token: Optional[str]) -> bool:
+    """驗證指定瀏覽器 Session Token 是否為有效且未超時之家長會話"""
+    sess = get_user_session(token)
+    return sess is not None and sess.get("role") == "parent"
 
 def hash_pin(plain_pin: str) -> str:
     """使用 bcrypt 生成 PIN 碼之加鹽單向雜湊值"""
@@ -67,7 +95,7 @@ async def validate_parent_pin(
 ) -> bool:
     """
     家長權限驗證機制 (支援各瀏覽器獨立 Session Token 與 PIN 碼):
-    1. 優先檢查是否為有效之各瀏覽器獨立 Session Token
+    1. 優先檢查是否為有效之家長 Session Token
     2. 比對所有 role='parent' 且 is_active=TRUE 的家長成員之 pin_code
     3. 若系統尚無任何有效家長 (冷啟動) 或家長尚未自訂 PIN，自動降級比對 .env 的 PARENT_DEFAULT_PIN
     """
@@ -75,7 +103,7 @@ async def validate_parent_pin(
     if not pin:
         return False
 
-    # 1. 優先檢查是否為各瀏覽器之獨立 Session Token
+    # 1. 優先檢查是否為各瀏覽器之獨立家長 Session Token
     if validate_parent_session(pin):
         return True
 
@@ -111,21 +139,35 @@ async def verify_member_or_parent_pin(
     header_pin: Optional[str] = None,
 ) -> tuple[bool, str]:
     """
-    成員或家長 PIN 碼權限驗證:
-    1. 取得輸入 PIN (優先 input_pin，其次 header_pin)
-    2. 比對有效家長之 PIN 碼 (或 .env PARENT_DEFAULT_PIN)，若相符回傳 (True, "parent")
-    3. 比對目標成員 (target_member_id) 之 pin_code，若相符回傳 (True, member.role)
-    4. 其餘情況回傳 (False, "none")
+    成員或家長身分與權限驗證:
+    1. 取得輸入 PIN 或 Token
+    2. 若為 Session Token:
+       - 家長 Session: 允許為所有成員操作，回傳 (True, "parent")
+       - 小孩 Session: 僅允許為自身 (target_member_id == session.member_id) 操作，回傳 (True, "child")；絕不允許跨成員操作！
+    3. 若為明文 PIN 碼:
+       - 符合家長 PIN: 允許 (True, "parent")
+       - 符合目標成員個人 PIN: 允許 (True, member.role)
     """
     pin = (input_pin or header_pin or "").strip()
     if not pin:
         return False, "none"
 
-    # 1. 優先檢查是否具有家長權限
+    # 1. 檢查是否為獨立 Session Token
+    sess = get_user_session(pin)
+    if sess:
+        if sess.get("role") == "parent":
+            return True, "parent"
+        if sess.get("role") == "child":
+            if str(sess.get("member_id")) == str(target_member_id):
+                return True, "child"
+            # 小孩 Session 試圖為他人操作，嚴格拒絕
+            return False, "none"
+
+    # 2. 檢查是否符合有效家長之 PIN 碼 (或 .env PARENT_DEFAULT_PIN)
     if await validate_parent_pin(db, input_pin=pin):
         return True, "parent"
 
-    # 2. 檢查是否符合目標成員的個人 PIN 碼
+    # 3. 檢查是否符合目標成員的個人 PIN 碼
     from app.models.member import Member
     member = await db.get(Member, target_member_id)
     if not member or not member.is_active:
@@ -142,17 +184,19 @@ async def verify_member_or_parent_pin(
     return False, "none"
 
 async def require_parent_pin_dep(
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token"),
     x_parent_session: Optional[str] = Header(None, alias="X-Parent-Session"),
     x_parent_pin: Optional[str] = Header(None, alias="X-Parent-PIN"),
 ) -> Optional[str]:
-    """FastAPI header dependency for X-Parent-Session or X-Parent-PIN"""
-    return x_parent_session or x_parent_pin
+    """FastAPI header dependency for parent auth"""
+    return x_session_token or x_parent_session or x_parent_pin
 
 async def require_any_pin_dep(
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token"),
     x_parent_session: Optional[str] = Header(None, alias="X-Parent-Session"),
     x_parent_pin: Optional[str] = Header(None, alias="X-Parent-PIN"),
     x_member_pin: Optional[str] = Header(None, alias="X-Member-PIN"),
 ) -> Optional[str]:
-    """FastAPI header dependency for X-Parent-Session, X-Parent-PIN or X-Member-PIN"""
-    return x_parent_session or x_parent_pin or x_member_pin
+    """FastAPI header dependency for any role auth"""
+    return x_session_token or x_parent_session or x_parent_pin or x_member_pin
 

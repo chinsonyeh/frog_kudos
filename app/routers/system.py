@@ -2,6 +2,8 @@ import os
 import shutil
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File, Form, Header, status
+import uuid
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import (
@@ -9,6 +11,7 @@ from app.core.security import (
     verify_member_or_parent_pin,
     require_parent_pin_dep,
     create_parent_session,
+    create_user_session,
     revoke_parent_session,
     PARENT_SESSION_TIMEOUT_SECONDS,
 )
@@ -153,18 +156,67 @@ async def verify_parent_pin_endpoint(
     即時驗證家長 PIN 碼並簽發專屬此瀏覽器之獨立 Session Token (FR-13)
     驗證成功回傳 200 與獨立 session_token，錯誤拋出 403 Forbidden。
     """
+    from app.models.member import Member
     pin = (verify_in.parent_pin if verify_in and verify_in.parent_pin else None) or \
           (verify_in.pin if verify_in and verify_in.pin else None) or \
           x_parent_pin
+
+    # Case A: 指定成員解鎖 (家長或小孩)
+    if verify_in and verify_in.member_id:
+        member = await db.get(Member, verify_in.member_id)
+        if not member or not member.is_active:
+            raise HTTPException(status_code=404, detail="成員不存在或已被停用")
+
+        valid, role = await verify_member_or_parent_pin(db, verify_in.member_id, pin)
+        if not valid:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"「{member.name}」的 PIN 碼驗證錯誤，請重新輸入",
+            )
+        session_token = create_user_session(
+            member_id=member.id,
+            role=member.role,
+            name=member.name,
+            avatar=member.avatar or "🐸",
+        )
+        return PinVerifyOut(
+            valid=True,
+            message=f"{member.name} 解鎖成功",
+            role=member.role,
+            member_id=member.id,
+            member_name=member.name,
+            member_avatar=member.avatar or "🐸",
+            session_token=session_token,
+            expires_in=PARENT_SESSION_TIMEOUT_SECONDS,
+        )
+
+    # Case B: 未指定成員之傳統家長解鎖
     if not await verify_parent_pin(db, pin):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="家長安全鎖 PIN 碼錯誤，請重新輸入",
         )
-    session_token = create_parent_session()
+
+    parent_stmt = select(Member).where(Member.role == "parent", Member.is_active == True)
+    parent_res = await db.execute(parent_stmt)
+    parent_m = parent_res.scalars().first()
+    m_id = parent_m.id if parent_m else uuid.uuid4()
+    m_name = parent_m.name if parent_m else "家長"
+    m_avatar = parent_m.avatar if parent_m else "🔐"
+
+    session_token = create_user_session(
+        member_id=m_id,
+        role="parent",
+        name=m_name,
+        avatar=m_avatar,
+    )
     return PinVerifyOut(
         valid=True,
         message="家長安全鎖 PIN 碼驗證成功",
+        role="parent",
+        member_id=m_id,
+        member_name=m_name,
+        member_avatar=m_avatar,
         session_token=session_token,
         expires_in=PARENT_SESSION_TIMEOUT_SECONDS,
     )

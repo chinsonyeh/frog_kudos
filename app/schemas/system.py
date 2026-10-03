@@ -62,12 +62,17 @@ class UpgradeStatusOut(BaseModel):
     logs: List[str]
 
 class PinVerifyIn(BaseModel):
+    member_id: Optional[uuid.UUID] = None
     pin: Optional[str] = None
     parent_pin: Optional[str] = None
 
 class PinVerifyOut(BaseModel):
     valid: bool
     message: str
+    role: Optional[str] = "parent"
+    member_id: Optional[uuid.UUID] = None
+    member_name: Optional[str] = None
+    member_avatar: Optional[str] = None
     session_token: Optional[str] = None
     expires_in: Optional[int] = None
 

@@ -73,6 +73,10 @@ function openCreateForm() {
 }
 
 function openEditForm(member) {
+  if (authStore.isChild && member.id !== authStore.unlockedMemberId) {
+    errorMsg.value = `目前以「${authStore.unlockedMember?.name}」身分解鎖，僅可修改個人代表頭像！`
+    return
+  }
   // 若未解鎖則僅允許更換頭像 (avatar)
   formMode.value = authStore.isParent ? 'edit' : 'avatar'
   editingMemberId.value = member.id
@@ -86,6 +90,10 @@ function openEditForm(member) {
 }
 
 function openChangePinForm(member) {
+  if (authStore.isChild && member.id !== authStore.unlockedMemberId) {
+    errorMsg.value = `目前以「${authStore.unlockedMember?.name}」身分解鎖，僅可變更個人 PIN 碼！`
+    return
+  }
   formMode.value = 'change_pin'
   editingMemberId.value = member.id
   name.value = member.name
@@ -258,9 +266,9 @@ async function handleDelete(member) {
       <div v-if="viewMode === 'list'" class="flex-1 overflow-y-auto py-4 space-y-4">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">
-            {{ authStore.isParent ? `目前家庭成員清單 (${membersList.length})` : '請點選成員以自訂頭像或 PIN 碼' }}
+            {{ authStore.isParent ? `目前家庭成員清單 (${membersList.length})` : (authStore.isChild ? `已解鎖「${authStore.unlockedMember?.name}」帳號：僅限維護個人頭像與 PIN 碼` : '請點選成員以自訂頭像或 PIN 碼') }}
           </span>
-          <!-- 僅家長模式顯示 + 新增成員；未解鎖時嚴格隱藏 -->
+          <!-- 僅家長模式顯示 + 新增成員；未解鎖與小孩模式嚴格隱藏 -->
           <button
             v-if="authStore.isParent"
             @click="openCreateForm"
@@ -274,17 +282,17 @@ async function handleDelete(member) {
           <div
             v-for="m in membersList"
             :key="m.id"
-            @click="!authStore.isParent ? openEditForm(m) : null"
+            @click="(!authStore.isParent && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? openEditForm(m) : null"
             class="p-4 rounded-2xl border transition flex items-center justify-between"
             :class="[
               m.is_active ? 'bg-gray-50 border-gray-100 hover:border-gray-200' : 'bg-gray-100/60 border-gray-200 opacity-60',
-              !authStore.isParent ? 'cursor-pointer hover:bg-frog-50/50 hover:border-frog-300' : ''
+              (!authStore.isParent && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? 'cursor-pointer hover:bg-frog-50/50 hover:border-frog-300' : (authStore.isChild && m.id !== authStore.unlockedMemberId ? 'opacity-50 cursor-not-allowed' : '')
             ]"
           >
             <div class="flex items-center space-x-3">
               <span
                 class="text-3xl transition"
-                :class="!authStore.isParent ? 'hover:scale-125' : ''"
+                :class="(!authStore.isParent && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? 'hover:scale-125' : ''"
                 title="點擊更換頭像"
               >
                 {{ m.avatar }}
@@ -323,23 +331,28 @@ async function handleDelete(member) {
               >
                 編輯
               </button>
-              <!-- 未解鎖狀態：更換頭像與修改 PIN 按鈕 -->
+              <!-- 小孩解鎖或訪客模式：更換頭像與修改 PIN 按鈕 -->
               <template v-else>
-                <button
-                  @click.stop="openEditForm(m)"
-                  type="button"
-                  class="px-2.5 py-1.5 rounded-xl bg-frog-50 hover:bg-frog-100 border border-frog-200 text-xs font-bold text-frog-700 transition flex items-center space-x-1 cursor-pointer"
-                >
-                  <span>🎨 頭像</span>
-                </button>
-                <button
-                  @click.stop="openChangePinForm(m)"
-                  type="button"
-                  class="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-xs font-bold text-amber-700 transition flex items-center space-x-1 cursor-pointer"
-                  title="變更個人 PIN 碼"
-                >
-                  <span>🔑 PIN</span>
-                </button>
+                <template v-if="!authStore.isChild || m.id === authStore.unlockedMemberId">
+                  <button
+                    @click.stop="openEditForm(m)"
+                    type="button"
+                    class="px-2.5 py-1.5 rounded-xl bg-frog-50 hover:bg-frog-100 border border-frog-200 text-xs font-bold text-frog-700 transition flex items-center space-x-1 cursor-pointer"
+                  >
+                    <span>🎨 頭像</span>
+                  </button>
+                  <button
+                    @click.stop="openChangePinForm(m)"
+                    type="button"
+                    class="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-xs font-bold text-amber-700 transition flex items-center space-x-1 cursor-pointer"
+                    title="變更個人 PIN 碼"
+                  >
+                    <span>🔑 PIN</span>
+                  </button>
+                </template>
+                <template v-else>
+                  <span class="text-xs text-gray-400 font-medium px-2">🔒 無權限</span>
+                </template>
               </template>
 
               <!-- 僅家長模式顯示刪除/停用按鈕，未解鎖時嚴格隱藏且禁用 -->

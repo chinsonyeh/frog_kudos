@@ -29,6 +29,13 @@ watch(() => authStore.memberRefreshKey, async () => {
   await loadInitialData()
 })
 
+watch(() => authStore.unlockedMemberId, (newId) => {
+  if (authStore.isChild && newId) {
+    selectedMemberId.value = newId
+    loadMemberDetails()
+  }
+})
+
 onMounted(async () => {
   await loadInitialData()
 })
