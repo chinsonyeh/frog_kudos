@@ -649,3 +649,63 @@ async def test_child_pin_and_self_points_restrictions():
             if item_id:
                 await client.delete(f"/api/items/{item_id}?permanent=true", headers={"X-Parent-PIN": "0000"})
 
+@pytest.mark.asyncio
+async def test_independent_browser_session_lifecycle():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # 1. 模擬瀏覽器 A 輸入正確 PIN 碼解鎖
+        res_a = await client.post("/api/system/verify-pin", json={"parent_pin": "0000"})
+        assert res_a.status_code == 200
+        data_a = res_a.json()
+        assert data_a["valid"] is True
+        token_a = data_a["session_token"]
+        assert token_a and token_a.startswith("fps_")
+        assert data_a["expires_in"] == 15 * 60
+
+        # 2. 模擬瀏覽器 B 未解鎖 (無 Token / 無 PIN) -> 嘗試執行家長操作 (如取得系統設定變更) 應被阻擋 (403)
+        unauth_res = await client.put("/api/system/config", json={"auto_backup": True})
+        assert unauth_res.status_code == 403
+
+        # 3. 瀏覽器 A 使用專屬 Session Token 存取家長端點 -> 成功授權
+        auth_res = await client.put(
+            "/api/system/config",
+            headers={"X-Parent-Session": token_a},
+            json={"auto_backup": True},
+        )
+        assert auth_res.status_code == 200
+
+        # 4. 模擬瀏覽器 B 也輸入 PIN 解鎖 -> 獲得獨立之 Session Token B
+        res_b = await client.post("/api/system/verify-pin", json={"parent_pin": "0000"})
+        assert res_b.status_code == 200
+        token_b = res_b.json()["session_token"]
+        assert token_b != token_a
+
+        # 5. 瀏覽器 A 執行鎖定 -> 銷毀 Token A
+        lock_a = await client.post("/api/system/lock-session", json={"session_token": token_a})
+        assert lock_a.status_code == 200
+
+        # 6. Token A 已失效，再用 Token A 操作應被拒絕 (403)
+        fail_a = await client.put(
+            "/api/system/config",
+            headers={"X-Parent-Session": token_a},
+            json={"auto_backup": True},
+        )
+        assert fail_a.status_code == 403
+
+        # 7. 瀏覽器 B 的 Token B 依然獨立有效！不受瀏覽器 A 鎖定之影響
+        ok_b = await client.put(
+            "/api/system/config",
+            headers={"X-Parent-Session": token_b},
+            json={"auto_backup": True},
+        )
+        assert ok_b.status_code == 200
+
+        # 8. 瀏覽器 B 鎖定 -> 銷毀 Token B
+        await client.post("/api/system/lock-session", json={"session_token": token_b})
+        fail_b = await client.put(
+            "/api/system/config",
+            headers={"X-Parent-Session": token_b},
+            json={"auto_backup": True},
+        )
+        assert fail_b.status_code == 403
+
+

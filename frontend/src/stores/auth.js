@@ -37,13 +37,14 @@ export const useAuthStore = defineStore('auth', () => {
   const isSessionValid = Boolean(
     initialSession &&
     initialSession.isParent &&
-    initialSession.parentPin &&
+    (initialSession.sessionToken || initialSession.parentPin) &&
     initialElapsed < IDLE_TIMEOUT_MS
   )
 
-  // 家長鎖解鎖狀態與 PIN 碼
+  // 家長鎖解鎖狀態、此瀏覽器專屬之獨立 Session Token 與 PIN 碼
   const isParent = ref(isSessionValid)
-  const parentPin = ref(isSessionValid ? initialSession.parentPin : '')
+  const sessionToken = ref(isSessionValid ? (initialSession.sessionToken || '') : '')
+  const parentPin = ref(isSessionValid ? (initialSession.parentPin || '') : '')
 
   // 目前選取的成員
   const selectedMemberId = ref(initialSession?.selectedMemberId || null)
@@ -62,6 +63,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (isParent.value) {
       writeSession({
         isParent: true,
+        sessionToken: sessionToken.value,
         parentPin: parentPin.value,
         lastActiveTime: lastActiveTime.value,
         selectedMemberId: selectedMemberId.value,
@@ -113,20 +115,31 @@ export const useAuthStore = defineStore('auth', () => {
     startIdleMonitor()
   }
 
-  function unlockParent(pin) {
+  function unlockParent(pin, token = '') {
     isParent.value = true
     parentPin.value = pin
+    sessionToken.value = token
     resetIdleTimer()
     startIdleMonitor()
   }
 
   function lockParent() {
+    const tokenToRevoke = sessionToken.value
     isParent.value = false
+    sessionToken.value = ''
     parentPin.value = ''
     persistSession()
     if (timerInterval) {
       clearInterval(timerInterval)
       timerInterval = null
+    }
+    // 非同步通知伺服器端註銷該瀏覽器會話 (各瀏覽器獨立銷毀)
+    if (tokenToRevoke && typeof fetch !== 'undefined') {
+      fetch('/api/system/lock-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_token: tokenToRevoke }),
+      }).catch(() => {})
     }
   }
 
@@ -149,6 +162,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     isParent,
+    sessionToken,
     parentPin,
     selectedMemberId,
     remainingSeconds,

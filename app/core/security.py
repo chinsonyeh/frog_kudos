@@ -1,10 +1,47 @@
 import uuid
+import time
 import bcrypt
-from typing import Optional
+from typing import Optional, Dict
 from fastapi import HTTPException, Header, Depends, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
+
+# 各瀏覽器獨立家長 Session 儲存 (Per-Browser Session Store)
+# key: session_token (str) -> dict: {"created_at": float, "last_active": float}
+PARENT_SESSION_TIMEOUT_SECONDS = 15 * 60  # 15 分鐘
+PARENT_SESSIONS: Dict[str, dict] = {}
+
+def create_parent_session() -> str:
+    """簽發專屬此瀏覽器/客戶端的獨立家長 Session Token"""
+    token = f"fps_{uuid.uuid4().hex}"
+    now = time.time()
+    PARENT_SESSIONS[token] = {
+        "created_at": now,
+        "last_active": now,
+    }
+    return token
+
+def revoke_parent_session(token: str) -> bool:
+    """銷毀指定之瀏覽器 Session Token"""
+    if token and token in PARENT_SESSIONS:
+        del PARENT_SESSIONS[token]
+        return True
+    return False
+
+def validate_parent_session(token: Optional[str]) -> bool:
+    """驗證指定瀏覽器 Session Token 是否有效且未超時 (15 分鐘滑動窗口)"""
+    if not token or token not in PARENT_SESSIONS:
+        return False
+    session = PARENT_SESSIONS[token]
+    now = time.time()
+    if now - session["last_active"] > PARENT_SESSION_TIMEOUT_SECONDS:
+        # 已逾時，自動清除
+        del PARENT_SESSIONS[token]
+        return False
+    # 滑動續期
+    session["last_active"] = now
+    return True
 
 def hash_pin(plain_pin: str) -> str:
     """使用 bcrypt 生成 PIN 碼之加鹽單向雜湊值"""
@@ -29,14 +66,18 @@ async def validate_parent_pin(
     header_pin: Optional[str] = None
 ) -> bool:
     """
-    家長 PIN 碼分級驗證機制 (Section 2.2 / Section 8):
-    1. 支援從 JSON 欄位 input_pin 或 HTTP Header X-Parent-PIN 取值
+    家長權限驗證機制 (支援各瀏覽器獨立 Session Token 與 PIN 碼):
+    1. 優先檢查是否為有效之各瀏覽器獨立 Session Token
     2. 比對所有 role='parent' 且 is_active=TRUE 的家長成員之 pin_code
     3. 若系統尚無任何有效家長 (冷啟動) 或家長尚未自訂 PIN，自動降級比對 .env 的 PARENT_DEFAULT_PIN
     """
     pin = (input_pin or header_pin or "").strip()
     if not pin:
         return False
+
+    # 1. 優先檢查是否為各瀏覽器之獨立 Session Token
+    if validate_parent_session(pin):
+        return True
 
     # 延遲導入 Member 實體以避免循環相依
     from app.models.member import Member
@@ -101,15 +142,17 @@ async def verify_member_or_parent_pin(
     return False, "none"
 
 async def require_parent_pin_dep(
+    x_parent_session: Optional[str] = Header(None, alias="X-Parent-Session"),
     x_parent_pin: Optional[str] = Header(None, alias="X-Parent-PIN"),
 ) -> Optional[str]:
-    """FastAPI header dependency for X-Parent-PIN"""
-    return x_parent_pin
+    """FastAPI header dependency for X-Parent-Session or X-Parent-PIN"""
+    return x_parent_session or x_parent_pin
 
 async def require_any_pin_dep(
+    x_parent_session: Optional[str] = Header(None, alias="X-Parent-Session"),
     x_parent_pin: Optional[str] = Header(None, alias="X-Parent-PIN"),
     x_member_pin: Optional[str] = Header(None, alias="X-Member-PIN"),
 ) -> Optional[str]:
-    """FastAPI header dependency for X-Parent-PIN or X-Member-PIN"""
-    return x_parent_pin or x_member_pin
+    """FastAPI header dependency for X-Parent-Session, X-Parent-PIN or X-Member-PIN"""
+    return x_parent_session or x_parent_pin or x_member_pin
 

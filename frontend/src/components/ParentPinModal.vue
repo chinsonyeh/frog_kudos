@@ -43,11 +43,11 @@ async function verifyAndUnlock() {
   error.value = ''
 
   try {
-    // 立即向後端驗證 PIN 碼 (FR-13)
-    await api.verifyParentPin(pin.value)
+    // 立即向後端驗證 PIN 碼並簽發專屬此瀏覽器之獨立 Session Token (FR-13)
+    const res = await api.verifyParentPin(pin.value)
 
-    // 驗證成功後才正式解鎖家長管理模式
-    authStore.unlockParent(pin.value)
+    // 驗證成功後才正式解鎖當前瀏覽器的獨立家長管理模式
+    authStore.unlockParent(pin.value, res.session_token || '')
     emit('unlocked')
     emit('close')
     clearPin()

@@ -1,10 +1,17 @@
 import os
 import shutil
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File, Form, Header, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.core.security import verify_parent_pin, verify_member_or_parent_pin, require_parent_pin_dep
+from app.core.security import (
+    verify_parent_pin,
+    verify_member_or_parent_pin,
+    require_parent_pin_dep,
+    create_parent_session,
+    revoke_parent_session,
+    PARENT_SESSION_TIMEOUT_SECONDS,
+)
 from app.schemas.system import (
     SystemConfigOut,
     SystemConfigUpdate,
@@ -18,6 +25,7 @@ from app.schemas.system import (
     UpgradeStatusOut,
     PinVerifyIn,
     PinVerifyOut,
+    SessionLockIn,
     MemberPinVerifyIn,
     MemberPinVerifyOut,
 )
@@ -142,8 +150,8 @@ async def verify_parent_pin_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    即時驗證家長 PIN 碼 (FR-13)
-    解鎖時立即比對家長 PIN 碼。驗證成功回傳 200，錯誤拋出 403 Forbidden。
+    即時驗證家長 PIN 碼並簽發專屬此瀏覽器之獨立 Session Token (FR-13)
+    驗證成功回傳 200 與獨立 session_token，錯誤拋出 403 Forbidden。
     """
     pin = (verify_in.parent_pin if verify_in and verify_in.parent_pin else None) or \
           (verify_in.pin if verify_in and verify_in.pin else None) or \
@@ -153,7 +161,24 @@ async def verify_parent_pin_endpoint(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="家長安全鎖 PIN 碼錯誤，請重新輸入",
         )
-    return PinVerifyOut(valid=True, message="家長安全鎖 PIN 碼驗證成功")
+    session_token = create_parent_session()
+    return PinVerifyOut(
+        valid=True,
+        message="家長安全鎖 PIN 碼驗證成功",
+        session_token=session_token,
+        expires_in=PARENT_SESSION_TIMEOUT_SECONDS,
+    )
+
+@router.post("/lock-session")
+async def lock_session_endpoint(
+    lock_in: Optional[SessionLockIn] = None,
+    x_parent_session: Optional[str] = Header(None, alias="X-Parent-Session"),
+):
+    """銷毀指定之瀏覽器 Session Token，即刻在伺服器端鎖定"""
+    token = (lock_in.session_token if lock_in and lock_in.session_token else None) or x_parent_session
+    if token:
+        revoke_parent_session(token)
+    return {"success": True, "message": "該瀏覽器會話已安全鎖定"}
 
 @router.post("/verify-member-pin", response_model=MemberPinVerifyOut)
 async def verify_member_pin_endpoint(

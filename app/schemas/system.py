@@ -68,6 +68,11 @@ class PinVerifyIn(BaseModel):
 class PinVerifyOut(BaseModel):
     valid: bool
     message: str
+    session_token: Optional[str] = None
+    expires_in: Optional[int] = None
+
+class SessionLockIn(BaseModel):
+    session_token: Optional[str] = None
 
 class MemberPinVerifyIn(BaseModel):
     member_id: uuid.UUID

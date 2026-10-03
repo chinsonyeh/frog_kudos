@@ -6,9 +6,14 @@ async function request(endpoint, options = {}) {
   const authStore = useAuthStore()
   const headers = { ...options.headers }
 
-  // 如果為家長模式且有 PIN 碼，自動附加 X-Parent-PIN Header
-  if (authStore.isParent && authStore.parentPin) {
-    headers['X-Parent-PIN'] = authStore.parentPin
+  // 如果為家長模式，自動附加專屬此瀏覽器 Session 之 Header
+  if (authStore.isParent) {
+    if (authStore.sessionToken) {
+      headers['X-Parent-Session'] = authStore.sessionToken
+    }
+    if (authStore.parentPin) {
+      headers['X-Parent-PIN'] = authStore.parentPin
+    }
   }
 
   // 判斷是否為 FormData (檔案上傳)
@@ -148,6 +153,11 @@ export const api = {
     request('/system/verify-pin', {
       method: 'POST',
       body: JSON.stringify({ parent_pin: pin }),
+    }),
+  lockParentSession: (sessionToken) =>
+    request('/system/lock-session', {
+      method: 'POST',
+      body: JSON.stringify({ session_token: sessionToken }),
     }),
   verifyMemberPin: (memberId, pin) =>
     request('/system/verify-member-pin', {
