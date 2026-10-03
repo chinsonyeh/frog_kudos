@@ -5,6 +5,24 @@
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  /* 關閉所有按鈕與互動元件連點 2 下放大行為，同時消除行動端 300ms 點擊延遲 */
+  button,
+  [role="button"],
+  input,
+  select,
+  textarea,
+  a {
+    touch-action: manipulation;
+  }
+
+  /* 防止 iOS Safari 聚焦小於 16px 的輸入框時自動觸發頁面放大 */
+  @media screen and (max-width: 768px) {
+    input, select, textarea {
+      font-size: 16px !important;
+    }
   }
 }
 
