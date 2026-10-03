@@ -18,6 +18,9 @@ class MemberUpdate(BaseModel):
     is_active: Optional[bool] = None
     parent_pin: Optional[str] = None
 
+class MemberAvatarUpdate(BaseModel):
+    avatar: str = Field(..., min_length=1, max_length=100)
+
 class MemberOut(BaseModel):
     id: uuid.UUID
     name: str

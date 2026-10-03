@@ -173,14 +173,22 @@ function onUnlockedBadges(bList) {
           <span>{{ m.name }}</span>
         </button>
 
-        <!-- 家長管理成員按鈕 -->
+        <!-- 家長管理成員按鈕 / 未解鎖時更換頭像按鈕 -->
         <button
           v-if="authStore.isParent"
           @click="showMemberModal = true"
-          class="flex items-center space-x-1 px-3 py-2 rounded-2xl text-xs font-bold border border-dashed border-gray-300 hover:border-frog-500 hover:bg-frog-50/50 text-gray-500 hover:text-frog-700 transition flex-shrink-0"
+          class="flex items-center space-x-1 px-3 py-2 rounded-2xl text-xs font-bold border border-dashed border-gray-300 hover:border-frog-500 hover:bg-frog-50/50 text-gray-500 hover:text-frog-700 transition flex-shrink-0 cursor-pointer"
           title="新增或維護家庭成員"
         >
           <span>+ 管理成員</span>
+        </button>
+        <button
+          v-else
+          @click="showMemberModal = true"
+          class="flex items-center space-x-1 px-3 py-2 rounded-2xl text-xs font-bold border border-dashed border-gray-300 hover:border-frog-500 hover:bg-frog-50/50 text-gray-500 hover:text-frog-700 transition flex-shrink-0 cursor-pointer"
+          title="更換成員代表頭像"
+        >
+          <span>🎨 更換頭像</span>
         </button>
       </div>
 
@@ -215,9 +223,23 @@ function onUnlockedBadges(bList) {
       <div class="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
         <div>
           <div class="flex items-center space-x-3 mb-2">
-            <span class="text-4xl sm:text-5xl">{{ currentMember.avatar }}</span>
+            <span
+              @click="showMemberModal = true"
+              class="text-4xl sm:text-5xl cursor-pointer hover:scale-110 active:scale-95 transition"
+              title="點擊更換頭像"
+            >{{ currentMember.avatar }}</span>
             <div>
-              <h3 class="text-2xl font-black tracking-tight">{{ currentMember.name }} 的點數存摺</h3>
+              <div class="flex items-center space-x-2">
+                <h3 class="text-2xl font-black tracking-tight">{{ currentMember.name }} 的點數存摺</h3>
+                <button
+                  @click="showMemberModal = true"
+                  type="button"
+                  class="text-[11px] bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded-lg font-bold transition cursor-pointer"
+                  title="更換代表頭像"
+                >
+                  🎨 更換頭像
+                </button>
+              </div>
               <span class="text-xs font-medium text-emerald-100">持續累積自主自律成果</span>
             </div>
           </div>

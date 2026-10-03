@@ -65,7 +65,40 @@ async def test_members_flow():
         assert amy["name"] == "AmyTest"
         assert amy["current_points"] == 0
 
-        # 4. 新成員無紀錄時執行實體刪除
+        # 4. 測試未解鎖狀態更換頭像 (無須 PIN 碼) (PUT 與 PATCH)
+        # 4-1: PUT 僅變更 avatar
+        put_av_res = await client.put(
+            f"/api/members/{amy_id}",
+            json={"avatar": "🦄"},
+        )
+        assert put_av_res.status_code == 200
+        assert put_av_res.json()["avatar"] == "🦄"
+
+        # 4-2: PATCH 變更 avatar
+        patch_av_res = await client.patch(
+            f"/api/members/{amy_id}/avatar",
+            json={"avatar": "🦁"},
+        )
+        assert patch_av_res.status_code == 200
+        assert patch_av_res.json()["avatar"] == "🦁"
+
+        # 4-3: 未帶 PIN 嘗試修改姓名或管理屬性應被阻擋 (403 Forbidden)
+        bad_name_res = await client.put(
+            f"/api/members/{amy_id}",
+            json={"name": "HackedName"},
+        )
+        assert bad_name_res.status_code == 403
+
+        # 4-4: 帶正確 PIN 碼修改姓名成功
+        ok_name_res = await client.put(
+            f"/api/members/{amy_id}",
+            headers={"X-Parent-PIN": "0000"},
+            json={"name": "AmyUpdated"},
+        )
+        assert ok_name_res.status_code == 200
+        assert ok_name_res.json()["name"] == "AmyUpdated"
+
+        # 5. 新成員無紀錄時執行實體刪除
         del_res = await client.delete(
             f"/api/members/{amy_id}?parent_pin=0000"
         )

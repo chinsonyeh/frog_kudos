@@ -51,6 +51,8 @@ export const api = {
     request('/members', { method: 'POST', body: JSON.stringify(data) }),
   updateMember: (id, data) =>
     request(`/members/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  updateMemberAvatar: (id, avatar) =>
+    request(`/members/${id}/avatar`, { method: 'PATCH', body: JSON.stringify({ avatar }) }),
   deleteMember: (id, pin) =>
     request(`/members/${id}${pin ? `?parent_pin=${encodeURIComponent(pin)}` : ''}`, { method: 'DELETE' }),
   getMemberBadges: (id) =>

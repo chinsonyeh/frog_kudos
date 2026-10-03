@@ -8,7 +8,7 @@ from app.core.security import verify_parent_pin, hash_pin, require_parent_pin_de
 from app.models.member import Member
 from app.models.kudos_record import KudosRecord
 from app.models.redemption import Redemption
-from app.schemas.member import MemberCreate, MemberUpdate, MemberOut
+from app.schemas.member import MemberCreate, MemberUpdate, MemberAvatarUpdate, MemberOut
 from app.schemas.badge import MemberBadgeOut
 from app.services.badge_service import get_member_badges
 
@@ -70,10 +70,24 @@ async def update_member(
     x_parent_pin: Optional[str] = Depends(require_parent_pin_dep),
     db: AsyncSession = Depends(get_db),
 ):
-    """修改家庭成員資訊、變更家長 PIN 碼或停用狀態（需家長安全鎖）"""
-    pin = member_in.parent_pin or x_parent_pin
-    if not await verify_parent_pin(db, pin):
-        raise HTTPException(status_code=403, detail="家長安全鎖 PIN 碼錯誤或未授權")
+    """
+    修改家庭成員資訊、變更家長 PIN 碼或停用狀態。
+    若僅變更頭像 (avatar)，未解鎖狀態下亦允許變更（無須家長安全鎖）；
+    若涉及姓名、角色、PIN 碼、啟用狀態等管理屬性，必須通過家長安全鎖驗證。
+    """
+    # 檢查是否僅變更頭像 (未解鎖時仍可更換頭像)
+    is_avatar_only = (
+        member_in.avatar is not None
+        and member_in.name is None
+        and member_in.role is None
+        and member_in.pin_code is None
+        and member_in.is_active is None
+    )
+
+    if not is_avatar_only:
+        pin = member_in.parent_pin or x_parent_pin
+        if not await verify_parent_pin(db, pin):
+            raise HTTPException(status_code=403, detail="家長安全鎖 PIN 碼錯誤或未授權")
 
     member = await db.get(Member, member_id)
     if not member:
@@ -94,6 +108,21 @@ async def update_member(
     if member_in.is_active is not None:
         member.is_active = member_in.is_active
 
+    await db.commit()
+    await db.refresh(member)
+    return member
+
+@router.patch("/{member_id}/avatar", response_model=MemberOut)
+async def update_member_avatar(
+    member_id: uuid.UUID,
+    avatar_in: MemberAvatarUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """允許小孩或未解鎖模式下自由更換個人代表頭像 (無須家長安全鎖)"""
+    member = await db.get(Member, member_id)
+    if not member:
+        raise HTTPException(status_code=404, detail="成員不存在")
+    member.avatar = avatar_in.avatar
     await db.commit()
     await db.refresh(member)
     return member

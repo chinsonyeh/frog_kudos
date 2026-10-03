@@ -252,7 +252,8 @@ erDiagram
 |---|---|---|---|---|
 | `GET` | `/api/members` | `?include_inactive=false` | `MemberOut[]` | 取得家庭成員清單（預設僅列出 `is_active=TRUE` 有效成員，避免快速登記出現停用者） |
 | `POST` | `/api/members` | `{ name, role, avatar, pin_code, parent_pin }` | `MemberOut` | 新增家庭成員（若 role=parent 需設定 4 碼 PIN，需家長鎖） |
-| `PUT` | `/api/members/{id}` | `{ name, avatar, pin_code, is_active, parent_pin }` | `MemberOut` | **修改家庭成員資訊、變更家長個人 4 碼 PIN 碼或切換啟用/停用狀態（需家長安全鎖）** |
+| `PUT` | `/api/members/{id}` | `{ name, avatar, pin_code, is_active, parent_pin }` | `MemberOut` | **修改家庭成員資訊、變更家長 PIN 碼或停用狀態（若僅變更 avatar 免 PIN 碼，變更其他管理欄位需家長安全鎖）** |
+| `PATCH`| `/api/members/{id}/avatar` | `{ avatar }` | `MemberOut` | **未解鎖/小孩模式自由更換成員代表頭像（無須家長安全鎖）** |
 | `DELETE` | `/api/members/{id}` | `{ parent_pin }` | `{ success: true, action: "DEACTIVATED"\|"DELETED" }` | **安全刪除或停用成員（若已有歷史積分或兌換紀錄則自動轉為軟停用 is_active=FALSE 以保全審計鏈，無歷史紀錄之全新成員則執行實體刪除；需家長安全鎖）** |
 | `GET` | `/api/members/{id}/badges` | - | `MemberBadgeOut[]` | **查詢成員里程碑成就勳章清單與達成進度 (FR-18)** |
 | `GET` | `/api/badges` | `?all=false` | `BadgeOut[]` | **查詢所有里程碑成就勳章定義清單 (FR-18)** |
@@ -1278,7 +1279,7 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 
 | 需求代號 | 需求項目名稱 | 設計對應之資料表 / 檔案 | 設計對應之後端 API / 演算法 | 設計對應之前端 Web UI 畫面 | 檢核結果 |
 |---|---|---|---|---|---|
-| **FR-1** | 多成員帳號管理 | `members` 表 | `GET /api/members`<br>`POST/PUT/DELETE /api/members` | 頂部導航列「👥 家庭成員」獨立功能按鈕（位於「規則管理」左側）、成員維護/新增與安全停用彈窗 | ✅ 100% 符合 |
+| **FR-1** | 多成員帳號管理 | `members` 表 | `GET /api/members`<br>`POST/PUT/DELETE /api/members`<br>`PATCH /api/members/{id}/avatar` | 頂部導航列「👥 家庭成員」功能按鈕、未解鎖模式自由更換代表頭像、其他成員管理功能禁用與隱藏 | ✅ 100% 符合 |
 | **FR-2** | 個別化客製獎勵規則 | `reward_rules`, `categories` | `GET/POST/PUT/DELETE /api/rules` | 畫面 4：規則管理中心（成員專屬/通用分頁） | ✅ 100% 符合 |
 | **FR-3** | 快速成就登記與智慧自動帶出 | `reward_rules`, `kudos_records` | `POST /api/kudos/preview`<br>(3.1 規則推導演算法) | 畫面 1：快速登記卡（即時試算徽章與灑花動畫） | ✅ 100% 符合 |
 | **FR-4** | 積分快照與歷史不可篡改機制 | `kudos_records` (快照欄位組) | `POST /api/kudos/record` | 畫面 2：歷史存摺清單（展示當時規則快照細節） | ✅ 100% 符合 |
