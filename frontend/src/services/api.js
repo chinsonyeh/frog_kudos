@@ -140,6 +140,11 @@ export const api = {
     request('/system/upload-package', { method: 'POST', body: formData }),
   getUpgradeStatus: () =>
     request('/system/upgrade-status'),
+  verifyParentPin: (pin) =>
+    request('/system/verify-pin', {
+      method: 'POST',
+      body: JSON.stringify({ parent_pin: pin }),
+    }),
 
   // 成就勳章管理 (FR-18)
   getBadges: (all = true) =>

@@ -14,9 +14,12 @@ const error = ref('')
 const loading = ref(false)
 
 function appendDigit(digit) {
-  if (pin.value.length < 6) {
+  if (pin.value.length < 4) {
     pin.value += digit
     error.value = ''
+    if (pin.value.length === 4) {
+      verifyAndUnlock()
+    }
   }
 }
 
@@ -31,8 +34,8 @@ function clearPin() {
 }
 
 async function verifyAndUnlock() {
-  if (!pin.value) {
-    error.value = '請輸入家長 PIN 碼'
+  if (!pin.value || pin.value.length < 4) {
+    error.value = '請輸入 4 位數家長 PIN 碼'
     return
   }
 
@@ -40,16 +43,17 @@ async function verifyAndUnlock() {
   error.value = ''
 
   try {
-    // 透過觸發系統設定驗證 PIN 碼
+    // 立即向後端驗證 PIN 碼 (FR-13)
+    await api.verifyParentPin(pin.value)
+
+    // 驗證成功後才正式解鎖家長管理模式
     authStore.unlockParent(pin.value)
-    // 試探性發起需要 PIN 的輕量請求檢驗 PIN 碼有效性
-    await api.getBackups()
     emit('unlocked')
     emit('close')
     clearPin()
   } catch (err) {
     authStore.lockParent()
-    error.value = 'PIN 碼錯誤，請重新輸入'
+    error.value = err.message || 'PIN 碼錯誤，請重新輸入'
     pin.value = ''
   } finally {
     loading.value = false

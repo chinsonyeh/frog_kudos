@@ -141,8 +141,8 @@ INSERT INTO badges (badge_key, title, description, icon, condition_type, target_
 ON CONFLICT (badge_key) DO NOTHING;
 
 -- 12. 系統冷啟動預設種子成員 (Bootstrap Seed Members)
--- Dad 預設 PIN 為 0000 (透過 pgcrypto crypt 函數產生標準 bcrypt 雜湊，與後端 bcrypt 驗證相容)
+-- Dad 預設 PIN 為 0000 (標準 bcrypt 雜湊，與後端驗證相容)
 INSERT INTO members (name, role, avatar, pin_code) VALUES
-    ('Dad', 'parent', '👨', crypt('0000', gen_salt('bf', 12))),
+    ('Dad', 'parent', '👨', '$2b$12$f7BXSELglKbgS3y6GdeQr.M1aNHcMIIlkEsPrUYBXF8rT2YCB8zQu'),
     ('Ian', 'child', '🐸', NULL)
 ON CONFLICT (name) DO NOTHING;

@@ -59,3 +59,11 @@ class UpgradeStatusOut(BaseModel):
     progress: int
     current_step: str
     logs: List[str]
+
+class PinVerifyIn(BaseModel):
+    pin: Optional[str] = None
+    parent_pin: Optional[str] = None
+
+class PinVerifyOut(BaseModel):
+    valid: bool
+    message: str

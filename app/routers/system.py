@@ -1,7 +1,7 @@
 import os
 import shutil
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File, Form, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import verify_parent_pin, require_parent_pin_dep
@@ -16,6 +16,8 @@ from app.schemas.system import (
     VersionOut,
     UpgradeRequest,
     UpgradeStatusOut,
+    PinVerifyIn,
+    PinVerifyOut,
 )
 from app.services.system_service import (
     run_backup,
@@ -130,3 +132,24 @@ async def upload_offline_package(
 async def check_upgrade_status():
     """Web 輪詢即時升級進度與日誌 (FR-9)"""
     return get_upgrade_status()
+
+@router.post("/verify-pin", response_model=PinVerifyOut)
+async def verify_parent_pin_endpoint(
+    verify_in: Optional[PinVerifyIn] = None,
+    x_parent_pin: Optional[str] = Depends(require_parent_pin_dep),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    即時驗證家長 PIN 碼 (FR-13)
+    解鎖時立即比對家長 PIN 碼。驗證成功回傳 200，錯誤拋出 403 Forbidden。
+    """
+    pin = (verify_in.parent_pin if verify_in and verify_in.parent_pin else None) or \
+          (verify_in.pin if verify_in and verify_in.pin else None) or \
+          x_parent_pin
+    if not await verify_parent_pin(db, pin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="家長安全鎖 PIN 碼錯誤，請重新輸入",
+        )
+    return PinVerifyOut(valid=True, message="家長安全鎖 PIN 碼驗證成功")
+

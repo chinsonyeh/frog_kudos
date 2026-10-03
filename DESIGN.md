@@ -1290,7 +1290,7 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 | **FR-10**| GitHub Release 自動化打包發佈 | `.github/workflows/release.yml` | GitHub Actions CI/CD 自動構建 | 發行包內建編譯後 `dist/`，主機免裝 Node/npm | ✅ 100% 符合 |
 | **FR-11**| 安裝時使用者自訂連接埠 | `scripts/install.sh`, `.env`, `run.sh` | 支援 `--port` 與互動式輸入、佔用防呆 | 後端單一 Port 整合託管自訂 Port | ✅ 100% 符合 |
 | **FR-12**| PWA 行動裝置主畫面應用支援 | `frontend/public/manifest.webmanifest` | Web App Manifest、iOS Safari meta | 全螢幕原生 App 體驗、桌面圖示 | ✅ 100% 符合 |
-| **FR-13**| 客廳共用裝置家長鎖與小孩模式 | 前端狀態機 Pinia / SessionStorage | 家長 PIN 碼認證、15 分鐘閒置自動鎖定 | 頂部模式切換開關、自動隱藏管理選單 | ✅ 100% 符合 |
+| **FR-13**| 客廳共用裝置家長鎖與小孩模式 | 前端狀態機 Pinia / SessionStorage | 家長 PIN 碼即時後端認證 (`POST /api/system/verify-pin`)、15 分鐘閒置自動鎖定 | 頂部模式切換開關、自動隱藏管理選單、輸入 4 碼即時驗證 | ✅ 100% 符合 |
 | **FR-14**| 自訂臨時特別獎勵與違規扣點 | `kudos_records` (支援負數點數) | `POST /api/kudos/record` (自訂模式) | 畫面 1：自由臨時獎懲切換卡片 | ✅ 100% 符合 |
 | **FR-15**| 兌換商城審核與退回退點閉環 | `redemptions` (`PENDING` 狀態) | `POST /api/redemptions/{id}/review` | 畫面 3：分頁 2 家長審核卡片 (核銷/自動退點) | ✅ 100% 符合 |
 | **FR-16**| 定期自動備份排程與保留輪替 | `scripts/backup.sh`, `.env` | 後端定時任務 + 備份上限輪替清理 | 畫面 6：分頁 1 自動排程與保留上限設定 | ✅ 100% 符合 |

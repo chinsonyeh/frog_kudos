@@ -393,6 +393,37 @@ async def test_system_endpoints():
         status_res = await client.get("/api/system/upgrade-status")
         assert status_res.status_code == 200
 
+        # 4. 即時驗證 PIN 碼 (FR-13)
+        # 正確 PIN (JSON payload)
+        ok_pin_res = await client.post(
+            "/api/system/verify-pin",
+            json={"parent_pin": "0000"},
+        )
+        assert ok_pin_res.status_code == 200
+        assert ok_pin_res.json()["valid"] is True
+
+        # 正確 PIN (Header)
+        ok_header_res = await client.post(
+            "/api/system/verify-pin",
+            headers={"X-Parent-PIN": "0000"},
+        )
+        assert ok_header_res.status_code == 200
+        assert ok_header_res.json()["valid"] is True
+
+        # 錯誤 PIN 應立即回傳 403 Forbidden
+        bad_pin_res = await client.post(
+            "/api/system/verify-pin",
+            json={"parent_pin": "9999"},
+        )
+        assert bad_pin_res.status_code == 403
+
+        # 空白 PIN 應立即回傳 403 Forbidden
+        empty_pin_res = await client.post(
+            "/api/system/verify-pin",
+            json={"parent_pin": ""},
+        )
+        assert empty_pin_res.status_code == 403
+
 @pytest.mark.asyncio
 async def test_badge_management_and_milestones():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
