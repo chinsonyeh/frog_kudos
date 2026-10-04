@@ -721,180 +721,177 @@ async def test_role_based_unlock_and_permissions():
     7. 家長帳號解鎖保留完整管理、審核與跨成員操作權限
     """
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # 1. 取得現有成員 (Dad, Ian, Lily)
+        # 1. 取得現有家長成員
         members_res = await client.get("/api/members")
         assert members_res.status_code == 200
         members = members_res.json()
-        dad = next(m for m in members if m["role"] == "parent")
-        ian = next(m for m in members if m["name"] == "Ian")
-        lily = next(m for m in members if m["name"] == "Lily")
+        parent_member = next(m for m in members if m["role"] == "parent")
 
-        # 2. 以 Ian 身分解鎖 (小孩帳號)
-        # 錯誤 PIN 碼應被拒絕 (403)
-        bad_unlock = await client.post(
-            "/api/system/verify-pin",
-            json={"member_id": ian["id"], "pin": "9999"}
-        )
-        assert bad_unlock.status_code == 403
+        # 2. 建立兩個獨立測試小孩（完全隔離，絕不污染正式環境成員）
+        child_a = await create_isolated_test_child(client, "RoleChildA")
+        child_b = await create_isolated_test_child(client, "RoleChildB")
+        a_id = child_a["id"]
+        b_id = child_b["id"]
+        a_name = child_a["name"]
 
-        # 正確 PIN 碼解鎖成功，簽發 child session
-        ian_unlock = await client.post(
-            "/api/system/verify-pin",
-            json={"member_id": ian["id"], "pin": "0000"}
-        )
-        assert ian_unlock.status_code == 200
-        ian_sess = ian_unlock.json()
-        assert ian_sess["role"] == "child"
-        assert str(ian_sess["member_id"]) == str(ian["id"])
-        assert ian_sess["member_name"] == "Ian"
-        ian_token = ian_sess["session_token"]
-        assert ian_token and ian_token.startswith("fks_")
-
-        # 3. Ian 專屬功能驗證：
-        # A. 申請增加 Ian 自己的點數 (+5) -> 允許
-        ian_kudos_ok = await client.post(
-            "/api/kudos/record",
-            headers={"X-Session-Token": ian_token},
-            json={
-                "member_id": ian["id"],
-                "target_name": "自主做家事",
-                "condition_value": "折棉被",
-                "points_awarded": 5,
-                "recorded_by": "Ian",
-            }
-        )
-        assert ian_kudos_ok.status_code == 200
-
-        # B. 嘗試幫手足 Lily 登記點數 -> 嚴格阻擋 (403 Forbidden)
-        cross_kudos_fail = await client.post(
-            "/api/kudos/record",
-            headers={"X-Session-Token": ian_token},
-            json={
-                "member_id": lily["id"],
-                "target_name": "寫作業",
-                "condition_value": "完成",
-                "points_awarded": 10,
-                "recorded_by": "Ian",
-            }
-        )
-        assert cross_kudos_fail.status_code == 403
-
-        # C. 嘗試自行扣點 (-10) -> 嚴格阻擋 (403 Forbidden: 小孩僅能申請增加自身點數，不可自訂扣點)
-        deduct_fail = await client.post(
-            "/api/kudos/record",
-            headers={"X-Session-Token": ian_token},
-            json={
-                "member_id": ian["id"],
-                "target_name": "吵鬧罰點",
-                "condition_value": "扣點",
-                "points_awarded": -10,
-                "recorded_by": "Ian",
-            }
-        )
-        assert deduct_fail.status_code == 403
-
-        # D. 取得一個上架中的商品
-        items_res = await client.get("/api/items")
-        assert items_res.status_code == 200
-        items = items_res.json()
-        assert len(items) > 0
-        test_item = items[0]
-
-        # E. Ian 申請兌換自己點數的心願獎品 -> 允許
-        ian_redeem_ok = await client.post(
-            "/api/redemptions",
-            headers={"X-Session-Token": ian_token},
-            json={
-                "member_id": ian["id"],
-                "item_id": test_item["id"],
-                "note": "自主心願兌換",
-            }
-        )
-        assert ian_redeem_ok.status_code == 200
-        redemption_id = ian_redeem_ok.json()["id"]
-
-        # F. Ian 嘗試幫 Lily 兌換獎品 -> 嚴格阻擋 (403 Forbidden)
-        cross_redeem_fail = await client.post(
-            "/api/redemptions",
-            headers={"X-Session-Token": ian_token},
-            json={
-                "member_id": lily["id"],
-                "item_id": test_item["id"],
-                "note": "幫妹妹兌換",
-            }
-        )
-        assert cross_redeem_fail.status_code == 403
-
-        # G. Ian 嘗試自行審核核銷兌換申請 -> 嚴格阻擋 (403 Forbidden)
-        ian_review_fail = await client.post(
-            f"/api/redemptions/{redemption_id}/review",
-            headers={"X-Session-Token": ian_token},
-            json={"action": "COMPLETE", "review_note": "小孩自審"}
-        )
-        assert ian_review_fail.status_code == 403
-
-        # H. Ian 嘗試管理規則或系統設定 -> 嚴格阻擋 (403 Forbidden)
-        rule_fail = await client.post(
-            "/api/rules",
-            headers={"X-Session-Token": ian_token},
-            json={
-                "target_name": "偷改規則",
-                "match_type": "EXACT",
-                "condition_value": "100",
-                "reward_points": 9999,
-            }
-        )
-        assert rule_fail.status_code == 403
-
-        # 4. 以 Dad 身分解鎖 (家長帳號)
-        dad_unlock = await client.post(
-            "/api/system/verify-pin",
-            json={"member_id": dad["id"], "pin": "0000"}
-        )
-        assert dad_unlock.status_code == 200
-        dad_sess = dad_unlock.json()
-        assert dad_sess["role"] == "parent"
-        dad_token = dad_sess["session_token"]
-
-        # 家長審核 Ian 的兌換申請 -> 成功
-        dad_review_ok = await client.post(
-            f"/api/redemptions/{redemption_id}/review",
-            headers={"X-Session-Token": dad_token},
-            json={"action": "COMPLETE", "review_note": "家長確認兌現"}
-        )
-        assert dad_review_ok.status_code == 200
-        assert dad_review_ok.json()["status"] == "COMPLETED"
-
-        # 家長可以為任意成員發放或調整點數
-        dad_kudos_ok = await client.post(
-            "/api/kudos/record",
-            headers={"X-Session-Token": dad_token},
-            json={
-                "member_id": lily["id"],
-                "target_name": "主動收拾玩具",
-                "condition_value": "整齊",
-                "points_awarded": 15,
-                "recorded_by": "Dad",
-            }
-        )
-        assert dad_kudos_ok.status_code == 200
-
-        # 清理剛才由測試所增加的紀錄以維持資料完整
-        from app.core.database import engine
-        from sqlalchemy import text
-        async with engine.begin() as conn:
-            await conn.execute(text(f"DELETE FROM kudos_records WHERE id = '{ian_kudos_ok.json()['id']}';"))
-            await conn.execute(text(f"DELETE FROM kudos_records WHERE id = '{dad_kudos_ok.json()['id']}';"))
-            await conn.execute(text(f"DELETE FROM redemptions WHERE id = '{redemption_id}';"))
-            # 復原 Ian 與 Lily 點數至測試執行前之數值
-            await conn.execute(
-                text("UPDATE members SET current_points = :cur, total_earned_points = :tot WHERE id = :id"),
-                {"cur": ian["current_points"], "tot": ian["total_earned_points"], "id": ian["id"]}
+        test_item_id = None
+        try:
+            # 3. 以 ChildA 身分解鎖 (小孩帳號)
+            # 錯誤 PIN 碼應被拒絕 (403)
+            bad_unlock = await client.post(
+                "/api/system/verify-pin",
+                json={"member_id": a_id, "pin": "9999"}
             )
-            await conn.execute(
-                text("UPDATE members SET current_points = :cur, total_earned_points = :tot WHERE id = :id"),
-                {"cur": lily["current_points"], "tot": lily["total_earned_points"], "id": lily["id"]}
+            assert bad_unlock.status_code == 403
+
+            # 正確 PIN 碼解鎖成功，簽發 child session
+            a_unlock = await client.post(
+                "/api/system/verify-pin",
+                json={"member_id": a_id, "pin": "0000"}
             )
+            assert a_unlock.status_code == 200
+            a_sess = a_unlock.json()
+            assert a_sess["role"] == "child"
+            assert str(a_sess["member_id"]) == str(a_id)
+            assert a_sess["member_name"] == a_name
+            a_token = a_sess["session_token"]
+            assert a_token and a_token.startswith("fks_")
+
+            # 4. ChildA 專屬功能驗證：
+            # A. 申請增加 ChildA 自己的點數 (+5) -> 允許
+            a_kudos_ok = await client.post(
+                "/api/kudos/record",
+                headers={"X-Session-Token": a_token},
+                json={
+                    "member_id": a_id,
+                    "target_name": "自主做家事",
+                    "condition_value": "折棉被",
+                    "points_awarded": 5,
+                    "recorded_by": a_name,
+                }
+            )
+            assert a_kudos_ok.status_code == 200
+
+            # B. 嘗試幫手足 ChildB 登記點數 -> 嚴格阻擋 (403 Forbidden)
+            cross_kudos_fail = await client.post(
+                "/api/kudos/record",
+                headers={"X-Session-Token": a_token},
+                json={
+                    "member_id": b_id,
+                    "target_name": "寫作業",
+                    "condition_value": "完成",
+                    "points_awarded": 10,
+                    "recorded_by": a_name,
+                }
+            )
+            assert cross_kudos_fail.status_code == 403
+
+            # C. 嘗試自行扣點 (-10) -> 嚴格阻擋 (403 Forbidden: 小孩僅能申請增加自身點數，不可自訂扣點)
+            deduct_fail = await client.post(
+                "/api/kudos/record",
+                headers={"X-Session-Token": a_token},
+                json={
+                    "member_id": a_id,
+                    "target_name": "吵鬧罰點",
+                    "condition_value": "扣點",
+                    "points_awarded": -10,
+                    "recorded_by": a_name,
+                }
+            )
+            assert deduct_fail.status_code == 403
+
+            # D. 新增獨立測試商品
+            item_res = await client.post(
+                "/api/items",
+                headers={"X-Parent-PIN": "0000"},
+                json={"title": "角色測試獎品", "cost_points": 5, "icon": "🎁"},
+            )
+            assert item_res.status_code == 200
+            test_item_id = item_res.json()["id"]
+
+            # E. ChildA 申請兌換自己點數的心願獎品 -> 允許
+            a_redeem_ok = await client.post(
+                "/api/redemptions",
+                headers={"X-Session-Token": a_token},
+                json={
+                    "member_id": a_id,
+                    "item_id": test_item_id,
+                    "note": "自主心願兌換",
+                }
+            )
+            assert a_redeem_ok.status_code == 200
+            redemption_id = a_redeem_ok.json()["id"]
+
+            # F. ChildA 嘗試幫 ChildB 兌換獎品 -> 嚴格阻擋 (403 Forbidden)
+            cross_redeem_fail = await client.post(
+                "/api/redemptions",
+                headers={"X-Session-Token": a_token},
+                json={
+                    "member_id": b_id,
+                    "item_id": test_item_id,
+                    "note": "幫手足兌換",
+                }
+            )
+            assert cross_redeem_fail.status_code == 403
+
+            # G. ChildA 嘗試自行審核核銷兌換申請 -> 嚴格阻擋 (403 Forbidden)
+            a_review_fail = await client.post(
+                f"/api/redemptions/{redemption_id}/review",
+                headers={"X-Session-Token": a_token},
+                json={"action": "COMPLETE", "review_note": "小孩自審"}
+            )
+            assert a_review_fail.status_code == 403
+
+            # H. ChildA 嘗試管理規則或系統設定 -> 嚴格阻擋 (403 Forbidden)
+            rule_fail = await client.post(
+                "/api/rules",
+                headers={"X-Session-Token": a_token},
+                json={
+                    "target_name": "偷改規則",
+                    "match_type": "EXACT",
+                    "condition_value": "100",
+                    "reward_points": 9999,
+                }
+            )
+            assert rule_fail.status_code == 403
+
+            # 5. 以家長身分解鎖 (家長帳號)
+            dad_unlock = await client.post(
+                "/api/system/verify-pin",
+                json={"member_id": parent_member["id"], "pin": "0000"}
+            )
+            assert dad_unlock.status_code == 200
+            dad_sess = dad_unlock.json()
+            assert dad_sess["role"] == "parent"
+            dad_token = dad_sess["session_token"]
+
+            # 家長審核 ChildA 的兌換申請 -> 成功
+            dad_review_ok = await client.post(
+                f"/api/redemptions/{redemption_id}/review",
+                headers={"X-Session-Token": dad_token},
+                json={"action": "COMPLETE", "review_note": "家長確認兌現"}
+            )
+            assert dad_review_ok.status_code == 200
+            assert dad_review_ok.json()["status"] == "COMPLETED"
+
+            # 家長可以為任意成員發放或調整點數
+            dad_kudos_ok = await client.post(
+                "/api/kudos/record",
+                headers={"X-Session-Token": dad_token},
+                json={
+                    "member_id": b_id,
+                    "target_name": "主動收拾玩具",
+                    "condition_value": "整齊",
+                    "points_awarded": 15,
+                    "recorded_by": parent_member["name"],
+                }
+            )
+            assert dad_kudos_ok.status_code == 200
+        finally:
+            await cleanup_test_child(client, a_id)
+            await cleanup_test_child(client, b_id)
+            if test_item_id:
+                await client.delete(f"/api/items/{test_item_id}?permanent=true", headers={"X-Parent-PIN": "0000"})
 
 
 

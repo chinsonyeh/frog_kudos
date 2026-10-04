@@ -83,7 +83,7 @@ function triggerUnlock() {
           </div>
           <h4 class="font-bold text-gray-800 text-sm">選擇您的角色身分</h4>
           <p class="text-xs text-gray-500 leading-relaxed">
-            在成員清單中點擊自己的角色：<strong>家長 (Dad)</strong> 或 <strong>小孩 (Ian / Lily)</strong>。
+            在成員清單中點擊自己的角色：<strong>家長</strong> 或 <strong>小孩成員</strong>。
           </p>
         </div>
 
