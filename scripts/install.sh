@@ -135,7 +135,7 @@ DB_PORT="${DB_PORT:-5432}"
 DB_PASSWORD="${DB_PASSWORD:-}"
 
 # 確保本地版本標識檔存在
-[ ! -f "$ROOT_DIR/VERSION" ] && echo "v1.0.0" > "$ROOT_DIR/VERSION"
+[ ! -f "$ROOT_DIR/VERSION" ] && echo "v1.0.1" > "$ROOT_DIR/VERSION"
 
 # 4. 初始化 PostgreSQL frog_kudos 資料庫結構
 echo "🐘 步驟 3/5: 初始化資料庫結構..."
