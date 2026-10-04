@@ -163,6 +163,24 @@ function onUnlockedBadges(bList) {
       @badges-updated="loadMemberDetails"
     />
 
+    <!-- 訪客模式友善引導橫幅 -->
+    <div
+      v-if="!authStore.isUnlocked"
+      class="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-gradient-to-r from-frog-50 via-emerald-50 to-teal-50 border border-frog-200 rounded-3xl text-xs font-semibold text-frog-900 shadow-sm gap-2"
+    >
+      <div class="flex items-center space-x-2">
+        <span class="text-base">💡</span>
+        <span>訪客模式僅提供安全查看榮譽點數。若需申請加點或心願兌換，請點選右上角「<strong>🔐 解鎖</strong>」登入個人帳號。</span>
+      </div>
+      <router-link
+        to="/guide"
+        class="inline-flex items-center space-x-1 text-frog-700 hover:text-frog-900 font-bold bg-white px-3 py-1.5 rounded-xl border border-frog-200 hover:border-frog-300 shadow-xs flex-shrink-0 transition self-start sm:self-auto"
+      >
+        <span>📖 使用說明</span>
+        <span>➔</span>
+      </router-link>
+    </div>
+
     <!-- 頂部標題與成員切換選單 -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-4 sm:p-6 rounded-3xl border border-gray-100 shadow-sm">
       <!-- 成員標籤列 -->
@@ -180,7 +198,7 @@ function onUnlockedBadges(bList) {
           <span>{{ m.name }}</span>
         </button>
 
-        <!-- 家長管理成員按鈕 / 未解鎖時更換頭像按鈕 -->
+        <!-- 家長管理成員按鈕 / 小孩解鎖時更換個人頭像按鈕 / 訪客模式隱藏 -->
         <button
           v-if="authStore.isParent"
           @click="showMemberModal = true"
@@ -190,12 +208,12 @@ function onUnlockedBadges(bList) {
           <span>+ 管理成員</span>
         </button>
         <button
-          v-else
+          v-else-if="authStore.isChild"
           @click="showMemberModal = true"
           class="flex items-center space-x-1 px-3 py-2 rounded-2xl text-xs font-bold border border-dashed border-gray-300 hover:border-frog-500 hover:bg-frog-50/50 text-gray-500 hover:text-frog-700 transition flex-shrink-0 cursor-pointer"
-          title="更換成員代表頭像"
+          title="更換個人代表頭像與 PIN 碼"
         >
-          <span>🎨 更換頭像</span>
+          <span>🎨 個人頭像</span>
         </button>
       </div>
 
@@ -231,20 +249,22 @@ function onUnlockedBadges(bList) {
         <div>
           <div class="flex items-center space-x-3 mb-2">
             <span
-              @click="showMemberModal = true"
-              class="text-4xl sm:text-5xl cursor-pointer hover:scale-110 active:scale-95 transition"
-              title="點擊更換頭像"
+              @click="authStore.isUnlocked ? (showMemberModal = true) : null"
+              class="text-4xl sm:text-5xl transition"
+              :class="authStore.isUnlocked ? 'cursor-pointer hover:scale-110 active:scale-95' : 'cursor-default'"
+              :title="authStore.isUnlocked ? '點擊更換頭像' : ''"
             >{{ currentMember.avatar }}</span>
             <div>
               <div class="flex items-center space-x-2">
                 <h3 class="text-2xl font-black tracking-tight">{{ currentMember.name }} 的點數存摺</h3>
                 <button
+                  v-if="authStore.isUnlocked"
                   @click="showMemberModal = true"
                   type="button"
                   class="text-[11px] bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded-lg font-bold transition cursor-pointer"
-                  title="更換代表頭像"
+                  :title="authStore.isParent ? '管理成員' : '更換個人頭像'"
                 >
-                  🎨 更換頭像
+                  {{ authStore.isParent ? '👥 管理成員' : '🎨 更換頭像' }}
                 </button>
               </div>
               <span class="text-xs font-medium text-emerald-100">持續累積自主自律成果</span>

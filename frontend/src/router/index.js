@@ -5,6 +5,7 @@ import QuickEntryView from '@/views/QuickEntryView.vue'
 import LedgerView from '@/views/LedgerView.vue'
 import RewardsView from '@/views/RewardsView.vue'
 import RulesView from '@/views/RulesView.vue'
+import GuideView from '@/views/GuideView.vue'
 
 const routes = [
   {
@@ -18,6 +19,7 @@ const routes = [
     path: '/record',
     name: 'Record',
     component: QuickEntryView,
+    meta: { requiresUnlock: true },
   },
   {
     path: '/ledger',
@@ -28,12 +30,18 @@ const routes = [
     path: '/rewards',
     name: 'Rewards',
     component: RewardsView,
+    meta: { requiresUnlock: true },
   },
   {
     path: '/rules',
     name: 'Rules',
     component: RulesView,
     meta: { requiresParent: true },
+  },
+  {
+    path: '/guide',
+    name: 'Guide',
+    component: GuideView,
   },
   {
     path: '/:pathMatch(.*)*',
@@ -46,10 +54,12 @@ const router = createRouter({
   routes,
 })
 
-// 路由防護守衛 (FR-13)
+// 路由防護守衛 (訪客模式僅允許看榮譽存摺 /ledger，登記與商城需解鎖後方可進入)
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
   if (to.meta.requiresParent && !authStore.isParent) {
+    next('/ledger')
+  } else if (to.meta.requiresUnlock && !authStore.isUnlocked) {
     next('/ledger')
   } else {
     next()

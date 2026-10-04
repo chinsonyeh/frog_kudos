@@ -73,6 +73,10 @@ function openCreateForm() {
 }
 
 function openEditForm(member) {
+  if (!authStore.isUnlocked) {
+    errorMsg.value = '訪客模式無法更換頭像，請先解鎖！'
+    return
+  }
   if (authStore.isChild && member.id !== authStore.unlockedMemberId) {
     errorMsg.value = `目前以「${authStore.unlockedMember?.name}」身分解鎖，僅可修改個人代表頭像！`
     return
@@ -90,6 +94,10 @@ function openEditForm(member) {
 }
 
 function openChangePinForm(member) {
+  if (!authStore.isUnlocked) {
+    errorMsg.value = '訪客模式無法變更 PIN 碼，請先解鎖！'
+    return
+  }
   if (authStore.isChild && member.id !== authStore.unlockedMemberId) {
     errorMsg.value = `目前以「${authStore.unlockedMember?.name}」身分解鎖，僅可變更個人 PIN 碼！`
     return
@@ -266,7 +274,7 @@ async function handleDelete(member) {
       <div v-if="viewMode === 'list'" class="flex-1 overflow-y-auto py-4 space-y-4">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">
-            {{ authStore.isParent ? `目前家庭成員清單 (${membersList.length})` : (authStore.isChild ? `已解鎖「${authStore.unlockedMember?.name}」帳號：僅限維護個人頭像與 PIN 碼` : '請點選成員以自訂頭像或 PIN 碼') }}
+            {{ authStore.isParent ? `目前家庭成員清單 (${membersList.length})` : (authStore.isChild ? `已解鎖「${authStore.unlockedMember?.name}」帳號：僅限維護個人頭像與 PIN 碼` : '家庭成員清單 (請先解鎖以進行維護)') }}
           </span>
           <!-- 僅家長模式顯示 + 新增成員；未解鎖與小孩模式嚴格隱藏 -->
           <button
@@ -282,18 +290,18 @@ async function handleDelete(member) {
           <div
             v-for="m in membersList"
             :key="m.id"
-            @click="(!authStore.isParent && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? openEditForm(m) : null"
+            @click="(authStore.isUnlocked && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? openEditForm(m) : null"
             class="p-4 rounded-2xl border transition flex items-center justify-between"
             :class="[
               m.is_active ? 'bg-gray-50 border-gray-100 hover:border-gray-200' : 'bg-gray-100/60 border-gray-200 opacity-60',
-              (!authStore.isParent && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? 'cursor-pointer hover:bg-frog-50/50 hover:border-frog-300' : (authStore.isChild && m.id !== authStore.unlockedMemberId ? 'opacity-50 cursor-not-allowed' : '')
+              (authStore.isUnlocked && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? 'cursor-pointer hover:bg-frog-50/50 hover:border-frog-300' : (authStore.isChild && m.id !== authStore.unlockedMemberId ? 'opacity-50 cursor-not-allowed' : '')
             ]"
           >
             <div class="flex items-center space-x-3">
               <span
                 class="text-3xl transition"
-                :class="(!authStore.isParent && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? 'hover:scale-125' : ''"
-                title="點擊更換頭像"
+                :class="(authStore.isUnlocked && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? 'hover:scale-125' : ''"
+                :title="authStore.isUnlocked ? '點擊更換頭像' : ''"
               >
                 {{ m.avatar }}
               </span>
@@ -331,9 +339,9 @@ async function handleDelete(member) {
               >
                 編輯
               </button>
-              <!-- 小孩解鎖或訪客模式：更換頭像與修改 PIN 按鈕 -->
-              <template v-else>
-                <template v-if="!authStore.isChild || m.id === authStore.unlockedMemberId">
+              <!-- 小孩解鎖模式：僅自己的項目顯示更換頭像與修改 PIN 按鈕 -->
+              <template v-else-if="authStore.isChild">
+                <template v-if="m.id === authStore.unlockedMemberId">
                   <button
                     @click.stop="openEditForm(m)"
                     type="button"
@@ -353,6 +361,10 @@ async function handleDelete(member) {
                 <template v-else>
                   <span class="text-xs text-gray-400 font-medium px-2">🔒 無權限</span>
                 </template>
+              </template>
+              <template v-else>
+                <!-- 訪客未解鎖模式：無任何更換頭像按鈕 -->
+                <span class="text-xs text-gray-400 font-medium px-2">🔒 請先解鎖</span>
               </template>
 
               <!-- 僅家長模式顯示刪除/停用按鈕，未解鎖時嚴格隱藏且禁用 -->

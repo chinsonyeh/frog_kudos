@@ -19,6 +19,7 @@ const navItems = computed(() => {
       { type: 'link', name: '商城與審核', path: '/rewards', icon: '🎁' },
       { type: 'button', name: '家庭成員', action: () => emit('openMemberModal'), icon: '👥', title: '管理家庭成員清單與自訂成員' },
       { type: 'link', name: '規則管理', path: '/rules', icon: '⚙️' },
+      { type: 'link', name: '使用說明', path: '/guide', icon: '📖' },
     ]
   } else if (authStore.isChild) {
     return [
@@ -26,13 +27,13 @@ const navItems = computed(() => {
       { type: 'link', name: '榮譽存摺', path: '/ledger', icon: '🏆' },
       { type: 'link', name: '兌換商城', path: '/rewards', icon: '🎁' },
       { type: 'button', name: '個人成員', action: () => emit('openMemberModal'), icon: authStore.unlockedMember?.avatar || '👤', title: '變更個人代表頭像與 PIN 碼' },
+      { type: 'link', name: '使用說明', path: '/guide', icon: '📖' },
     ]
   } else {
+    // 訪客模式：移除家庭成員按鈕、兌換商城按鈕、點數登記按鈕，僅允許看榮譽點數頁面與使用說明
     return [
-      { type: 'link', name: '點數登記', path: '/record', icon: '📝' },
       { type: 'link', name: '榮譽存摺', path: '/ledger', icon: '🏆' },
-      { type: 'link', name: '兌換商城', path: '/rewards', icon: '🎁' },
-      { type: 'button', name: '家庭成員', action: () => emit('openMemberModal'), icon: '👥', title: '更換代表頭像與個人 PIN 碼' },
+      { type: 'link', name: '使用說明', path: '/guide', icon: '📖' },
     ]
   }
 })
@@ -40,7 +41,7 @@ const navItems = computed(() => {
 function handleModeToggle() {
   if (authStore.isUnlocked) {
     authStore.lock()
-    if (route.path === '/rules') {
+    if (route.path !== '/ledger' && route.path !== '/guide') {
       router.push('/ledger')
     }
   } else {
