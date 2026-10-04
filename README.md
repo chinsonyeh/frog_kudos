@@ -29,7 +29,7 @@
 git clone https://github.com/chinsonyeh/frog_kudos.git
 cd frog_kudos
 
-# 執行自動化安裝腳本 (自動檢查環境、探測資料庫連線、初始化 schema 與編譯前端)
+# 執行自動化安裝腳本 (自動檢查環境、建立設定檔、初始化資料庫與編譯前端)
 ./scripts/install.sh
 ```
 

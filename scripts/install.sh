@@ -56,7 +56,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --db-host <host>          PostgreSQL 主機 (預設: localhost)"
             echo "  --db-port <port>          PostgreSQL 埠號 (預設: 5432)"
             echo "  --db-user <user>          PostgreSQL 使用者 (預設: postgres)"
-            echo "  --db-password <pwd>       PostgreSQL 密碼 (未提供時自動智慧探測)"
+            echo "  --db-password <pwd>       PostgreSQL 密碼 (未提供時使用環境變數或預設值)"
             echo "  --db-name <name>          PostgreSQL 資料庫名稱 (預設: frog_kudos)"
             echo "  -h, --help                顯示此說明訊息"
             exit 0
@@ -90,22 +90,7 @@ fi
 if [ ! -f "$ROOT_DIR/.env" ]; then
     echo "📝 步驟 2/5: 建立環境設定檔 (.env，設定 PORT=${CHOSEN_PORT})..."
 
-    # 智慧探測 PostgreSQL 可用密碼
-    DB_PASS="$INPUT_DB_PASSWORD"
-    if [ -z "$DB_PASS" ]; then
-        if [ -n "${PGPASSWORD:-}" ] && PGPASSWORD="$PGPASSWORD" psql -h "$INPUT_DB_HOST" -p "$INPUT_DB_PORT" -U "$INPUT_DB_USER" -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
-            DB_PASS="$PGPASSWORD"
-        elif PGPASSWORD="postgres" psql -h "$INPUT_DB_HOST" -p "$INPUT_DB_PORT" -U "$INPUT_DB_USER" -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
-            DB_PASS="postgres"
-        elif PGPASSWORD="" psql -h "$INPUT_DB_HOST" -p "$INPUT_DB_PORT" -U "$INPUT_DB_USER" -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
-            DB_PASS=""
-        elif [ -t 0 ]; then
-            echo "🔐 PostgreSQL 資料庫連線驗證："
-            read -s -p "   請輸入 PostgreSQL 使用者 [${INPUT_DB_USER}] 的連線密碼: " PROMPTED_PASS
-            echo ""
-            DB_PASS="$PROMPTED_PASS"
-        fi
-    fi
+    DB_PASS="${INPUT_DB_PASSWORD:-${DB_PASSWORD:-postgres}}"
 
     if [ -n "$DB_PASS" ]; then
         DB_URL="postgresql+asyncpg://${INPUT_DB_USER}:${DB_PASS}@${INPUT_DB_HOST}:${INPUT_DB_PORT}/${INPUT_DB_NAME}"
