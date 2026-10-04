@@ -886,9 +886,15 @@ async def test_role_based_unlock_and_permissions():
             await conn.execute(text(f"DELETE FROM kudos_records WHERE id = '{ian_kudos_ok.json()['id']}';"))
             await conn.execute(text(f"DELETE FROM kudos_records WHERE id = '{dad_kudos_ok.json()['id']}';"))
             await conn.execute(text(f"DELETE FROM redemptions WHERE id = '{redemption_id}';"))
-            # 復原 Ian 與 Lily 點數
-            await conn.execute(text(f"UPDATE members SET current_points = 720, total_earned_points = 720 WHERE id = '{ian['id']}';"))
-            await conn.execute(text(f"UPDATE members SET current_points = 950, total_earned_points = 950 WHERE id = '{lily['id']}';"))
+            # 復原 Ian 與 Lily 點數至測試執行前之數值
+            await conn.execute(
+                text("UPDATE members SET current_points = :cur, total_earned_points = :tot WHERE id = :id"),
+                {"cur": ian["current_points"], "tot": ian["total_earned_points"], "id": ian["id"]}
+            )
+            await conn.execute(
+                text("UPDATE members SET current_points = :cur, total_earned_points = :tot WHERE id = :id"),
+                {"cur": lily["current_points"], "tot": lily["total_earned_points"], "id": lily["id"]}
+            )
 
 
 
