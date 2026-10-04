@@ -13,6 +13,15 @@ fi
 export $(grep -v '^#' "$ENV_FILE" | xargs)
 PORT="${PORT:-8000}"
 
+# 支援命令列引數指定連接埠 (例如 ./run.sh 8080 或 ./run.sh --port 8080)
+if [ -n "${1:-}" ]; then
+    if [[ "$1" =~ ^[0-9]+$ ]]; then
+        PORT="$1"
+    elif [ "$1" = "--port" ] && [ -n "${2:-}" ]; then
+        PORT="$2"
+    fi
+fi
+
 # 檢查虛擬環境
 if [ ! -d "$ROOT_DIR/venv" ]; then
     echo "❌ 找不到 Python 虛擬環境 venv，請先執行 ./scripts/install.sh"

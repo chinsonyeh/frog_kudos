@@ -11,13 +11,31 @@ ENV_PATH = ROOT_DIR / ".env"
 if ENV_PATH.exists():
     load_dotenv(dotenv_path=ENV_PATH, override=True)
 
+def _get_database_url() -> str:
+    url = os.getenv("DATABASE_URL", "").strip()
+    pwd = os.getenv("DB_PASSWORD", "").strip()
+    user = os.getenv("DB_USER", "postgres").strip()
+    host = os.getenv("DB_HOST", "localhost").strip()
+    port = os.getenv("DB_PORT", "5432").strip()
+    name = os.getenv("DB_NAME", "frog_kudos").strip()
+
+    if not url:
+        if pwd:
+            return f"postgresql+asyncpg://{user}:{pwd}@{host}:{port}/{name}"
+        return f"postgresql+asyncpg://{user}@{host}:{port}/{name}"
+
+    # 若 DATABASE_URL 缺少密碼但 DB_PASSWORD 有值，自動注入密碼保持同步
+    if pwd and f":{pwd}@" not in url and "@" in url:
+        prefix, rest = url.split("@", 1)
+        user_part = prefix.split("//")[-1]
+        if ":" not in user_part:
+            schema = prefix.split("//")[0] + "//"
+            return f"{schema}{user_part}:{pwd}@{rest}"
+
+    return url
+
 class Settings(BaseModel):
-    DATABASE_URL: str = Field(
-        default_factory=lambda: os.getenv(
-            "DATABASE_URL",
-            "postgresql+asyncpg://postgres:postgres@localhost:5432/frog_kudos"
-        )
-    )
+    DATABASE_URL: str = Field(default_factory=_get_database_url)
     DB_NAME: str = Field(default_factory=lambda: os.getenv("DB_NAME", "frog_kudos"))
     DB_USER: str = Field(default_factory=lambda: os.getenv("DB_USER", "postgres"))
     DB_PASSWORD: str = Field(default_factory=lambda: os.getenv("DB_PASSWORD", ""))
