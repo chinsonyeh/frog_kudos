@@ -6,14 +6,13 @@ async function request(endpoint, options = {}) {
   const authStore = useAuthStore()
   const headers = { ...options.headers }
 
-  // 如果為家長模式，自動附加專屬此瀏覽器 Session 之 Header
-  if (authStore.isParent) {
-    if (authStore.sessionToken) {
-      headers['X-Parent-Session'] = authStore.sessionToken
-    }
-    if (authStore.parentPin) {
-      headers['X-Parent-PIN'] = authStore.parentPin
-    }
+  // 自動附加此瀏覽器專屬之獨立會話 Header (家長或小孩 Session Token)
+  if (authStore.sessionToken) {
+    headers['X-Session-Token'] = authStore.sessionToken
+    headers['X-Parent-Session'] = authStore.sessionToken
+  }
+  if (authStore.isParent && authStore.parentPin) {
+    headers['X-Parent-PIN'] = authStore.parentPin
   }
 
   // 判斷是否為 FormData (檔案上傳)

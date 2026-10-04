@@ -120,17 +120,23 @@ export const useAuthStore = defineStore('auth', () => {
 
     timerInterval = setInterval(updateTimer, 1000)
 
-    // 監聽使用者互動事件以重設閒置時間
+    // 監聽使用者互動事件以重設閒置時間 (加入 5 秒節流避免頻繁寫入 sessionStorage)
     if (!eventListenersAttached && typeof window !== 'undefined') {
       eventListenersAttached = true
-      const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll']
-      events.forEach(evt => {
-        window.addEventListener(evt, () => {
-          if (isUnlocked.value) {
-            lastActiveTime.value = Date.now()
+      let lastPersist = 0
+      const onUserInteraction = () => {
+        if (isUnlocked.value) {
+          const now = Date.now()
+          lastActiveTime.value = now
+          if (now - lastPersist > 5000) {
+            lastPersist = now
             persistSession()
           }
-        }, { passive: true })
+        }
+      }
+      const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll']
+      events.forEach(evt => {
+        window.addEventListener(evt, onUserInteraction, { passive: true })
       })
     }
   }

@@ -113,7 +113,6 @@ async function verifyAndUnlock() {
     emit('close')
     clearPin()
   } catch (err) {
-    authStore.lock()
     error.value = err.message || 'PIN 碼錯誤，請重新輸入'
     pin.value = ''
   } finally {
