@@ -221,6 +221,13 @@ export const useAuthStore = defineStore('auth', () => {
     memberRefreshKey.value++
   }
 
+  function updateUnlockedMember(patch) {
+    if (unlockedMember.value) {
+      unlockedMember.value = { ...unlockedMember.value, ...patch }
+      persistSession()
+    }
+  }
+
   return {
     unlockedMember,
     isUnlocked,
@@ -240,5 +247,6 @@ export const useAuthStore = defineStore('auth', () => {
     resetIdleTimer,
     setSelectedMemberId,
     triggerMemberRefresh,
+    updateUnlockedMember,
   }
 })

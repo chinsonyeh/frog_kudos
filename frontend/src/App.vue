@@ -1,15 +1,31 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import Navbar from '@/components/Navbar.vue'
 import ParentPinModal from '@/components/ParentPinModal.vue'
 import SystemSettingsModal from '@/components/SystemSettingsModal.vue'
 import MemberModal from '@/components/MemberModal.vue'
 import { useAuthStore } from '@/stores/auth'
 
+const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
+
 const showPinModal = ref(false)
 const showSystemModal = ref(false)
 const showMemberModal = ref(false)
+
+// 監聽解鎖與權限狀態變更：閒置逾時鎖定或權限失效時，若當前路由需要權限，自動安全跳轉至存摺頁面
+watch(
+  () => [authStore.isUnlocked, authStore.isParent],
+  ([unlocked, isParent]) => {
+    if (route.meta.requiresParent && !isParent) {
+      router.push('/ledger')
+    } else if (route.meta.requiresUnlock && !unlocked) {
+      router.push('/ledger')
+    }
+  }
+)
 </script>
 
 <template>

@@ -155,6 +155,9 @@ async function handleSave() {
     errorMsg.value = ''
     try {
       await api.updateMemberAvatar(editingMemberId.value, avatar.value)
+      if (authStore.unlockedMemberId === editingMemberId.value) {
+        authStore.updateUnlockedMember({ avatar: avatar.value })
+      }
       successMsg.value = `✅ 已成功更換「${name.value}」的代表頭像為 ${avatar.value}！`
       setTimeout(() => { successMsg.value = '' }, 3000)
       emit('memberUpdated')
@@ -193,7 +196,7 @@ async function handleSave() {
       })
       successMsg.value = `✅ 已成功新增家庭成員「${name.value}」！`
     } else {
-      await api.updateMember(editingMemberId.value, {
+      const updated = await api.updateMember(editingMemberId.value, {
         name: name.value.trim(),
         role: role.value,
         avatar: avatar.value,
@@ -201,6 +204,13 @@ async function handleSave() {
         is_active: isActive.value,
         parent_pin: authStore.parentPin,
       })
+      if (authStore.unlockedMemberId === editingMemberId.value) {
+        authStore.updateUnlockedMember({
+          name: updated.name,
+          role: updated.role,
+          avatar: updated.avatar,
+        })
+      }
       successMsg.value = `✅ 已更新成員「${name.value}」資訊！`
     }
 
