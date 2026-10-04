@@ -61,6 +61,27 @@ python-multipart>=0.0.9
 apscheduler>=3.10.4
 ```
 
+#### 1.1.2 各瀏覽器獨立會話架構 (Independent Browser Sessions)
+- **架構目標**：在家庭多設備環境（客廳共用平板、家長手機、小孩筆電）下，徹底廢除全局解鎖廣播機制，改採「各瀏覽器獨立會話 (Per-Browser Session)」管理。
+- **會話生命週期與機制**：
+  1. **Token 簽發 (`session_token`)**：使用者透過數字鍵盤輸入 PIN 碼完成驗證（`POST /api/system/verify-pin`）後，後端隨機簽發不重複的會話金鑰（前綴 `fks_` + UUID4，例如 `fks_9a8b7c6d-1234-5678-abcd-ef0123456789`）。
+  2. **前端獨立持久化**：Token 保存於當前瀏覽器本地之 `localStorage`（鍵名 `frog_kudos_session_token`），並透過 Pinia `useAuthStore` 統一管理解鎖角色、成員資訊與剩餘時間。不同瀏覽器、不同裝置或無痕視窗之間完全隔離。
+  3. **後端活躍會話管理 (`USER_SESSIONS`)**：
+     後端於 `app/core/security.py` 維護執行緒安全之內存會話字典：
+     ```python
+     USER_SESSIONS: dict[str, dict] = {
+         "fks_9a8b7c6d-...": {
+             "member_id": UUID("..."),      # 成員 UUID
+             "role": "parent" | "child",     # 角色
+             "member_name": "Ian",           # 成員姓名
+             "expires_at": 1727400000.0      # Unix Timestamp (預設 15 分鐘)
+         }
+     }
+     ```
+  4. **滑動過期 (Sliding Expiration)**：每次攜帶有效 Session Token 呼叫業務 API 時，後端自動將過期時間順延 15 分鐘（滑動續期）。若閒置超過 15 分鐘未操作，會話自動過期失效，前端倒數計時器歸零後自動重置狀態並退回訪客模式。
+  5. **精準銷毀 (`POST /api/system/lock-session`)**：手動點擊「鎖定」或「登出」時，僅銷毀當前瀏覽器的 Session Token，其餘裝置不受任何影響。
+  6. **鑑權 Header 相容性**：所有受保護 API 均優先驗證 HTTP Request Header 中的 `X-Session-Token`（或相容 `X-Parent-Session`），同時向下相容一次性 `X-Parent-PIN` 與 JSON body 中的 `parent_pin`。
+
 ### 1.2 本機開發模式 (Dev Mode，雙 Port 模式)
 - **前端開發伺服器**：Vite 監聽 Port `5173`，支援 HMR（模組熱更替，存檔即刷新）。
 - **後端開發伺服器**：FastAPI (Uvicorn) 監聽 Port `8000`，支援自動熱重載 (Reload)。
@@ -110,7 +131,7 @@ erDiagram
         varchar avatar "DEFAULT '🐸', 頭像圖示"
         integer current_points "NOT NULL DEFAULT 0, CHECK(current_points >= 0)"
         integer total_earned_points "NOT NULL DEFAULT 0, 歷史累積總點數"
-        varchar pin_code "NULLABLE, 家長管理PIN碼"
+        varchar pin_code "NULLABLE, 全成員4碼PIN碼(家長與小孩均支援, bcrypt雜湊)"
         boolean is_active "NOT NULL DEFAULT TRUE, 是否啟用"
         timestamptz created_at "NOT NULL DEFAULT NOW()"
         timestamptz updated_at "NOT NULL DEFAULT NOW()"
@@ -205,6 +226,13 @@ erDiagram
    - **系統種子 PIN (`.env` 的 `PARENT_DEFAULT_PIN`)**：僅用於系統初次安裝建立種子家長帳號（Dad/Mom）時的初始預設值（預設 `0000`）與緊急維護重設。
    - **日常業務 API 驗證**：前端發起批次調整、兌換審核或系統設定傳入 `parent_pin` 時，後端統一查詢資料庫中 `role = 'parent'` 且 `is_active = TRUE` 的所有家長成員，使用 `bcrypt.verify` 逐一比對 `pin_code`，符合任一家長之 PIN 碼即視為驗證通過。
    - **冷啟動與初始化防呆降級 (Bootstrap Fallback)**：初次安裝時，`schema.sql` 預先插入種子家長帳號 `Dad`（預設 PIN 為 `0000` 之 bcrypt 雜湊）與小孩帳號 `Ian`。若遇到資料庫無任何有效家長成員、或家長尚未自訂 PIN 碼之極端情況，後端 PIN 碼驗證邏輯自動降級以 `.env` 之 `PARENT_DEFAULT_PIN`（預設 `0000`）進行比對，杜絕因無有效家長 PIN 導致管理員無法進入系統新增成員或進行維護的死鎖問題。
+8. **全成員獨立 PIN 碼與多身分安全機制 (FR-20)**：
+   - 家長與小孩皆於 `members.pin_code` 欄位中存儲 4 位數 PIN 碼之 bcrypt 加鹽雜湊。
+   - 小孩成員可透過輸入舊 PIN 碼自主變更為個人專屬 PIN 碼，或由家長直接重設。
+   - 小孩解鎖身分後僅能操作個人帳戶，嚴格禁止為他人加點、扣點或跨成員兌換。
+9. **兌換商城品項上下架過濾與庫存管理隔離 (FR-5)**：
+   - 前台（訪客模式與小孩模式）查詢商城品項（`GET /api/items?all=false`）時，系統強制只回傳 `is_active = TRUE` 的有效上架品項，徹底過濾已下架品項。
+   - 家長解鎖後，在商城管理專區查詢所有品項（`GET /api/items?all=true`），可集中檢視、編輯已下架商品或一鍵重新上架，實現前台展示與後台庫存管理的完整隔離。
 
 ---
 
@@ -250,10 +278,11 @@ erDiagram
 
 | 方法 | 路徑 | 請求 Payload / 查詢參數 | 回應資料 | 說明 |
 |---|---|---|---|---|
-| `GET` | `/api/members` | `?include_inactive=false` | `MemberOut[]` | 取得家庭成員清單（預設僅列出 `is_active=TRUE` 有效成員，避免快速登記出現停用者） |
+| `GET` | `/api/members` | `?include_inactive=false` | `MemberOut[]` | 取得家庭成員清單（預設僅列出 `is_active=TRUE` 有效成員，避免點數登記出現停用者） |
 | `POST` | `/api/members` | `{ name, role, avatar, pin_code, parent_pin }` | `MemberOut` | 新增家庭成員（若 role=parent 需設定 4 碼 PIN，需家長鎖） |
 | `PUT` | `/api/members/{id}` | `{ name, avatar, pin_code, is_active, parent_pin }` | `MemberOut` | **修改家庭成員資訊、變更家長 PIN 碼或停用狀態（若僅變更 avatar 免 PIN 碼，變更其他管理欄位需家長安全鎖）** |
-| `PATCH`| `/api/members/{id}/avatar` | `{ avatar }` | `MemberOut` | **未解鎖/小孩模式自由更換成員代表頭像（無須家長安全鎖）** |
+| `PATCH`| `/api/members/{id}/avatar` | `{ avatar }` | `MemberOut` | **更換成員代表頭像（需解鎖自身或家長身分；訪客模式禁止更換）** |
+| `POST` | `/api/members/{id}/change-pin` | `{ current_pin, new_pin, parent_pin }` | `{ success: true, message: str }` | **成員自主變更個人 PIN 碼（需驗證目前舊 PIN）或家長持家長鎖直接重設 (FR-20)** |
 | `DELETE` | `/api/members/{id}` | `{ parent_pin }` | `{ success: true, action: "DEACTIVATED"\|"DELETED" }` | **安全刪除或停用成員（若已有歷史積分或兌換紀錄則自動轉為軟停用 is_active=FALSE 以保全審計鏈，無歷史紀錄之全新成員則執行實體刪除；需家長安全鎖）** |
 | `GET` | `/api/members/{id}/badges` | - | `MemberBadgeOut[]` | **查詢成員里程碑成就勳章清單與達成進度 (FR-18)** |
 | `GET` | `/api/badges` | `?all=false` | `BadgeOut[]` | **查詢所有里程碑成就勳章定義清單 (FR-18)** |
@@ -268,18 +297,21 @@ erDiagram
 | `PUT` | `/api/rules/{id}` | `{ member_id, category_id, target_name, match_type, condition_value, reward_points, description, is_active, parent_pin }` | `RuleOut` | **修改規則（明示不溯及歷史點數，需家長安全鎖）** |
 | `DELETE` | `/api/rules/{id}` | `{ parent_pin }` | `{ success: true }` | **停用或刪除規則（需家長安全鎖）** |
 | `POST` | `/api/kudos/preview` | `{ member_id, target_name, condition_value }` | `{ matched, suggested_points, rule_id, rule_name }` | **智慧即時試算預覽（支援輸入文字防呆降級）** |
-| `POST` | `/api/kudos/record` | `{ member_id, rule_id, target_name, condition_value, points_awarded, note, recorded_by, parent_pin }` | `KudosRecordOut` | **正式發放點數或臨時獎懲（自訂模式 condition_value 可選填，需家長鎖，回傳 newly_unlocked_badges）** |
+| `POST` | `/api/kudos/record` | `{ member_id, rule_id, target_name, condition_value, points_awarded, note, recorded_by, parent_pin }` | `KudosRecordOut` | **正式發放成就點數或自訂獎懲（支援 Header `X-Session-Token`；自訂模式 condition_value 可選填；小孩解鎖模式自動鎖定本人帳號且強制 points_awarded > 0，嚴禁負數扣點與跨手足操作；回傳 newly_unlocked_badges）** |
 | `GET` | `/api/kudos/history` | `?member_id=...&limit=50` | `LedgerItemOut[]` | **查詢家庭綜合存摺流水帳（後端自動 UNION kudos_records 與已核銷 redemptions 依時間排序；COMPLETED 記為負數支出，REJECTED 記為 0 點並標註退回原因，確保流水總和與錢包餘額一致）** |
-| `GET` | `/api/items` | `?all=false` | `RewardItemOut[]` | 查詢兌換商城品項（預設僅列出上架中品項） |
+| `GET` | `/api/items` | `?all=false` | `RewardItemOut[]` | **查詢兌換商城品項（前台訪客與小孩模式預設僅列出上架中品項 is_active=TRUE；家長管理專區帶 ?all=true 查詢全品項含已下架商品）** |
 | `POST` | `/api/items` | `{ title, description, cost_points, icon, parent_pin }` | `RewardItemOut` | **新增商城獎品（需家長安全鎖）** |
 | `PUT` | `/api/items/{id}` | `{ title, description, cost_points, icon, is_active, parent_pin }` | `RewardItemOut` | **編輯商城獎品內容、調整點數或重新上架（需家長安全鎖）** |
 | `DELETE` | `/api/items/{id}` | `{ parent_pin }` | `{ success: true }` | **軟刪除下架獎品 (is_active = FALSE，需家長安全鎖)** |
-| `POST` | `/api/redemptions` | `{ member_id, item_id, note }` | `RedemptionOut` | **小孩發起兌換申請（行級悲觀鎖 SELECT ... FOR UPDATE 防雙擊併發，扣除可用點數 Transaction，狀態為 PENDING，背景任務非同步推播 LINE 通知）** |
+| `POST` | `/api/redemptions` | `{ member_id, item_id, note }` | `RedemptionOut` | **小孩發起心願兌換申請（支援 Header `X-Session-Token`，行級悲觀鎖 SELECT ... FOR UPDATE 防雙擊併發，僅能扣除自身錢包可用點數，狀態為 PENDING，背景任務非同步推播 LINE 通知）** |
 | `GET` | `/api/redemptions` | `?member_id=...&status=...` | `RedemptionOut[]` | 查詢兌換與核銷歷史（支援依狀態篩選） |
 | `POST` | `/api/redemptions/{id}/review` | `{ action: "COMPLETE"\|"REJECT", review_note, parent_pin }` | `RedemptionOut` | **家長審核核銷或退回（核銷將狀態設為 COMPLETED，退回將狀態設為 REJECTED 並自動全額退還點數；action 相容 APPROVE 別名）** |
 | `GET` | `/api/kudos/export` | `?member_id=...&start_date=...&end_date=...` | `FileStream (CSV)` | **匯出完整學期成就獲得與兌換支出之綜合存摺 CSV 檔案（日期過濾採全日包含運算 < end_date + 1 day）** |
 | `POST` | `/api/kudos/batch-preview` | `{ member_id, target_name, start_date, end_date, mode, value }` | `BatchPreviewOut` | **歷史積分批次調整預覽試算（日期過濾採全日包含運算）** |
 | `POST` | `/api/kudos/batch-adjust` | `{ member_id, target_name, start_date, end_date, mode, value, reason, parent_pin }` | `BatchAdjustOut` | **執行歷史積分批次統一調整（日期過濾採全日包含運算，雙軌餘額防負檢查，交易內同步評估並回傳新解鎖之里程碑勳章 newly_unlocked_badges，ACID Transaction）** |
+| `POST` | `/api/system/verify-pin` | `{ member_id?: UUID, pin: str }` | `{ success, session_token, role, member_id, member_name, expires_at }` | **多角色身分解鎖與簽發獨立瀏覽器 Session Token（即時驗證家長或小孩 PIN 碼，簽發 fks_... 金鑰，FR-13）** |
+| `POST` | `/api/system/lock-session` | `{ session_token?: str }` | `{ success: true, message: "Session locked" }` | **銷毀目前瀏覽器獨立會話（支援從 Header 讀取，不影響其他連線裝置，FR-13）** |
+| `POST` | `/api/system/verify-member-pin` | `{ member_id: UUID, pin: str }` | `{ success: bool }` | **成員 PIN 碼驗證輔助端點 (FR-20)** |
 | `POST` | `/api/system/backup` | `{ target_path, parent_pin }` | `{ success, backup_file, file_size, created_at }` | **觸發資料庫備份至指定目標路徑** |
 | `GET` | `/api/system/backups` | `?target_path=...` | `BackupFileInfo[]` | **查詢指定目錄歷史備份清單** |
 | `GET` | `/api/system/config` | - | `{ backup_dir, port, db_name, github_repo, auto_backup, retention_count, line_configured, line_user_id }` | **Web 取得備份、排程、LINE 通知與系統配置 (密碼強制排除脫敏；auto_backup 映射 .env AUTO_BACKUP，retention_count 映射 BACKUP_RETENTION_COUNT)** |
@@ -290,7 +322,9 @@ erDiagram
 | `POST` | `/api/system/upload-package` | `multipart: file, parent_pin` | `{ status, message }` | **手動上傳離線安裝/升級套件 (.tar.gz) 進行升級** |
 | `GET` | `/api/system/upgrade-status` | - | `{ status, progress, current_step, logs }` | **Web 輪詢即時升級進度與日誌** |
 
-> 💡 **家長安全鎖 (`parent_pin`) 傳遞彈性**：所有標註需家長鎖之 API，除了可於 JSON Payload 中傳遞 `parent_pin` 外，亦支援於 HTTP Request Header 帶入 `X-Parent-PIN: <PIN>`，方便前端在解鎖狀態下由 Axios / Fetch 攔截器統一附加。
+> 💡 **身分鑑權與會話 Token 傳遞規範 (`X-Session-Token`)**：
+> 1. **各瀏覽器獨立會話**：解鎖後前端所有 API 請求由 Axios 攔截器於 HTTP Request Header 自動附帶 `X-Session-Token: <fks_...>`（亦相容 `X-Parent-Session`），後端依 Token 自動解析身分角色（`role: "parent" | "child"`）與操作成員 ID，並自動執行 15 分鐘滑動展期。
+> 2. **管理 PIN 碼雙軌向下相容**：所有標註需家長鎖之 API，除了支援 Session Token 外，亦支援於 HTTP Request Header 帶入 `X-Parent-PIN: <PIN>` 或於 JSON Payload 中傳遞 `parent_pin`。
 
 ### 3.3 歷史積分批次統一調整演算法與交易安全 (Batch Adjustment Logic & Safety)
 
@@ -334,37 +368,73 @@ flowchart TD
 
 前端採用現代 Vue 3 (Composition API + `<script setup>`)，搭配 TailwindCSS 建立活潑親切的家庭 UI。全站具備完整 RWD，手機與平板操作體驗極佳。
 
-### 4.1 頁面架構與導航設計
+### 4.1 頁面架構、會話狀態與導航設計
 - **頂部 Header**：
   - 左側：🐸 **Frog Kudos** 系統 Logo 與品牌名稱。
-  - 右側：
-    - **模式切換**：`[ 👦 小孩模式 (唯讀) ]` ⇄ `[ 🔐 家長模式 (已解鎖) ]`。
-    - **家長安全鎖**：點擊後輸入 4 位數 PIN 碼解鎖管理功能；15 分鐘無操作自動安全鎖定退回小孩模式。
+  - 右側（依各瀏覽器獨立會話狀態動態顯示）：
+    - **訪客模式 (Visitor / 未解鎖)**：`[ 🔒 點擊解鎖 ]` 按鈕。
+    - **小孩模式 (Child / 小孩身分解鎖)**：`[ 👦 Ian 🌟 小孩模式 (剩餘 14:59) 🔓 鎖定 ]`（成員姓名、角色標籤、15 分鐘倒數計時、鎖定登出按鈕）。
+    - **家長模式 (Parent / 家長解鎖)**：`[ 👨 家長模式 (剩餘 14:59) ⚙️ 系統設定 🔓 鎖定 ]`（家長標籤、15 分鐘倒數計時、齒輪設定、鎖定登出按鈕）。
 - **主要導航 (Navigation Tabs)**：
-  - **小孩模式下**：僅開放 `🏆 榮譽榜與存摺 (Ledger)` 與 `🎁 兌換商城 (Rewards Shop)`（僅能申請兌換）。
-  - **家長解鎖後**：完整開放全部 4 大功能：
-    1. 📝 **快速登記 (Record)**
-    2. 🏆 **榮譽榜與存摺 (Ledger)**
-    3. 🎁 **兌換商城與審核 (Rewards & Reviews)**
-    4. ⚙️ **規則管理 (Rule Settings)**
+  - **訪客模式下**：僅開放 2 大公開頁面，其餘按鈕全面隱藏：
+    1. 🏆 **榮譽存摺 (`/ledger`)**
+    2. 📖 **使用說明 (`/guide`)**
+  - **小孩模式下**：開放自身專屬 4 大功能：
+    1. 🏆 **榮譽存摺 (`/ledger`)**
+    2. 📝 **點數登記 (`/record`)**（第一步鎖定為該小孩，免重複輸入 PIN 碼，僅限正數加點）
+    3. 🎁 **兌換商城 (`/rewards`)**（僅可申請兌換自身心願，僅展示已上架品項）
+    4. 📖 **使用說明 (`/guide`)**
+  - **家長模式下**：完整開放全站 6 大功能：
+    1. 🏆 **榮譽存摺 (`/ledger`)**
+    2. 📝 **點數登記 (`/record`)**（可選任意成員，支援正數 Bonus 與負數 Penalty 扣點）
+    3. 🎁 **商城與審核 (`/rewards`)**（兌換審核、商品新增編輯與下架品項庫存管理）
+    4. 👥 **家庭成員 (Member Modal)**（成員增刪改、重設 PIN 碼、頭像維護）
+    5. ⚙️ **規則管理 (`/rules`)**（專屬與通用規則管理中心）
+    6. 📖 **使用說明 (`/guide`)**
+
+- **Vue Router 路由表與前端路由守衛 (Navigation Guards)**：
+  ```javascript
+  const routes = [
+    { path: '/', redirect: '/ledger' },
+    { path: '/ledger', component: LedgerView },
+    { path: '/guide', component: GuideView },
+    { path: '/record', component: RecordView, meta: { requiresUnlock: true } },
+    { path: '/rewards', component: RewardsView, meta: { requiresUnlock: true } },
+    { path: '/rules', component: RulesView, meta: { requiresParent: true } },
+  ];
+
+  // 全域前置路由守衛：未解鎖強制導回 /ledger
+  router.beforeEach((to, from, next) => {
+    const authStore = useAuthStore();
+    if (to.meta.requiresUnlock && !authStore.isUnlocked) {
+      next('/ledger');
+    } else if (to.meta.requiresParent && !authStore.isParent) {
+      next('/ledger');
+    } else {
+      next();
+    }
+  });
+  ```
 
 ---
 
-### 4.2 畫面 1：快速成就登記 (Quick Kudos Entry Form)
+### 4.2 畫面 1：點數登記 (Points Entry Form)
 
 最頻繁使用的操作介面，以高對比卡片呈現，支援**「規則匹配推導」**與**「自訂臨時獎懲 (Bonus/Penalty)」**雙模式。
 
 ```
 +-------------------------------------------------------------------------+
-|  🐸 Frog Kudos    [📝快速登記] [🏆榮譽存摺] [🎁商城與審核] [👥家庭成員] [⚙️規則管理]
+|  🐸 Frog Kudos    [📝點數登記] [🏆榮譽存摺] [🎁商城與審核] [👥家庭成員] [⚙️規則管理] [📖使用說明]
 +-------------------------------------------------------------------------+
 |  第一步：選擇登記對象                                                   |
 |  +--------------------+  +--------------------+                         |
 |  |  [ 🐸 Ian ]        |  |  [ 🐰 Lily ]       |                         |
 |  |  餘額: 720 點 (選定)|  |  餘額: 980 點      |                         |
 |  +--------------------+  +--------------------+                         |
+|  (ℹ️ 小孩解鎖模式下：系統自動鎖定登記對象為當前登入小孩本人，不可切換他人)  |
 |                                                                         |
 |  登記模式切換:  [ (•) 依規則自動帶出 ]    [ ( ) 自由臨時獎懲 (Bonus/扣點) ]|
+|  (ℹ️ 小孩解鎖模式下：僅限申請正數加點，自由模式僅支援正數 Bonus，禁止扣點) |
 |                                                                         |
 |  ┌── 【模式 A：依規則自動帶出】 ─────────────────────────────────────┐  |
 |  │ 1. 目標項目:  [ 社會科                         ▼ ]                 │  |
@@ -377,6 +447,7 @@ flowchart TD
 |  ┌── 【模式 B：自由臨時獎懲 (切換時顯示)】 ──────────────────────────┐  |
 |  │ 1. 自訂事項:  [ 主動幫忙照顧弟妹 / 未寫完作業偷看電視          ]   │  |
 |  │ 2. 點數增減:  [ +20 / -10                      ] 點 (支援負數扣點) │  |
+|  │ (ℹ️ 小孩解鎖模式下數值強制 > 0，嚴禁負數扣點)                      │  |
 |  └───────────────────────────────────────────────────────────────────┘  |
 |                                                                         |
 |  備註說明: [ 表現非常優良，值得肯定！                            ]      |
@@ -401,9 +472,12 @@ flowchart TD
 
 ```
 +-------------------------------------------------------------------------+
+|  [👋 歡迎來到榮譽存摺！如需登記點數或兌換心願，請先點擊右上角安全鎖 ➔ 查看使用說明]  |
++-------------------------------------------------------------------------+
 |  🏆 家庭榮譽存摺              [ 區間: 本學期 ▼ ]  [ 📥 匯出存摺 (CSV) ] |
 +-------------------------------------------------------------------------+
 |  [ 🐸 Ian 的存摺 ]      目前可用: 🪙 230 點     歷史累計總獲: 🌟 480 點  |
+|  (訪客模式：頭像不可點擊，更換頭像按鈕隱藏；解鎖後僅本人卡片顯示更換頭像與 🔑 PIN) |
 |  進度條: [████████████████░░░░] 距下一個大獎 (樂高模型 300 點) 還差 70點 |
 +-------------------------------------------------------------------------+
 |  🏅 Ian 的榮譽成就勳章牆 (Milestone Badges - FR-18)                     |
@@ -427,18 +501,22 @@ flowchart TD
 +-------------------------------------------------------------------------+
 ```
 
+#### 存摺安全與身分邊界特性：
+1. **訪客模式最小化保護**：未解鎖狀態下，存摺卡片頭像不可點擊，徹底隱藏「更換頭像」按鈕；頁面頂端常駐指引橫幅，引導使用者前往 `/guide` 查閱操作說明。
+2. **小孩解鎖後自主維護**：僅解鎖的小孩卡片會顯示「更換頭像」與「🔑 PIN」按鈕，其他成員卡片嚴格維持唯讀。小孩可自由挑選 Emoji 更換代表頭像，或輸入舊 PIN 碼通過驗證後設定新的 4 碼 PIN 碼。
+
 ---
 
 ### 4.4 畫面 3：獎勵兌換商城與審核中心 (Rewards Shop & Redemptions Review)
 
-支援孩子發起心願兌換，並由家長在線上進行核准兌現或退回退點。
+支援孩子發起心願兌換，並由家長在線上進行核准兌現、退回退點與庫存管理。
 
 ```
 +-------------------------------------------------------------------------+
 |  🎁 獎勵兌換商城                 [ Ian 目前點數錢包: 🪙 230 點 ]        |
-|  分頁切換: [ 🎁 可兌換品項清單 ]   [ 📋 待審核兌換申請 (1) - 家長專區 ] |
+|  分頁切換: [ 🎁 可兌換品項 (僅上架中) ]   [ 📋 待審核申請 (家長) ]   [ 📦 庫存管理 (家長) ] |
 +-------------------------------------------------------------------------+
-|  【 分頁 1: 可兌換品項清單 】                                           |
+|  【 分頁 1: 可兌換品項清單 (前台僅顯示已上架商品 is_active=TRUE) 】      |
 |  +------------------------+   +------------------------+                |
 |  | 🎮 玩 Switch 1 小時    |   | 🍦 週末吃冰淇淋一球    |                |
 |  | 所需點數: 50 點         |   | 所需點數: 30 點         |                |
@@ -456,18 +534,26 @@ flowchart TD
 |  │ [ 🟢 核准兌現 (COMPLETED) ]   [ 🔴 退回申請並退點 (REJECTED) ]    │  |
 |  │ (退回時系統自動在資料庫交易中全額退還 50 點給 Ian，並附註退回原因)│  |
 |  └───────────────────────────────────────────────────────────────────┘  |
+|                                                                         |
+|  【 分頁 3: 獎品庫存與上下架管理 (家長解鎖專區，展示全部品項含下架商品) 】 |
+|  • 🎮 玩 Switch 1 小時 [上架中] [編輯] [下架]                            |
+|  • 🧸 迪士尼樂園一日遊 [已下架] [編輯] [🟢 重新上架]                     |
 +-------------------------------------------------------------------------+
 ```
 
-#### 兌換流程與交易防呆：
-1. **點數檢核與凍結**：若成員可用點數不足，按鈕呈現反灰鎖定狀態，顯示「還差 70 點」，防止超兌；申請時點數先扣除，狀態為 `PENDING`。
-2. **核銷或退回退點**：
+#### 兌換流程、商城隔離與交易防呆：
+1. **商城上下架品項嚴格過濾 (FR-5)**：
+   - 前台（分頁 1）向後端請求 `GET /api/items?all=false`，後端強制只回傳 `is_active = TRUE` 之有效上架品項；已下架品項完全不向一般使用者展示，杜絕前台出現無效或鎖定商品。
+   - 家長解鎖後，在專屬的「庫存管理」（分頁 3）請求 `GET /api/items?all=true`，可檢視所有已下架品項，並提供一鍵【重新上架】按鈕。
+2. **小孩自主兌換身分邊界**：小孩解鎖進入商城，系統自動綁定當前會話成員 ID，僅能申請消耗自己錢包點數，嚴禁跨手足兌換。
+3. **點數檢核與凍結**：若成員可用點數不足，按鈕呈現反灰鎖定狀態，顯示「還差 70 點」，防止超兌；申請時點數先扣除，狀態為 `PENDING`。
+4. **核銷或退回退點**：
    - 家長確認兌現：狀態變更為 `COMPLETED`。
    - 家長退回申請：輸入原因後狀態變更為 `REJECTED`，後端 DB Transaction **自動全額退還點數**（`current_points += points_spent`）。
-3. **行級悲觀鎖防雙擊競態 (SELECT ... FOR UPDATE)**：
+5. **行級悲觀鎖防雙擊競態 (SELECT ... FOR UPDATE)**：
    - 當孩子連續快速點擊【申請兌換】時，後端於單一 Transaction 內先鎖定該成員列：`SELECT current_points FROM members WHERE id = :member_id FOR UPDATE`。
    - 併發的第二筆請求排隊至鎖釋放後，即時偵測到餘額已被扣減不足，優雅回傳 HTTP 400 商業錯誤（`點數不足或已有兌換進行中`），絕不觸發資料庫 500 約束崩潰。
-4. **綜合存摺財務勾稽平衡 (Ledger Reconciliation)**：
+6. **綜合存摺財務勾稽平衡 (Ledger Reconciliation)**：
    - 當兌換被駁回退點（`REJECTED`）時，因點數已全額退還錢包，在「家庭榮譽存摺（畫面 2）」與 CSV 匯出中，該筆流水帳金額顯示為 `0 點` 並標註灰字「已退還 (原因: ...)」，確保全存摺所有已核銷流水帳累加永遠精準等於錢包即時餘額 `current_points`。
 
 ---
@@ -643,6 +729,83 @@ flowchart TD
      mimetypes.add_type("application/manifest+json", ".webmanifest")
      ```
    - 同時提供 `/manifest.json` 與 `/site.webmanifest` 兩條相容路由（將 `/manifest.json` 別名導向或共用回應清單），確保各廠牌行動與桌面瀏覽器皆能精確解析 PWA 安裝清單。
+4. **行動端 PIN 鍵盤防雙擊縮放優化 (Touch Action Manipulation)**：
+   - 在 PIN 碼解鎖彈窗（`ParentPinModal.vue`）與所有數字按鍵中加入 `touch-action: manipulation` 樣式。
+   - 解決 iOS Safari 與 Android Chrome 在行動觸控螢幕上連續快速點擊按鍵時，瀏覽器默認等待 300ms 判定雙擊縮放（Double-tap to zoom）所造成的介面延遲與誤觸放大問題。
+
+---
+
+### 4.9 畫面 7：公開使用說明指南 (Public Guide Page, `/guide`) (FR-21)
+
+訪客模式與解鎖模式均可公開查閱的系統使用手冊，由三大核心教學卡片與常見問題 FAQ 組成。
+
+```
++-------------------------------------------------------------------------+
+|  📖 Frog Kudos 使用說明指南                                             |
+|  歡迎使用 Frog Kudos 家庭積分獎勵系統！以下為最常用的操作指南：          |
++-------------------------------------------------------------------------+
+|  【 流程 1: 如何解鎖身分？ 】                                           |
+|   1. 點擊右上角「🔒 安全鎖」圖示。                                      |
+|   2. 選擇你要登入的角色（家長或小孩成員）。                             |
+|   3. 輸入 4 位數 PIN 碼（預設為 0000）。                                |
+|   4. 驗證成功後即可開啟該角色的專屬功能，各瀏覽器獨立解鎖，15分鐘自動鎖定。|
++-------------------------------------------------------------------------+
+|  【 流程 2: 如何申請加點（點數登記）？ 】                               |
+|   1. 解鎖你的小孩身分（家長亦可直接為小孩登記）。                       |
+|   2. 點擊上方選單的「📝 點數登記」。                                    |
+|   3. 選擇達成的目標項目（如：社會科、整理房間）。                       |
+|   4. 輸入成績或達成狀況（如：100分），系統會自動帶出建議點數。          |
+|   5. 確認無誤後點擊「確認發放」，享受金幣灑花反饋！                     |
++-------------------------------------------------------------------------+
+|  【 流程 3: 如何申請兌換心願？ 】                                       |
+|   1. 解鎖你的小孩身分，點擊上方選單的「🎁 兌換商城」。                  |
+|   2. 挑選喜愛的心願品項（如：玩 Switch 1小時、吃冰淇淋）。              |
+|   3. 確認點數足夠後，點擊「申請兌換」，點數會先暫時凍結。               |
+|   4. 家長審核通過後即可享受心願獎勵！（若家長退回則全額退點）           |
++-------------------------------------------------------------------------+
+|  【 💡 常見問題與自主安全守則 】                                        |
+|   • 忘記 PIN 碼怎麼辦？ ➔ 請家長解鎖後在「家庭成員管理」中直接重設。     |
+|   • 小孩可以扣點嗎？ ➔ 不行，小孩帳號僅能申請增加自身點數，無法扣點。   |
+|   • 可以幫兄弟姊妹換獎勵嗎？ ➔ 不行，只能兌換自己帳戶累積的點數。       |
++-------------------------------------------------------------------------+
+```
+
+> 💡 **文案設計原則**：因為家庭成員的代表頭像隨時可以更換，所以說明文字中提及使用者範例時，一律僅顯示純文字姓名（如「Ian」、「Lily」），不綁定或顯示任何固定 Emoji 頭像。
+
+---
+
+### 4.10 畫面 8：角色身分解鎖彈窗 (Role-based PIN Unlock Modal) (FR-13)
+
+提供直覺且行動裝置友善的解鎖視窗，支援角色切換與自訂數字鍵盤。
+
+```
++--------------------------------------------------+
+|  🔐 解鎖身分                                  [✕]|
++--------------------------------------------------+
+|  請選擇你要解鎖的角色：                           |
+|  +--------------------+  +--------------------+  |
+|  | 👨 家長            |  | 👦 Ian             |  |
+|  | (完全管理權限)     |  | (選定)             |  |
+|  +--------------------+  +--------------------+  |
+|  +--------------------+                          |
+|  | 👧 Lily            |                          |
+|  +--------------------+                          |
+|                                                  |
+|  請輸入 Ian 的 4 位數 PIN 碼:                    |
+|  [ • ]  [ • ]  [   ]  [   ]                      |
+|                                                  |
+|  +-------------+  +-------------+  +-----------+ |
+|  |      1      |  |      2      |  |     3     | |
+|  +-------------+  +-------------+  +-----------+ |
+|  |      4      |  |      5      |  |     6     | |
+|  +-------------+  +-------------+  +-----------+ |
+|  |      7      |  |      8      |  |     9     | |
+|  +-------------+  +-------------+  +-----------+ |
+|  |   C (清除)  |  |      0      |  |  ⌫ (退格) | |
+|  +-------------+  +-------------+  +-----------+ |
+|  (支援 touch-action: manipulation，消除雙擊延遲) |
++--------------------------------------------------+
+```
 
 ---
 
@@ -1279,11 +1442,11 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 
 | 需求代號 | 需求項目名稱 | 設計對應之資料表 / 檔案 | 設計對應之後端 API / 演算法 | 設計對應之前端 Web UI 畫面 | 檢核結果 |
 |---|---|---|---|---|---|
-| **FR-1** | 多成員帳號管理 | `members` 表 | `GET /api/members`<br>`POST/PUT/DELETE /api/members`<br>`PATCH /api/members/{id}/avatar` | 頂部導航列「👥 家庭成員」功能按鈕、未解鎖模式自由更換代表頭像、其他成員管理功能禁用與隱藏 | ✅ 100% 符合 |
+| **FR-1** | 多成員帳號管理 | `members` 表 | `GET /api/members`<br>`POST/PUT/DELETE /api/members`<br>`PATCH /api/members/{id}/avatar`<br>`POST /api/members/{id}/change-pin` | 頂部導航列「👥 家庭成員」按鈕、訪客模式隱藏更換頭像、小孩解鎖僅能自主維護個人代表頭像與 PIN 碼 | ✅ 100% 符合 |
 | **FR-2** | 個別化客製獎勵規則 | `reward_rules`, `categories` | `GET/POST/PUT/DELETE /api/rules` | 畫面 4：規則管理中心（成員專屬/通用分頁） | ✅ 100% 符合 |
-| **FR-3** | 快速成就登記與智慧自動帶出 | `reward_rules`, `kudos_records` | `POST /api/kudos/preview`<br>(3.1 規則推導演算法) | 畫面 1：快速登記卡（即時試算徽章與灑花動畫） | ✅ 100% 符合 |
+| **FR-3** | 點數登記與智慧自動帶出 | `reward_rules`, `kudos_records` | `POST /api/kudos/preview`<br>(3.1 規則推導演算法) | 畫面 1：點數登記卡（小孩模式自動鎖定本人且限正數加點、家長模式自由選擇對象與自訂扣點） | ✅ 100% 符合 |
 | **FR-4** | 積分快照與歷史不可篡改機制 | `kudos_records` (快照欄位組) | `POST /api/kudos/record` | 畫面 2：歷史存摺清單（展示當時規則快照細節） | ✅ 100% 符合 |
-| **FR-5** | 獎勵商城與兌換機制 | `reward_items`, `redemptions` | `POST /api/redemptions`<br>(原子扣點與防負數檢查) | 畫面 3：獎勵兌換商城（錢包餘額、防超兌鎖定） | ✅ 100% 符合 |
+| **FR-5** | 獎勵商城與心願兌換機制 | `reward_items`, `redemptions` | `GET /api/items?all=false` (前台過濾)<br>`POST /api/redemptions` (悲觀鎖)<br>`POST /api/redemptions/{id}/review` | 畫面 3：商城品項上下架隔離、家長庫存管理專區、小孩自主兌換防呆 | ✅ 100% 符合 |
 | **FR-6** | 家庭榮譽榜與點數存摺 | `kudos_records`, `members` | `GET /api/kudos/history` | 畫面 2：榮譽榜存摺（可用餘額、累計總額、願望進度條） | ✅ 100% 符合 |
 | **FR-7** | 歷史積分批次篩選與統一修改 | `kudos_records` (`adjustment_note`)<br>`idx_kudos_batch_filter` | `POST /api/kudos/batch-preview`<br>`POST /api/kudos/batch-adjust` (3.3 演算法) | 畫面 5：歷史積分批次調整彈窗（多條件篩選與預覽） | ✅ 100% 符合 |
 | **FR-8** | 資料庫自訂路徑備份與還原 | `scripts/backup.sh`<br>`scripts/restore.sh` | `POST /api/system/backup`<br>`GET /api/system/backups` | 畫面 6：分頁 1 備份管理（自訂路徑、立即備份、清單） | ✅ 100% 符合 |
@@ -1291,15 +1454,16 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 | **FR-10**| GitHub Release 自動化打包發佈 | `.github/workflows/release.yml` | GitHub Actions CI/CD 自動構建 | 發行包內建編譯後 `dist/`，主機免裝 Node/npm | ✅ 100% 符合 |
 | **FR-11**| 安裝時使用者自訂連接埠 | `scripts/install.sh`, `.env`, `run.sh` | 支援 `--port` 與互動式輸入、佔用防呆 | 後端單一 Port 整合託管自訂 Port | ✅ 100% 符合 |
 | **FR-12**| PWA 行動裝置主畫面應用支援 | `frontend/public/manifest.webmanifest` | Web App Manifest、iOS Safari meta | 全螢幕原生 App 體驗、桌面圖示 | ✅ 100% 符合 |
-| **FR-13**| 客廳共用裝置家長鎖與小孩模式 | 前端狀態機 Pinia / SessionStorage | 家長 PIN 碼即時後端認證 (`POST /api/system/verify-pin`)、15 分鐘閒置自動鎖定 | 頂部模式切換開關、自動隱藏管理選單、輸入 4 碼即時驗證 | ✅ 100% 符合 |
+| **FR-13**| 各瀏覽器獨立會話與多角色安全鎖 | 前端 Pinia `useAuthStore` + `localStorage` | `POST /api/system/verify-pin` (簽發 `session_token`)<br>`POST /api/system/lock-session` (銷毀會話)<br>`USER_SESSIONS` 活躍會話管理 | 畫面 8：多角色解鎖彈窗、15 分鐘滑動計時、各瀏覽器獨立會話隔離 | ✅ 100% 符合 |
 | **FR-14**| 自訂臨時特別獎勵與違規扣點 | `kudos_records` (支援負數點數) | `POST /api/kudos/record` (自訂模式) | 畫面 1：自由臨時獎懲切換卡片 | ✅ 100% 符合 |
 | **FR-15**| 兌換商城審核與退回退點閉環 | `redemptions` (`PENDING` 狀態) | `POST /api/redemptions/{id}/review` | 畫面 3：分頁 2 家長審核卡片 (核銷/自動退點) | ✅ 100% 符合 |
 | **FR-16**| 定期自動備份排程與保留輪替 | `scripts/backup.sh`, `.env` | 後端定時任務 + 備份上限輪替清理 | 畫面 6：分頁 1 自動排程與保留上限設定 | ✅ 100% 符合 |
 | **FR-17**| 學期成就紀錄與存摺 CSV 匯出 | `kudos_records` | `GET /api/kudos/export` | 畫面 2：【📥 匯出存摺 (CSV)】按鈕 | ✅ 100% 符合 |
 | **FR-18**| 里程碑成就勳章系統與勳章牆管理 | `badges` 表、`member_badges` 表 | `GET /api/badges`, `POST/PUT/DELETE /api/badges`<br>`GET /api/members/{id}/badges`<br>5,000~100,000 多階里程碑與動態評定邏輯 | 畫面 2：榮譽榜成就勳章牆、勳章管理與編輯彈窗、解鎖彈窗與灑花 | ✅ 100% 符合 |
 | **FR-19**| LINE 兌換申請即時推播通知 | 後端 `BackgroundTasks` + LINE Messaging API | `POST /api/redemptions`<br>`POST /api/system/line/test` | 畫面 6：分頁 3 LINE 推播設定與連線測試 | ✅ 100% 符合 |
-| **FR-20**| 全成員個人 PIN 碼授權與小孩自主點數邊界 | `members` (`pin_code`) | `POST /api/system/verify-member-pin`<br>`POST /api/members/{id}/change-pin`<br>`verify_member_or_parent_pin` | `MemberPinModal.vue` 數字鍵盤、點數登記小孩身分防護、商城個人 PIN 兌換 | ✅ 100% 符合 |
-| **NFR-1**| 易用性與行動裝置友善 | Vue 3 + TailwindCSS | - | RWD 手機/平板優先、大觸控區塊、灑花慶祝反饋 | ✅ 100% 符合 |
+| **FR-20**| 全成員個人 PIN 碼授權與小孩自主點數邊界 | `members` (`pin_code`) | `POST /api/members/{id}/change-pin`<br>`POST /api/kudos/record` (校驗 Session 與正數點數)<br>`POST /api/redemptions` (校驗 Session) | `MemberModal.vue` 小孩自主修改 PIN、點數登記自動綁定本人帳號、商城自主兌換 | ✅ 100% 符合 |
+| **FR-21**| 訪客模式與公開使用說明指南 | 前端 Vue Router 全域守衛 | `/guide` (三大操作流程與 FAQ、成員描述不綁定固定 Emoji)<br>未解鎖強制攔截重定向回 `/ledger` | 畫面 7：使用說明頁面（`/guide`）、存摺引導橫幅、訪客導航列精簡保護 | ✅ 100% 符合 |
+| **NFR-1**| 易用性與行動裝置友善 | Vue 3 + TailwindCSS | 自訂 4 碼 PIN 鍵盤採用 `touch-action: manipulation` 消除雙擊放大延遲 | RWD 手機/平板優先、大觸控區塊、灑花慶祝反饋、無延遲數字鍵盤 | ✅ 100% 符合 |
 | **NFR-2**| 資料交易一致性 (ACID) | PostgreSQL DB Transaction | 點數發放/扣抵/批次調整均於單一 Transaction 完成 | - | ✅ 100% 符合 |
 | **NFR-3**| 資料庫與環境相容性 | PostgreSQL `frog_kudos` | SQLAlchemy 2.0 Async + asyncpg | - | ✅ 100% 符合 |
 | **NFR-4**| 機敏憑證與資料庫密碼安全防護 | `.env` (`chmod 600`), `scripts/` | `PGPASSWORD` 安全銷毀、API 脫敏、日誌連線字串遮蔽 | 前端設定 API 零密碼洩漏、備份檔 600 權限鎖定 | ✅ 100% 符合 |
@@ -1312,7 +1476,7 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 1. **主機 PostgreSQL `frog_kudos` 資料庫設計**：清楚標明 PK、FK 關聯約束、快照儲存與防負數 Check 限制。
 2. **前後端技術定案**：採用 **Python FastAPI** + **Vue 3 (Composition API + TailwindCSS)**。
 3. **單一 Port 整合運行（安裝時可自訂指定）**：平日家庭日常使用由 FastAPI 在單一連接埠（安裝時可自由指定，預設 Port 8000）同時提供 Vue 3 SPA 網頁與 RESTful APIs，徹底避免 Port 衝突且家庭裝置連線最簡便。
-4. **Web UI 詳細規格**：包含快速登記、即時試算動畫反饋、兌換商城、不可篡改存摺、歷史批次調整工具、系統設定與維運中心。
+4. **Web UI 詳細規格**：包含點數登記、即時試算動畫反饋、兌換商城上下架過濾、不可篡改存摺、公開使用說明指南、歷史批次調整工具、系統設定與維運中心。
 5. **完整維運與 Release 發行自動化**：包含指定路徑資料庫備份 (`backup.sh`)、安全還原 (`restore.sh`)、一鍵安裝 (`install.sh`)、GitHub Actions 自動化發行包打包 (`.github/workflows/release.yml`)、以及從 GitHub Releases 一鍵自動升級與離線套件手動升級 (`upgrade.sh`)。
 6. **五重安全防護體系**：涵蓋 `.env` 檔案權限鎖定、進程安全隔離、API 與日誌脫敏。
 
@@ -1364,10 +1528,14 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 - `scripts/backup.sh` 與還原前快照所產生的 `.dump` 檔案，生成當下自動執行 `chmod 600 "$BACKUP_FILE"`，確保備份檔案僅有系統擁有者可讀寫。
 - PostgreSQL Custom dump 檔案僅儲存關聯資料與結構，不包含 PostgreSQL 伺服器登入帳號密碼。
 
-### 8.6 全成員個人 PIN 碼授權體系與小孩自主點數邊界防護 (Member PIN & Child Boundary Security)
+### 8.6 全成員個人 PIN 碼授權體系、各瀏覽器獨立會話 Token 與小孩自主邊界防護 (Member PIN, Session Token & Child Boundary Security)
 - **bcrypt 12-round 加鹽單向雜湊存儲**：
   所有成員（包含家長與小孩）之 `pin_code` 於資料庫中均經過 bcrypt 單向加鹽雜湊存儲，絕不明文存放。對外 API 回傳 `MemberOut` 時，Pydantic Schema 強制排除 `pin_code` 欄位（NFR-4）。
-- **雙階身分鑑權演算法 (`verify_member_or_parent_pin`)**：
+- **各瀏覽器獨立會話 Token 鑑權機制 (`X-Session-Token`)**：
+  - 解鎖時透過 `POST /api/system/verify-pin` 驗證角色與 PIN 碼，驗證通過後簽發隨機唯一的 `session_token`（`fks_...`）。
+  - 後端以 `USER_SESSIONS` 管理會話，支援 15 分鐘滑動展期與單一裝置銷毀。
+  - 前端 Axios 請求攔截器自動於 Header 注入 `X-Session-Token`，後端解析取得 `session_info`（`member_id`, `role`, `member_name`），實現免重複敲密碼的流暢安全操作。
+- **身分與權限雙階校驗演算法 (`get_current_session_member` / `verify_member_or_parent_pin`)**：
   ```python
   async def verify_member_or_parent_pin(db, target_member_id, pin):
       # 1. 優先比對是否具備有效家長 PIN 碼 (或 .env PARENT_DEFAULT_PIN)
@@ -1383,9 +1551,12 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
   1. **點數增加 (`POST /api/kudos/record`)**：
      - 小孩操作時強制要求 `points_awarded > 0`，不允許自訂負數扣點。
      - 紀錄建立時 `recorded_by` 鎖定為小孩本人姓名（如 `Ian`），確保審計日誌不被偽造。
-     - 若意圖使用自己 PIN 碼為其他手足登記點數，因目標成員 ID 不符且非家長權限，系統即時拒絕並拋出 HTTP 403 Forbidden。
+     - 若意圖為其他手足登記點數，因目標成員 ID 與 Session 綁定不符且非家長權限，系統即時拒絕並拋出 HTTP 403 Forbidden。
   2. **點數使用 (`POST /api/redemptions`)**：
-     - 小孩兌換獎勵時必須輸入個人 PIN 碼驗證身分，僅能扣除自己帳戶之可用點數，嚴禁挪用其他手足點數。
+     - 小孩兌換獎勵時依據個人 Session 身分完成請求，僅能扣除自己帳戶之可用點數，嚴禁挪用其他手足點數。
   3. **個人 PIN 碼自主變更 (`POST /api/members/{id}/change-pin`)**：
-     - 小孩可於未解鎖介面自主點擊「🔑 PIN」，輸入目前舊 PIN 碼通過驗證後，自訂新的 4 碼 PIN 碼；家長亦可持家長 PIN 碼為任何成員直接重設。
+     - 小孩解鎖後可自主點擊「🔑 PIN」，輸入目前舊 PIN 碼通過驗證後，自訂新的 4 碼 PIN 碼；家長亦可持家長 PIN 碼為任何成員直接重設。
+- **訪客模式前端路由與功能攔截 (FR-21)**：
+  - 前端路由守衛對 `/record`、`/rewards`、`/rules` 嚴格把關，未解鎖者造訪自動導回 `/ledger`。
+  - 訪客模式下導航列與存摺頁面徹底隱藏更換頭像、點數登記與商城按鈕，存摺卡片頭像不可點擊，杜絕越權篡改。
 
