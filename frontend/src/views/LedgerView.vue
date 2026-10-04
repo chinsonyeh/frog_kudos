@@ -152,7 +152,7 @@ function onUnlockedBadges(bList) {
     <MemberModal
       :show="showMemberModal"
       @close="showMemberModal = false"
-      @member-updated="loadInitialData"
+      @member-updated="authStore.triggerMemberRefresh"
     />
 
     <!-- 勳章管理與編輯彈窗 (FR-18) -->
