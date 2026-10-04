@@ -182,7 +182,7 @@ async def check_github_version() -> VersionOut:
     root_dir = Path(__file__).resolve().parent.parent.parent
     version_file = root_dir / "VERSION"
 
-    current_ver = "v1.0.0-dev"
+    current_ver = "v1.0.0"
     if version_file.exists():
         current_ver = version_file.read_text(encoding="utf-8").strip()
 

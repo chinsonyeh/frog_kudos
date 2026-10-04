@@ -116,17 +116,13 @@ async def validate_parent_pin(
     parents = result.scalars().all()
 
     # 檢查是否有自訂 PIN 的家長
-    has_custom_parent_pins = False
     for parent in parents:
-        if parent.pin_code:
-            has_custom_parent_pins = True
-            if verify_pin(pin, parent.pin_code):
-                return True
-
-    # 若無有效家長或皆無自訂 PIN 碼，降級比對 .env 之 PARENT_DEFAULT_PIN
-    if not has_custom_parent_pins or len(parents) == 0:
-        if pin == settings.PARENT_DEFAULT_PIN.strip():
+        if parent.pin_code and verify_pin(pin, parent.pin_code):
             return True
+
+    # 系統種子與緊急維護 PIN: 支援比對 .env 之 PARENT_DEFAULT_PIN (Section 2.2 #7, NFR-4)
+    if settings.PARENT_DEFAULT_PIN and pin == settings.PARENT_DEFAULT_PIN.strip():
+        return True
 
     return False
 

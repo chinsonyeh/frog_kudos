@@ -45,7 +45,7 @@ async def test_members_flow():
         assert res.status_code == 200
         members = res.json()
         names = [m["name"] for m in members]
-        assert "Dad" in names
+        assert any(m["role"] == "parent" for m in members)
 
         # 2. 測試家長安全鎖：錯誤 PIN 應被阻擋 (403)
         bad_res = await client.post(
@@ -725,7 +725,7 @@ async def test_role_based_unlock_and_permissions():
         members_res = await client.get("/api/members")
         assert members_res.status_code == 200
         members = members_res.json()
-        dad = next(m for m in members if m["name"] == "Dad")
+        dad = next(m for m in members if m["role"] == "parent")
         ian = next(m for m in members if m["name"] == "Ian")
         lily = next(m for m in members if m["name"] == "Lily")
 
