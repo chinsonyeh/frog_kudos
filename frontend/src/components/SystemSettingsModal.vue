@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -35,11 +35,20 @@ const lineTestMsg = ref('')
 
 const error = ref('')
 
-onMounted(async () => {
-  if (props.show) {
-    await loadInitialData()
-  }
-})
+watch(
+  () => props.show,
+  async (newVal) => {
+    if (newVal) {
+      await loadInitialData()
+    } else {
+      if (pollInterval) {
+        clearInterval(pollInterval)
+        pollInterval = null
+      }
+    }
+  },
+  { immediate: true }
+)
 
 async function loadInitialData() {
   error.value = ''

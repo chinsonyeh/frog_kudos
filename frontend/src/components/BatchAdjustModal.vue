@@ -52,6 +52,19 @@ watch(() => props.initialMemberId, (newVal) => {
   if (newVal) memberId.value = newVal
 })
 
+watch(() => props.show, (newVal) => {
+  if (newVal) {
+    error.value = ''
+    previewResult.value = null
+    parentPinInput.value = ''
+    if (props.initialMemberId) {
+      memberId.value = props.initialMemberId
+    } else if (props.members.length > 0) {
+      memberId.value = props.members[0].id
+    }
+  }
+})
+
 async function runPreview() {
   if (!memberId.value) {
     error.value = '請選擇篩選對象成員'

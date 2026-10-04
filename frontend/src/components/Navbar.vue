@@ -160,12 +160,12 @@ function handleOpenSystem() {
     </div>
 
     <!-- 行動裝置底部快速導航 (Mobile Tab Bar) -->
-    <div class="md:hidden border-t border-gray-100 bg-white/95 px-2 py-1.5 flex justify-around shadow-sm">
+    <div class="md:hidden border-t border-gray-100 bg-white/95 px-2 py-1.5 flex justify-around overflow-x-auto shadow-sm">
       <template v-for="item in navItems" :key="item.name">
         <router-link
           v-if="item.type === 'link'"
           :to="item.path"
-          class="flex flex-col items-center py-1 px-2.5 rounded-lg text-xs font-medium transition"
+          class="flex flex-col items-center py-1 px-2 rounded-lg text-xs font-medium transition whitespace-nowrap flex-shrink-0"
           :class="currentPath === item.path ? 'text-frog-600 font-bold' : 'text-gray-500 hover:text-gray-800'"
         >
           <span class="text-lg leading-none mb-0.5">{{ item.icon }}</span>
@@ -175,7 +175,7 @@ function handleOpenSystem() {
           v-else-if="item.type === 'button'"
           @click="item.action"
           type="button"
-          class="flex flex-col items-center py-1 px-2.5 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-800 transition cursor-pointer"
+          class="flex flex-col items-center py-1 px-2 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-800 transition cursor-pointer whitespace-nowrap flex-shrink-0"
         >
           <span class="text-lg leading-none mb-0.5">{{ item.icon }}</span>
           <span>{{ item.name }}</span>
