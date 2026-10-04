@@ -14,7 +14,7 @@ const currentPath = computed(() => route.path)
 const navItems = computed(() => {
   if (authStore.isParent) {
     return [
-      { type: 'link', name: '快速登記', path: '/record', icon: '📝' },
+      { type: 'link', name: '點數登記', path: '/record', icon: '📝' },
       { type: 'link', name: '榮譽存摺', path: '/ledger', icon: '🏆' },
       { type: 'link', name: '商城與審核', path: '/rewards', icon: '🎁' },
       { type: 'button', name: '家庭成員', action: () => emit('openMemberModal'), icon: '👥', title: '管理家庭成員清單與自訂成員' },
@@ -23,7 +23,7 @@ const navItems = computed(() => {
     ]
   } else if (authStore.isChild) {
     return [
-      { type: 'link', name: '點數申請', path: '/record', icon: '📝' },
+      { type: 'link', name: '點數登記', path: '/record', icon: '📝' },
       { type: 'link', name: '榮譽存摺', path: '/ledger', icon: '🏆' },
       { type: 'link', name: '兌換商城', path: '/rewards', icon: '🎁' },
       { type: 'button', name: '個人成員', action: () => emit('openMemberModal'), icon: authStore.unlockedMember?.avatar || '👤', title: '變更個人代表頭像與 PIN 碼' },

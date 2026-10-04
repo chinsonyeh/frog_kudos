@@ -25,7 +25,7 @@ function triggerUnlock() {
           </div>
           <h2 class="text-2xl sm:text-3xl font-black tracking-tight">系統使用說明書</h2>
           <p class="text-emerald-100 text-sm sm:text-base max-w-xl">
-            歡迎使用 Frog Kudos 家庭積分獎勵系統！本系統採用身分權限劃分與各瀏覽器獨立會話機制。跟著以下 3 個步驟，輕鬆上手解鎖、點數申請與心願兌換！
+            歡迎使用 Frog Kudos 家庭積分獎勵系統！本系統採用身分權限劃分與各瀏覽器獨立會話機制。跟著以下 3 個步驟，輕鬆上手解鎖、點數登記與心願兌換！
           </p>
         </div>
 
@@ -117,10 +117,10 @@ function triggerUnlock() {
         </div>
         <div>
           <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <span>📝 如何申請加點？</span>
+            <span>📝 如何進行點數登記？</span>
             <span class="text-xs bg-amber-100 text-amber-800 font-semibold px-2 py-0.5 rounded-full">第二步</span>
           </h3>
-          <p class="text-xs text-gray-500">小孩自律主動完成任務或日常良好表現，自主登記累積榮譽</p>
+          <p class="text-xs text-gray-500">小孩自律主動完成任務自主登記，或由家長評估表現發放點數獎勵</p>
         </div>
       </div>
 
@@ -128,9 +128,9 @@ function triggerUnlock() {
         <div class="flex items-start space-x-3 p-3.5 rounded-2xl bg-gray-50 border border-gray-100">
           <span class="text-xl">🎯</span>
           <div>
-            <h4 class="font-bold text-gray-800 text-sm">1. 前往「點數申請」頁面</h4>
+            <h4 class="font-bold text-gray-800 text-sm">1. 前往「點數登記」頁面</h4>
             <p class="text-xs text-gray-500 mt-0.5">
-              解鎖小孩帳號後，上方導航列會出現「<strong>📝 點數申請</strong>」選單。點選進入後，系統會<strong>自動鎖定為您的小孩帳號</strong>（無法切換幫手足登記，保障公平）。
+              解鎖帳號後，上方導航列會出現「<strong>📝 點數登記</strong>」選單。點選進入後，小孩帳號會<strong>自動鎖定為該小孩自身</strong>（無法切換幫手足登記，保障公平）；家長帳號則可自由切換要登記點數的對象。
             </p>
           </div>
         </div>
@@ -248,7 +248,7 @@ function triggerUnlock() {
         </div>
 
         <div class="p-4 rounded-2xl bg-gray-50 border border-gray-100 space-y-1">
-          <h4 class="font-bold text-gray-900 text-xs sm:text-sm">Q: 為什麼在訪客模式看不到兌換商城和點數申請？</h4>
+          <h4 class="font-bold text-gray-900 text-xs sm:text-sm">Q: 為什麼在訪客模式看不到兌換商城和點數登記？</h4>
           <p class="text-xs text-gray-600 leading-relaxed">
             為了保護家庭帳號安全，訪客模式僅提供查看「榮譽存摺」。請點擊右上角的「<strong>🔐 解鎖</strong>」按鈕，選擇登入您的角色身分，專屬功能就會立即顯現！
           </p>
