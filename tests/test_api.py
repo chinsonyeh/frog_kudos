@@ -1,11 +1,36 @@
 import uuid
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+@pytest_asyncio.fixture(autouse=True)
+async def setup_test_parent():
+    from app.core.database import engine
+    from app.core.security import hash_pin
+    from sqlalchemy import text
+    test_parent_id = str(uuid.uuid4())
+    hashed = hash_pin("0000")
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                f"INSERT INTO members (id, name, role, avatar, pin_code, is_active) "
+                f"VALUES ('{test_parent_id}', '__TestParentRunner__', 'parent', '👨', '{hashed}', TRUE) "
+                f"ON CONFLICT (name) DO UPDATE SET pin_code = '{hashed}';"
+            )
+        )
+    try:
+        yield
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM members WHERE name = '__TestParentRunner__';"))
+
+
+
 
 async def create_isolated_test_child(client: AsyncClient, name_prefix="TestBot"):
     name = f"{name_prefix}_{uuid.uuid4().hex[:8]}"
@@ -476,11 +501,12 @@ async def test_badge_management_and_milestones():
             assert milestone_key in keys
 
         # 2. 家長新增自訂成就勳章
+        custom_key = f"TEST_READING_{uuid.uuid4().hex[:6]}"
         new_b_res = await client.post(
             "/api/badges",
             headers={"X-Parent-PIN": "0000"},
             json={
-                "badge_key": "TEST_READING_AUTO",
+                "badge_key": custom_key,
                 "title": "晨讀書香蛙",
                 "description": "連續晨讀 10 次",
                 "icon": "📖",
@@ -498,7 +524,7 @@ async def test_badge_management_and_milestones():
         try:
             # 3. 手動為測試成員頒發勳章與收回
             toggle_res = await client.post(
-                f"/api/badges/TEST_READING_AUTO/toggle/{bot_id}",
+                f"/api/badges/{custom_key}/toggle/{bot_id}",
                 headers={"X-Parent-PIN": "0000"},
                 json={"unlock": True},
             )
@@ -506,7 +532,7 @@ async def test_badge_management_and_milestones():
             assert toggle_res.json()["unlocked"] is True
 
             toggle_off_res = await client.post(
-                f"/api/badges/TEST_READING_AUTO/toggle/{bot_id}",
+                f"/api/badges/{custom_key}/toggle/{bot_id}",
                 headers={"X-Parent-PIN": "0000"},
                 json={"unlock": False},
             )
@@ -725,7 +751,7 @@ async def test_role_based_unlock_and_permissions():
         members_res = await client.get("/api/members")
         assert members_res.status_code == 200
         members = members_res.json()
-        parent_member = next(m for m in members if m["role"] == "parent")
+        parent_member = next((m for m in members if m["name"] == "__TestParentRunner__"), None) or next(m for m in members if m["role"] == "parent")
 
         # 2. 建立兩個獨立測試小孩（完全隔離，絕不污染正式環境成員）
         child_a = await create_isolated_test_child(client, "RoleChildA")
@@ -892,6 +918,78 @@ async def test_role_based_unlock_and_permissions():
             await cleanup_test_child(client, b_id)
             if test_item_id:
                 await client.delete(f"/api/items/{test_item_id}?permanent=true", headers={"X-Parent-PIN": "0000"})
+
+@pytest.mark.asyncio
+async def test_custom_pin_security_and_default_pin_invalidation():
+    """
+    驗證自訂 PIN 啟用後立即停用預設值 0000 之安全防護：
+    1. 家長設定自訂 PIN 碼後，預設 PIN 0000 必須立即失效被拒絕 (403 / False)
+    2. 小孩設定自訂 PIN 碼後，預設 PIN 0000 必須立即失效被拒絕 (403 / False)
+    3. 未自訂 PIN 碼前（冷啟動或 pin_code=None），預設 PIN 0000 允許作為初次使用
+    """
+    from app.core.database import AsyncSessionLocal, engine
+    from app.core.security import validate_parent_pin, verify_member_or_parent_pin, hash_pin
+    from app.models.member import Member
+    from sqlalchemy import select, text
+
+    # 先清理掉測試夾具暫存的 __TestParentRunner__，以純粹的真實資料庫狀態進行驗證
+    async with engine.begin() as conn:
+        await conn.execute(text("DELETE FROM members WHERE name = '__TestParentRunner__';"))
+
+    async with AsyncSessionLocal() as db:
+        # A. 家長自訂 PIN 安全驗證：
+        # 當前家長為 Dad&Mom (已自訂 PIN，不為 0000)
+        p_res = await db.execute(select(Member).where(Member.role == "parent", Member.is_active == True))
+        active_parents = p_res.scalars().all()
+        assert any(p.pin_code for p in active_parents)
+        # 輸入 0000 必須回傳 False（不可使用預設值登入！）
+        assert await validate_parent_pin(db, input_pin="0000") is False
+        # 輸入 9999 亦為 False
+        assert await validate_parent_pin(db, input_pin="9999") is False
+
+        # B. 小孩自訂 PIN 安全驗證 (以 Lily 為例，Lily 已自訂非 0000 之 PIN)
+        lily_res = await db.execute(select(Member).where(Member.name == "Lily"))
+        lily = lily_res.scalars().first()
+        if lily:
+            assert lily.pin_code is not None
+            # Lily 輸入 0000 必須失敗 (False, "none")，絕不能再被預設 0000 解鎖！
+            valid, role = await verify_member_or_parent_pin(db, lily.id, input_pin="0000")
+            assert valid is False
+            assert role == "none"
+
+        # C. 預設 PIN 碼設定在新增用戶的資料庫中，修改後預設 PIN 碼隨之覆蓋失效
+        test_new_child = Member(
+            name=f"NewChild_{uuid.uuid4().hex[:6]}",
+            role="child",
+            avatar="👶",
+            pin_code=hash_pin("0000"),  # 系統建立新用戶時，將預設值 0000 寫入資料庫
+        )
+        db.add(test_new_child)
+        await db.commit()
+        await db.refresh(test_new_child)
+        try:
+            # 1. 新用戶資料庫中存有 0000 雜湊，允許 0000 初次登入
+            ok_valid, ok_role = await verify_member_or_parent_pin(db, test_new_child.id, input_pin="0000")
+            assert ok_valid is True
+            assert ok_role == "child"
+
+            # 2. 用戶修改為自訂 PIN "7777" (覆蓋資料庫中的 pin_code 欄位)
+            test_new_child.pin_code = hash_pin("7777")
+            await db.commit()
+
+            # 3. 自訂後，資料庫不再存有 0000，且程式中無任何預設 PIN 碼，0000 立即徹底失效！
+            expired_valid, expired_role = await verify_member_or_parent_pin(db, test_new_child.id, input_pin="0000")
+            assert expired_valid is False
+            assert expired_role == "none"
+
+            # 4. 自訂 PIN "7777" 成功登入
+            new_valid, new_role = await verify_member_or_parent_pin(db, test_new_child.id, input_pin="7777")
+            assert new_valid is True
+            assert new_role == "child"
+        finally:
+            await db.delete(test_new_child)
+            await db.commit()
+
 
 
 

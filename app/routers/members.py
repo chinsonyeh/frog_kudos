@@ -43,15 +43,10 @@ async def create_member(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="成員姓名已存在")
 
-    hashed_pin = None
-    if member_in.role == "parent":
-        if not member_in.pin_code:
-            raise HTTPException(status_code=400, detail="新增家長成員時必須設定 4 碼 PIN 碼")
-        hashed_pin = hash_pin(member_in.pin_code)
-    else:
-        # 小孩成員：自訂 PIN 或預設 0000
-        pin_val = member_in.pin_code.strip() if member_in.pin_code and member_in.pin_code.strip() else "0000"
-        hashed_pin = hash_pin(pin_val)
+    # 預設 PIN 碼設定在新增用戶的資料庫中 (若未指定則預設 0000 並以 bcrypt 雜湊寫入資料庫)
+    # 當用戶日後修改 PIN 碼後，資料庫中的舊值即被替換，系統程式碼中不再保留任何預設 PIN 碼
+    pin_val = member_in.pin_code.strip() if member_in.pin_code and member_in.pin_code.strip() else "0000"
+    hashed_pin = hash_pin(pin_val)
 
     new_member = Member(
         name=member_in.name.strip(),

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 
@@ -30,13 +30,91 @@ const oldPin = ref('')
 const newPin = ref('')
 const confirmPin = ref('')
 
-// 豐富多元的代表頭像清單 (32 款動物、角色、運動與趣味 Emoji)
-const commonAvatars = [
-  '🐸', '👧', '👦', '👨', '👩', '👶', '🐱', '🐶',
-  '🐼', '🐰', '🦁', '🐯', '🐻', '🐨', '🦊', '🦄',
-  '🐲', '🦖', '🚀', '🌟', '🌈', '🎨', '⚽', '🏀',
-  '🎮', '🍦', '🍕', '🌸', '👑', '🦸', '🧙', '🎸'
+// 豐富多元的代表頭像分類清單 (包含 250+ 款熱門、動物、角色、人物、運動、美食、自然 Emoji)
+const avatarCategories = [
+  {
+    name: '熱門精選',
+    icon: '🔥',
+    avatars: [
+      '🐸', '👧', '👦', '👨', '👩', '👶', '🐱', '🐶',
+      '🐼', '🐰', '🦁', '🐯', '🐻', '🐨', '🦊', '🦄',
+      '🐲', '🦖', '🚀', '🌟', '🌈', '🎨', '⚽', '🏀',
+      '🎮', '🍦', '🍕', '🌸', '👑', '🦸', '🧙', '🎸'
+    ]
+  },
+  {
+    name: '動物萌寵',
+    icon: '🐶',
+    avatars: [
+      '🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼',
+      '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🐔',
+      '🐧', '🐦', '🐤', '🦆', '🦅', '🦉', '🐺', '🐗',
+      '🐴', '🦄', '🐝', '🐛', '🦋', '🐢', '🐍', '🐙',
+      '🦑', '🦀', '🐡', '🐠', '🐬', '🐳', '🦈', '🦭',
+      '🐊', '🐆', '🦓', '🐘', '🦏', '🦒', '🦘', '🦔'
+    ]
+  },
+  {
+    name: '角色奇幻',
+    icon: '🧙',
+    avatars: [
+      '👑', '👸', '🤴', '🦸', '🦸‍♀️', '🦸‍♂️', '🦹', '🦹‍♂️',
+      '🧙', '🧙‍♀️', '🧙‍♂️', '🧚', '🧚‍♀️', '🧚‍♂️', '🧝', '🧝‍♀️',
+      '🧜', '🧜‍♀️', '🥷', '🧑‍🚀', '🧑‍🔬', '🧑‍🎨', '🧑‍🍳', '🧑‍🚒',
+      '🧑‍✈️', '🕵️', '🤖', '👽', '👻', '👾', '🐲', '🐉',
+      '🦖', '🦕', '🤠', '🥳', '😎', '🤩', '🧐', '😇'
+    ]
+  },
+  {
+    name: '人物家庭',
+    icon: '👧',
+    avatars: [
+      '👧', '👦', '👶', '👨', '👩', '🧑', '👱', '👱‍♀️',
+      '👴', '👵', '🧓', '👨‍🦰', '👩‍🦰', '👨‍🦱', '👩‍🦱', '👨‍🦳',
+      '👩‍🦳', '🧔', '👳', '🧕', '👨‍👩‍👦', '👨‍👩‍👧', '👨‍👩‍👧‍👦', '👩‍👦',
+      '😺', '😸', '😻', '🥰', '🤗', '🤓', '✨', '💖'
+    ]
+  },
+  {
+    name: '運動休閒',
+    icon: '⚽',
+    avatars: [
+      '⚽', '🏀', '🏈', '⚾', '🎾', '🏐', '🏓', '🏸',
+      '🥊', '🥋', '🛹', '🛴', '🚲', '🏎️', '🏍️', '🧗',
+      '🏄', '🏊', '🎿', '🏹', '🎣', '🎯', '🎳', '🎮',
+      '🕹️', '🎲', '🧩', '🎨', '🎤', '🎧', '🎸', '🎹',
+      '🥁', '🎷', '🎺', '🎻', '🏆', '🥇', '🏅', '🎖️'
+    ]
+  },
+  {
+    name: '美食甜點',
+    icon: '🍦',
+    avatars: [
+      '🍦', '🍧', '🍨', '🍩', '🍪', '🎂', '🍰', '🧁',
+      '🍫', '🍬', '🍭', '🍮', '🍯', '🍿', '🍕', '🍔',
+      '🍟', '🌭', '🥪', '🌮', '🌯', '🍙', '🍣', '🍜',
+      '🍝', '🥟', '🍱', '🥞', '🧇', '🍓', '🍉', '🍇',
+      '🍎', '🍒', '🍑', '🥭', '🍍', '🍌', '🥑', '🧋'
+    ]
+  },
+  {
+    name: '自然宇宙',
+    icon: '🚀',
+    avatars: [
+      '🌟', '⭐', '✨', '⚡', '☄️', '🚀', '🛸', '🪐',
+      '☀️', '🌙', '🌌', '🌠', '🌈', '🌤️', '❄️', '🔥',
+      '💧', '🌊', '🌋', '🍀', '🌸', '🌺', '🌻', '🌹',
+      '🌷', '🍄', '🌲', '🌴', '🍁', '🍂', '💎', '🔮'
+    ]
+  }
 ]
+
+const activeAvatarCategory = ref('熱門精選')
+const commonAvatars = avatarCategories[0].avatars
+const displayedAvatars = computed(() => {
+  const cat = avatarCategories.find(c => c.name === activeAvatarCategory.value)
+  return cat ? cat.avatars : avatarCategories[0].avatars
+})
 
 watch(() => props.show, (newVal) => {
   if (newVal) {
@@ -66,6 +144,7 @@ function openCreateForm() {
   name.value = ''
   role.value = 'child'
   avatar.value = '🐸'
+  activeAvatarCategory.value = '熱門精選'
   pinCode.value = ''
   isActive.value = true
   errorMsg.value = ''
@@ -87,6 +166,8 @@ function openEditForm(member) {
   name.value = member.name
   role.value = member.role
   avatar.value = member.avatar || '🐸'
+  const matchedCat = avatarCategories.find(c => c.avatars.includes(avatar.value))
+  activeAvatarCategory.value = matchedCat ? matchedCat.name : '熱門精選'
   pinCode.value = ''
   isActive.value = member.is_active
   errorMsg.value = ''
@@ -473,11 +554,49 @@ async function handleDelete(member) {
           <!-- 代表頭像選擇 (無論是否解鎖皆可自由挑選) -->
           <div>
             <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-              {{ authStore.isParent ? `代表頭像 Emoji (目前: ${avatar})` : `為「${name}」選擇代表頭像 (目前: ${avatar})` }}
+              {{ authStore.isParent ? `代表頭像 Emoji (目前: ${avatar || '🐸'})` : `為「${name}」選擇代表頭像 (目前: ${avatar || '🐸'})` }}
             </label>
+
+            <!-- 當前頭像預覽與自訂 Emoji 輸入框 -->
+            <div class="flex items-center space-x-3 p-3 bg-frog-50/60 rounded-2xl border border-frog-100 mb-2.5">
+              <div class="w-12 h-12 rounded-2xl bg-white shadow-xs flex items-center justify-center text-3xl border border-frog-200 flex-shrink-0">
+                {{ avatar || '🐸' }}
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="text-[11px] font-bold text-gray-600 mb-1">
+                  目前選擇圖示（可直接點選下方分類，或在此輸入/貼上任意 Emoji）：
+                </div>
+                <input
+                  v-model="avatar"
+                  type="text"
+                  maxlength="20"
+                  placeholder="例如 🦁、🦄 或自選 Emoji"
+                  class="w-full px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-sm font-medium focus:outline-none focus:border-frog-500 focus:ring-1 focus:ring-frog-200"
+                />
+              </div>
+            </div>
+
+            <!-- 分類標籤切換列 -->
+            <div class="flex items-center space-x-1.5 overflow-x-auto pb-1 mb-2">
+              <button
+                v-for="cat in avatarCategories"
+                :key="cat.name"
+                type="button"
+                @click="activeAvatarCategory = cat.name"
+                class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center space-x-1 flex-shrink-0 cursor-pointer"
+                :class="activeAvatarCategory === cat.name
+                  ? 'bg-frog-500 text-white shadow-xs'
+                  : 'bg-gray-100 hover:bg-gray-200 text-gray-600'"
+              >
+                <span>{{ cat.icon }}</span>
+                <span>{{ cat.name }}</span>
+              </button>
+            </div>
+
+            <!-- 圖示方格選擇區 -->
             <div class="flex flex-wrap gap-2 mb-2 p-3 bg-gray-50 rounded-2xl border border-gray-100 max-h-48 overflow-y-auto">
               <button
-                v-for="av in commonAvatars"
+                v-for="av in displayedAvatars"
                 :key="av"
                 type="button"
                 @click="avatar = av"

@@ -94,10 +94,11 @@ async def validate_parent_pin(
     header_pin: Optional[str] = None
 ) -> bool:
     """
-    家長權限驗證機制 (支援各瀏覽器獨立 Session Token 與 PIN 碼):
+    家長權限驗證機制 (支援各瀏覽器獨立 Session Token 與資料庫自訂 PIN 碼):
     1. 優先檢查是否為有效之家長 Session Token
-    2. 比對所有 role='parent' 且 is_active=TRUE 的家長成員之 pin_code
-    3. 若系統尚無任何有效家長 (冷啟動) 或家長尚未自訂 PIN，自動降級比對 .env 的 PARENT_DEFAULT_PIN
+    2. 比對所有 role='parent' 且 is_active=TRUE 的家長成員之 pin_code 雜湊
+    注意：預設 PIN 碼不保留在程式驗證邏輯中，完全以資料庫 pin_code 為唯一憑證！
+    當用戶修改 PIN 碼後，資料庫中的舊值即被替換，系統中不再保留任何預設 PIN 碼。
     """
     pin = (input_pin or header_pin or "").strip()
     if not pin:
@@ -110,19 +111,14 @@ async def validate_parent_pin(
     # 延遲導入 Member 實體以避免循環相依
     from app.models.member import Member
 
-    # 查詢有效家長列表
+    # 2. 查詢有效家長列表並比對資料庫儲存之 pin_code 雜湊
     stmt = select(Member).where(Member.role == "parent", Member.is_active == True)
     result = await db.execute(stmt)
     parents = result.scalars().all()
 
-    # 檢查是否有自訂 PIN 的家長
     for parent in parents:
         if parent.pin_code and verify_pin(pin, parent.pin_code):
             return True
-
-    # 系統種子與緊急維護 PIN: 支援比對 .env 之 PARENT_DEFAULT_PIN (Section 2.2 #7, NFR-4)
-    if settings.PARENT_DEFAULT_PIN and pin == settings.PARENT_DEFAULT_PIN.strip():
-        return True
 
     return False
 
@@ -141,8 +137,9 @@ async def verify_member_or_parent_pin(
        - 家長 Session: 允許為所有成員操作，回傳 (True, "parent")
        - 小孩 Session: 僅允許為自身 (target_member_id == session.member_id) 操作，回傳 (True, "child")；絕不允許跨成員操作！
     3. 若為明文 PIN 碼:
-       - 符合家長 PIN: 允許 (True, "parent")
-       - 符合目標成員個人 PIN: 允許 (True, member.role)
+       - 符合資料庫中任一家長 PIN 雜湊: 允許 (True, "parent")
+       - 符合資料庫中目標成員個人 PIN 雜湊: 允許 (True, member.role)
+    注意：預設 PIN 碼不保留在程式驗證邏輯中，完全以資料庫 pin_code 為唯一憑證！
     """
     pin = (input_pin or header_pin or "").strip()
     if not pin:
@@ -159,23 +156,18 @@ async def verify_member_or_parent_pin(
             # 小孩 Session 試圖為他人操作，嚴格拒絕
             return False, "none"
 
-    # 2. 檢查是否符合有效家長之 PIN 碼 (或 .env PARENT_DEFAULT_PIN)
+    # 2. 檢查是否符合有效家長之 PIN 碼 (比對資料庫儲存之 pin_code 雜湊)
     if await validate_parent_pin(db, input_pin=pin):
         return True, "parent"
 
-    # 3. 檢查是否符合目標成員的個人 PIN 碼
+    # 3. 檢查是否符合目標成員的個人 PIN 碼 (比對資料庫儲存之 pin_code 雜湊)
     from app.models.member import Member
     member = await db.get(Member, target_member_id)
     if not member or not member.is_active:
         return False, "none"
 
-    if member.pin_code:
-        if verify_pin(pin, member.pin_code):
-            return True, member.role
-    else:
-        # 未自訂 PIN 碼前，預設允許 0000
-        if pin == "0000":
-            return True, member.role
+    if member.pin_code and verify_pin(pin, member.pin_code):
+        return True, member.role
 
     return False, "none"
 
