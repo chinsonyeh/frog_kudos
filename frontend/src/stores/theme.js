@@ -126,7 +126,7 @@ export const LOGO_ICONS = [
     id: '4',
     name: '幾何極簡蛙',
     subtitle: 'Modern Vector',
-    tag: '現代扁平',
+    tag: '預設推薦',
     description: 'Apple 極簡風格俐落向量線條，乾淨純粹',
     src: '/icons/gallery/icon_4_vector.jpg',
     emoji: '🍏',
@@ -192,10 +192,10 @@ const STORAGE_ICON_KEY = 'frog_kudos_logo_icon'
 
 export const useThemeStore = defineStore('theme', () => {
   const currentTheme = ref('emerald')
-  const currentLogoId = ref('1')
+  const currentLogoId = ref('4')
 
   const currentLogo = computed(() => {
-    return LOGO_ICONS.find((i) => i.id === currentLogoId.value) || LOGO_ICONS[0]
+    return LOGO_ICONS.find((i) => i.id === currentLogoId.value) || LOGO_ICONS.find((i) => i.id === '4') || LOGO_ICONS[0]
   })
 
   function updateFavicon(src) {
@@ -212,7 +212,7 @@ export const useThemeStore = defineStore('theme', () => {
 
   function applyLogoIcon(iconId) {
     const validIcon = LOGO_ICONS.find((i) => i.id === iconId)
-    const activeId = validIcon ? validIcon.id : '1'
+    const activeId = validIcon ? validIcon.id : '4'
     currentLogoId.value = activeId
 
     try {
@@ -260,13 +260,13 @@ export const useThemeStore = defineStore('theme', () => {
 
   function initTheme() {
     let savedTheme = 'emerald'
-    let savedLogo = '1'
+    let savedLogo = '4'
     try {
       savedTheme = localStorage.getItem(STORAGE_KEY) || 'emerald'
-      savedLogo = localStorage.getItem(STORAGE_ICON_KEY) || '1'
+      savedLogo = localStorage.getItem(STORAGE_ICON_KEY) || '4'
     } catch {
       savedTheme = 'emerald'
-      savedLogo = '1'
+      savedLogo = '4'
     }
     applyTheme(savedTheme)
     applyLogoIcon(savedLogo)
