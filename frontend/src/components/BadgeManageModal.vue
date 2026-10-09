@@ -241,7 +241,7 @@ async function handleToggleMember(badge) {
       </div>
 
       <!-- 成功提示 -->
-      <div v-if="successMsg" class="mb-4 p-3 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-2xl border border-emerald-200">
+      <div v-if="successMsg" class="mb-4 p-3 bg-frog-50 text-frog-700 text-xs font-bold rounded-2xl border border-frog-200">
         {{ successMsg }}
       </div>
 
@@ -465,7 +465,7 @@ async function handleToggleMember(badge) {
             @click="handleSave"
             :disabled="loading"
             type="button"
-            class="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-frog-500 to-emerald-600 hover:from-frog-600 hover:to-emerald-700 text-white font-bold text-sm shadow-lg shadow-frog-200 transition disabled:opacity-50"
+            class="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-frog-500 to-frog-600 hover:from-frog-600 hover:to-frog-700 text-white font-bold text-sm shadow-lg shadow-frog-200 transition disabled:opacity-50"
           >
             {{ loading ? '處理中...' : (formMode === 'create' ? '確認新增勳章' : '儲存變更') }}
           </button>

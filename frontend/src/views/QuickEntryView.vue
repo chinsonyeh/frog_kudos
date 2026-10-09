@@ -311,7 +311,7 @@ async function executeKudosSubmit(data) {
     <!-- Toast 成功通知 -->
     <div
       v-if="toastMsg"
-      class="p-4 bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-200 flex items-center justify-between font-bold animate-in fade-in slide-in-from-top-4 duration-300"
+      class="p-4 bg-frog-500 text-white rounded-2xl shadow-lg shadow-frog-200 flex items-center justify-between font-bold animate-in fade-in slide-in-from-top-4 duration-300"
     >
       <span>{{ toastMsg }}</span>
       <button @click="toastMsg = ''" class="text-white/80 hover:text-white">✕</button>
@@ -459,7 +459,7 @@ async function executeKudosSubmit(data) {
         <div
           class="p-4 rounded-2xl border transition-all duration-300 flex items-center justify-between"
           :class="previewResult?.matched
-            ? 'bg-gradient-to-r from-emerald-50 to-frog-50 border-emerald-200 shadow-sm'
+            ? 'bg-gradient-to-r from-frog-50 to-frog-100/50 border-frog-200 shadow-sm'
             : 'bg-gray-50 border-gray-200 text-gray-500'"
         >
           <div class="flex items-center space-x-3">
@@ -468,7 +468,7 @@ async function executeKudosSubmit(data) {
               <div v-if="previewLoading" class="text-xs text-gray-500">
                 推導比對中...
               </div>
-              <div v-else-if="previewResult?.matched" class="text-xs font-bold text-emerald-900">
+              <div v-else-if="previewResult?.matched" class="text-xs font-bold text-frog-900">
                 命中規則：{{ previewResult.rule_name }}
               </div>
               <div v-else class="text-xs text-gray-500">
@@ -483,9 +483,9 @@ async function executeKudosSubmit(data) {
             <input
               v-model="adjustedPoints"
               type="number"
-              class="w-20 px-2 py-1.5 text-center font-bold text-lg font-mono rounded-xl border border-emerald-300 bg-white text-emerald-700 focus:ring-2 focus:ring-frog-500"
+              class="w-20 px-2 py-1.5 text-center font-bold text-lg font-mono rounded-xl border border-frog-300 bg-white text-frog-700 focus:ring-2 focus:ring-frog-500"
             />
-            <span class="text-xs font-bold text-emerald-800">點</span>
+            <span class="text-xs font-bold text-frog-800">點</span>
           </div>
         </div>
       </div>
@@ -566,7 +566,7 @@ async function executeKudosSubmit(data) {
         @click="handleSubmit"
         :disabled="submitting || !selectedMember"
         type="button"
-        class="w-full py-4 rounded-2xl bg-gradient-to-r from-frog-500 to-emerald-600 hover:from-frog-600 hover:to-emerald-700 text-white font-bold text-base shadow-lg shadow-frog-200 transition transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 flex items-center justify-center space-x-2"
+        class="w-full py-4 rounded-2xl bg-gradient-to-r from-frog-500 to-frog-600 hover:from-frog-600 hover:to-frog-700 text-white font-bold text-base shadow-lg shadow-frog-200 transition transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 flex items-center justify-center space-x-2"
       >
         <span>{{ submitting ? '處理中...' : (authStore.isParent ? '🎉 確認發放點數 / 登記獎懲' : (authStore.isChild ? `📝 確認申請點數 (${authStore.unlockedMember?.name} 專屬)` : '📝 確認申請點數 (需輸入個人 PIN 碼)')) }}</span>
       </button>

@@ -56,7 +56,7 @@ onMounted(() => {
 
         <button
           @click="$emit('close')"
-          class="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-frog-500 to-emerald-600 hover:from-frog-600 hover:to-emerald-700 text-white font-bold text-base shadow-lg shadow-frog-200 transition transform hover:-translate-y-0.5 active:translate-y-0"
+          class="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-frog-500 to-frog-600 hover:from-frog-600 hover:to-frog-700 text-white font-bold text-base shadow-lg shadow-frog-200 transition transform hover:-translate-y-0.5 active:translate-y-0"
         >
           太棒了！收下榮譽 🌟
         </button>

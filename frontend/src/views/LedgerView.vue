@@ -166,7 +166,7 @@ function onUnlockedBadges(bList) {
     <!-- 訪客模式友善引導橫幅 -->
     <div
       v-if="!authStore.isUnlocked"
-      class="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-gradient-to-r from-frog-50 via-emerald-50 to-teal-50 border border-frog-200 rounded-3xl text-xs font-semibold text-frog-900 shadow-sm gap-2"
+      class="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-gradient-to-r from-frog-50 to-frog-100 border border-frog-200 rounded-3xl text-xs font-semibold text-frog-900 shadow-sm gap-2"
     >
       <div class="flex items-center space-x-2">
         <span class="text-base">💡</span>
@@ -241,7 +241,7 @@ function onUnlockedBadges(bList) {
     </div>
 
     <!-- 成員餘額與願望進度卡片 -->
-    <div v-if="currentMember" class="bg-gradient-to-br from-emerald-500 to-teal-700 text-white rounded-3xl p-6 sm:p-8 shadow-xl shadow-emerald-900/10 relative overflow-hidden">
+    <div v-if="currentMember" class="bg-gradient-to-br from-frog-500 via-frog-600 to-frog-700 text-white rounded-3xl p-6 sm:p-8 shadow-xl shadow-frog-900/15 relative overflow-hidden">
       <!-- 背景光暈裝飾 -->
       <div class="absolute -right-10 -bottom-10 w-44 h-44 bg-white/10 rounded-full blur-2xl"></div>
 
@@ -267,7 +267,7 @@ function onUnlockedBadges(bList) {
                   {{ authStore.isParent ? '👥 管理成員' : '🎨 更換頭像' }}
                 </button>
               </div>
-              <span class="text-xs font-medium text-emerald-100">持續累積自主自律成果</span>
+              <span class="text-xs font-medium text-frog-100">持續累積自主自律成果</span>
             </div>
           </div>
         </div>
@@ -275,12 +275,12 @@ function onUnlockedBadges(bList) {
         <!-- 雙軌點數看板 -->
         <div class="flex space-x-4 bg-white/10 backdrop-blur-md p-3.5 rounded-2xl border border-white/20">
           <div class="text-center px-3">
-            <span class="text-[11px] uppercase tracking-wider text-emerald-100 font-bold block">目前可用點數</span>
+            <span class="text-[11px] uppercase tracking-wider text-frog-100 font-bold block">目前可用點數</span>
             <span class="text-2xl sm:text-3xl font-black font-mono">🪙 {{ currentMember.current_points }}</span>
           </div>
           <div class="w-px bg-white/20"></div>
           <div class="text-center px-3">
-            <span class="text-[11px] uppercase tracking-wider text-emerald-100 font-bold block">歷史累計總榮譽</span>
+            <span class="text-[11px] uppercase tracking-wider text-frog-100 font-bold block">歷史累計總榮譽</span>
             <span class="text-2xl sm:text-3xl font-black font-mono">🌟 {{ currentMember.total_earned_points }}</span>
           </div>
         </div>
@@ -391,7 +391,7 @@ function onUnlockedBadges(bList) {
             <div class="flex items-center space-x-2">
               <span class="font-bold text-gray-800 text-sm sm:text-base">{{ item.title }}</span>
               <span class="text-xs px-2 py-0.5 rounded-lg font-semibold"
-                :class="item.record_type === 'KUDOS' ? 'bg-emerald-100 text-emerald-800' : 'bg-purple-100 text-purple-800'"
+                :class="item.record_type === 'KUDOS' ? 'bg-frog-100 text-frog-800' : 'bg-purple-100 text-purple-800'"
               >
                 {{ item.record_type === 'KUDOS' ? '成就' : '兌換' }}
               </span>
@@ -409,7 +409,7 @@ function onUnlockedBadges(bList) {
           <div class="text-right flex-shrink-0 ml-3">
             <span
               class="text-base sm:text-lg font-black font-mono"
-              :class="item.points > 0 ? 'text-emerald-600' : (item.points < 0 ? 'text-red-500' : 'text-gray-400')"
+              :class="item.points > 0 ? 'text-frog-600' : (item.points < 0 ? 'text-red-500' : 'text-gray-400')"
             >
               {{ item.points > 0 ? `+${item.points}` : item.points }} 點
             </span>

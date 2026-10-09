@@ -288,7 +288,7 @@ onUnmounted(() => {
               </button>
             </div>
 
-            <div v-if="backupSuccessMsg" class="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-semibold">
+            <div v-if="backupSuccessMsg" class="p-3 bg-frog-50 text-frog-800 border border-frog-200 rounded-xl text-xs font-semibold">
               {{ backupSuccessMsg }}
             </div>
 
@@ -414,7 +414,7 @@ onUnmounted(() => {
 
         <!-- 【分頁 3: LINE 即時推播通知】 -->
         <div v-if="activeTab === 'line'" class="space-y-4">
-          <div class="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-xs">
+          <div class="p-3 bg-frog-50 text-frog-800 border border-frog-200 rounded-xl text-xs">
             📱 設定 LINE Messaging API 憑證，當孩子在商城申請兌換時，系統將即時發送推播通知至家長手機。
           </div>
 

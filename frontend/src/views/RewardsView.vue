@@ -281,7 +281,7 @@ async function handlePermanentDeleteItem(item) {
     <!-- Toast 成功通知 -->
     <div
       v-if="toastMsg"
-      class="p-4 bg-emerald-500 text-white rounded-2xl shadow-lg shadow-emerald-200 flex items-center justify-between font-bold animate-in fade-in slide-in-from-top-4 duration-300"
+      class="p-4 bg-frog-500 text-white rounded-2xl shadow-lg shadow-frog-200 flex items-center justify-between font-bold animate-in fade-in slide-in-from-top-4 duration-300"
     >
       <span>{{ toastMsg }}</span>
       <button @click="toastMsg = ''" class="text-white/80 hover:text-white">✕</button>
@@ -451,7 +451,7 @@ async function handlePermanentDeleteItem(item) {
                 <button
                   type="button"
                   @click="handleRestoreItem(item)"
-                  class="flex-1 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold transition cursor-pointer"
+                  class="flex-1 py-1.5 rounded-xl bg-frog-50 hover:bg-frog-100 text-frog-700 border border-frog-200 text-xs font-bold transition cursor-pointer"
                 >
                   🟢 重新上架
                 </button>
@@ -506,9 +506,9 @@ async function handlePermanentDeleteItem(item) {
         <div class="flex space-x-3 pt-1">
           <button
             @click="handleApproveRedemption(r.id)"
-            class="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-md shadow-emerald-200 transition"
+            class="flex-1 py-2.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-md shadow-frog-200 transition"
           >
-            🟢 核准兌現 (COMPLETED)
+            ✅ 核准兌現 (COMPLETED)
           </button>
           <button
             @click="openRejectModal(r.id)"

@@ -352,7 +352,7 @@ async function handleDelete(member) {
       </div>
 
       <!-- 成功提示 -->
-      <div v-if="successMsg" class="my-3 p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-semibold">
+      <div v-if="successMsg" class="my-3 p-3 bg-frog-50 text-frog-800 border border-frog-200 rounded-xl text-xs font-semibold">
         {{ successMsg }}
       </div>
 

@@ -14,7 +14,7 @@ function triggerUnlock() {
 <template>
   <div class="space-y-8 max-w-4xl mx-auto pb-12 animate-in fade-in duration-300">
     <!-- 頂部標題區 (Hero) -->
-    <div class="bg-gradient-to-br from-frog-500 via-emerald-600 to-teal-700 text-white rounded-3xl p-6 sm:p-10 shadow-xl shadow-frog-900/10 relative overflow-hidden">
+    <div class="bg-gradient-to-br from-frog-500 via-frog-600 to-frog-700 text-white rounded-3xl p-6 sm:p-10 shadow-xl shadow-frog-900/10 relative overflow-hidden">
       <div class="absolute -right-12 -bottom-12 w-56 h-56 bg-white/10 rounded-full blur-3xl pointer-events-none"></div>
 
       <div class="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
@@ -24,7 +24,7 @@ function triggerUnlock() {
             <span>Frog Kudos 家庭指南</span>
           </div>
           <h2 class="text-2xl sm:text-3xl font-black tracking-tight">系統使用說明書</h2>
-          <p class="text-emerald-100 text-sm sm:text-base max-w-xl">
+          <p class="text-frog-100 text-sm sm:text-base max-w-xl">
             歡迎使用 Frog Kudos 家庭積分獎勵系統！本系統採用身分權限劃分與各瀏覽器獨立會話機制。跟著以下 3 個步驟，輕鬆上手解鎖、點數登記與心願兌換！
           </p>
         </div>
@@ -34,7 +34,7 @@ function triggerUnlock() {
             v-if="!authStore.isUnlocked"
             @click="triggerUnlock"
             type="button"
-            class="px-5 py-3 rounded-2xl bg-white text-frog-700 font-bold text-sm shadow-md hover:bg-emerald-50 active:scale-95 transition flex items-center justify-center space-x-2 cursor-pointer"
+            class="px-5 py-3 rounded-2xl bg-white text-frog-700 font-bold text-sm shadow-md hover:bg-frog-50 active:scale-95 transition flex items-center justify-center space-x-2 cursor-pointer"
           >
             <span>🔐</span>
             <span>立即解鎖身分</span>
@@ -98,12 +98,12 @@ function triggerUnlock() {
         </div>
       </div>
 
-      <div class="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-100 text-xs text-emerald-800 space-y-1">
+      <div class="p-4 bg-frog-50/60 rounded-2xl border border-frog-100 text-xs text-frog-800 space-y-1">
         <div class="font-bold flex items-center gap-1.5">
           <span>💡</span>
           <span>獨立會話與安全鎖定機制：</span>
         </div>
-        <p class="leading-relaxed text-emerald-700">
+        <p class="leading-relaxed text-frog-700">
           解鎖是專屬當前瀏覽器的「獨立會話（Session）」，不同手機、平板或電腦分頁互不干擾。系統內建 <strong>15 分鐘無操作自動安全鎖定</strong>，保障全家人的隱私與安全。
         </p>
       </div>

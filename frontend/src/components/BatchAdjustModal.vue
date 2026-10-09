@@ -286,7 +286,7 @@ async function submitBatchAdjust() {
           </div>
           <div>
             <div class="text-xs text-gray-500">總差額 (Δ)</div>
-            <div class="font-bold font-mono" :class="previewResult.delta >= 0 ? 'text-emerald-600' : 'text-red-500'">
+            <div class="font-bold font-mono" :class="previewResult.delta >= 0 ? 'text-frog-600' : 'text-red-500'">
               {{ previewResult.delta >= 0 ? `+${previewResult.delta}` : previewResult.delta }} 點
             </div>
           </div>

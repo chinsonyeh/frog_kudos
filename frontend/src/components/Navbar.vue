@@ -107,13 +107,13 @@ function handleOpenSystem() {
           <!-- 1. 家長解鎖狀態 -->
           <div
             v-if="authStore.isParent"
-            class="flex items-center bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm"
+            class="flex items-center bg-frog-50 border border-frog-200 text-frog-800 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm"
           >
             <span class="mr-1.5">👑 家長模式</span>
-            <span class="text-emerald-600 font-mono text-[11px] mr-2">({{ authStore.remainingMinutesFormatted }})</span>
+            <span class="text-frog-600 font-mono text-[11px] mr-2">({{ authStore.remainingMinutesFormatted }})</span>
             <button
               @click="handleModeToggle"
-              class="text-emerald-700 hover:text-red-600 transition underline underline-offset-2 ml-1 cursor-pointer"
+              class="text-frog-700 hover:text-red-600 transition underline underline-offset-2 ml-1 cursor-pointer"
               title="立即手動鎖定並退回訪客模式"
             >
               🔒 鎖定
