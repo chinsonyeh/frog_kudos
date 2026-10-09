@@ -5,6 +5,7 @@ import Navbar from '@/components/Navbar.vue'
 import ParentPinModal from '@/components/ParentPinModal.vue'
 import SystemSettingsModal from '@/components/SystemSettingsModal.vue'
 import MemberModal from '@/components/MemberModal.vue'
+import ThemeModal from '@/components/ThemeModal.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
@@ -14,6 +15,7 @@ const authStore = useAuthStore()
 const showPinModal = ref(false)
 const showSystemModal = ref(false)
 const showMemberModal = ref(false)
+const showThemeModal = ref(false)
 
 // 監聽解鎖與權限狀態變更：閒置逾時鎖定或權限失效時，若當前路由需要權限，自動安全跳轉至存摺頁面
 watch(
@@ -35,6 +37,7 @@ watch(
       @open-pin-modal="showPinModal = true"
       @open-system-modal="showSystemModal = true"
       @open-member-modal="showMemberModal = true"
+      @open-theme-modal="showThemeModal = true"
     />
 
     <!-- 主要內容區 -->
@@ -60,6 +63,12 @@ watch(
       :show="showMemberModal"
       @close="showMemberModal = false"
       @member-updated="authStore.triggerMemberRefresh()"
+    />
+
+    <!-- 10 款特色佈景主題選擇彈窗 -->
+    <ThemeModal
+      :show="showThemeModal"
+      @close="showThemeModal = false"
     />
 
     <!-- 底部版權宣告 -->

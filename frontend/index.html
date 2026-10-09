@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Frog Kudos 家庭積分獎勵系統</title>
     
+    <!-- Anti-FOUC Theme Preloader -->
+    <script>
+      (function() {
+        try {
+          var t = localStorage.getItem('frog_kudos_theme') || 'emerald';
+          document.documentElement.setAttribute('data-theme', t);
+        } catch(e) {}
+      })();
+    </script>
+    
     <!-- PWA Primary Color -->
     <meta name="theme-color" content="#10B981" />
     <meta name="description" content="家庭日常行為獎勵、成就記錄與願望清單兌換系統" />

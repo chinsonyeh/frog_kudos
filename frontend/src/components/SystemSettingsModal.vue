@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
 
 const props = defineProps({
   show: Boolean,
@@ -9,7 +10,8 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const authStore = useAuthStore()
-const activeTab = ref('backup') // 'backup' | 'version' | 'line'
+const themeStore = useThemeStore()
+const activeTab = ref('backup') // 'backup' | 'version' | 'line' | 'theme'
 
 // Tab 1: 備份
 const backupDir = ref('')
@@ -232,6 +234,14 @@ onUnmounted(() => {
           <span>📱</span>
           <span>LINE 即時推播通知</span>
         </button>
+        <button
+          @click="activeTab = 'theme'"
+          class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-1.5"
+          :class="activeTab === 'theme' ? 'bg-frog-50 text-frog-700 shadow-sm border border-frog-200' : 'text-gray-500 hover:bg-gray-50'"
+        >
+          <span>🎨</span>
+          <span>佈景主題 (10 款)</span>
+        </button>
       </div>
 
       <!-- 分頁內容區 -->
@@ -450,6 +460,80 @@ onUnmounted(() => {
             >
               {{ lineLoading ? '發送中...' : '📨 發送測試訊息' }}
             </button>
+          </div>
+        </div>
+
+        <!-- 【分頁 4: 10 款特色佈景主題】 -->
+        <div v-if="activeTab === 'theme'" class="space-y-4">
+          <div class="flex items-center justify-between pb-1">
+            <div>
+              <h4 class="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                選擇您喜愛的介面視覺配色
+              </h4>
+              <p class="text-[11px] text-gray-500 mt-0.5">
+                點選立即套用，設定將安全記錄於目前裝置與瀏覽器中。
+              </p>
+            </div>
+            <span class="text-xs font-bold text-frog-700 bg-frog-50 px-2.5 py-1 rounded-full border border-frog-200">
+              共 10 款主題
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div
+              v-for="theme in themeStore.themes"
+              :key="theme.id"
+              @click="themeStore.setTheme(theme.id)"
+              class="p-3 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between"
+              :class="
+                themeStore.currentTheme === theme.id
+                  ? 'border-frog-500 bg-frog-50/60 shadow-sm ring-2 ring-frog-500/20'
+                  : 'border-gray-200/80 bg-white hover:border-gray-300 hover:shadow-xs'
+              "
+            >
+              <div class="flex items-start justify-between">
+                <div class="flex items-center space-x-2">
+                  <span class="text-xl">{{ theme.emoji }}</span>
+                  <div>
+                    <div class="flex items-center space-x-1.5">
+                      <span class="font-bold text-gray-900 text-xs">{{ theme.name }}</span>
+                      <span
+                        class="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
+                        :style="{
+                          backgroundColor: theme.palette[0],
+                          color: theme.palette[2],
+                        }"
+                      >
+                        {{ theme.tag }}
+                      </span>
+                    </div>
+                    <p class="text-[10px] text-gray-500 mt-0.5 line-clamp-1">{{ theme.description }}</p>
+                  </div>
+                </div>
+
+                <div
+                  v-if="themeStore.currentTheme === theme.id"
+                  class="w-4 h-4 rounded-full bg-frog-500 text-white flex items-center justify-center text-[10px] font-bold shadow-xs flex-shrink-0"
+                >
+                  ✓
+                </div>
+              </div>
+
+              <!-- 3階色票條形預覽 -->
+              <div class="mt-2.5 flex items-center space-x-1 pt-1.5 border-t border-gray-100">
+                <div
+                  v-for="(c, idx) in theme.palette"
+                  :key="idx"
+                  class="h-2 flex-1 rounded-full"
+                  :style="{ backgroundColor: c }"
+                ></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="p-3 bg-gray-50 rounded-xl text-[11px] text-gray-500 flex items-center space-x-1.5 border border-gray-100">
+            <span>💡</span>
+            <span>各手機、平板與電腦分頁各自獨立記憶，不同家庭成員可使用專屬的視覺主題！</span>
           </div>
         </div>
       </div>

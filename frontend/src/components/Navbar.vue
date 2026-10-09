@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-const emit = defineEmits(['openPinModal', 'openSystemModal', 'openMemberModal'])
+const emit = defineEmits(['openPinModal', 'openSystemModal', 'openMemberModal', 'openThemeModal'])
 
 const router = useRouter()
 const route = useRoute()
@@ -145,6 +145,15 @@ function handleOpenSystem() {
             <span>👦 訪客模式</span>
             <span class="text-gray-400">|</span>
             <span class="text-frog-700 font-bold hover:underline">🔐 解鎖</span>
+          </button>
+
+          <!-- 佈景主題切換按鈕 (🎨 10 款特色主題) -->
+          <button
+            @click="emit('openThemeModal')"
+            class="w-9 h-9 rounded-xl border border-gray-200 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-50 active:bg-gray-100 transition shadow-sm cursor-pointer"
+            title="更換個人佈景主題 (10 款特色配色)"
+          >
+            🎨
           </button>
 
           <!-- 系統設定齒輪按鈕 -->

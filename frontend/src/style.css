@@ -2,6 +2,161 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==============================================================================
+   10 款特色多重佈景主題 CSS 變數定義 (Frog Kudos Theme Variables)
+   ============================================================================== */
+
+/* 1. 經典翡翠 (Classic Emerald) - 預設 */
+:root,
+[data-theme="emerald"] {
+  --color-frog-50: 236 253 245;
+  --color-frog-100: 209 250 229;
+  --color-frog-200: 167 243 208;
+  --color-frog-300: 110 231 183;
+  --color-frog-400: 52 211 153;
+  --color-frog-500: 16 185 129;
+  --color-frog-600: 5 150 105;
+  --color-frog-700: 4 120 87;
+  --color-frog-800: 6 95 70;
+  --color-frog-900: 6 78 59;
+  --theme-color-hex: #10B981;
+}
+
+/* 2. 海洋微風 (Ocean Breeze) 🐬 */
+[data-theme="ocean"] {
+  --color-frog-50: 240 249 255;
+  --color-frog-100: 224 242 254;
+  --color-frog-200: 186 230 253;
+  --color-frog-300: 125 211 252;
+  --color-frog-400: 56 189 248;
+  --color-frog-500: 14 165 233;
+  --color-frog-600: 2 132 199;
+  --color-frog-700: 3 105 161;
+  --color-frog-800: 7 89 133;
+  --color-frog-900: 12 74 110;
+  --theme-color-hex: #0EA5E9;
+}
+
+/* 3. 粉櫻甜莓 (Sakura Berry) 🌸 */
+[data-theme="sakura"] {
+  --color-frog-50: 255 241 242;
+  --color-frog-100: 255 228 230;
+  --color-frog-200: 254 205 211;
+  --color-frog-300: 253 164 175;
+  --color-frog-400: 251 113 133;
+  --color-frog-500: 244 63 94;
+  --color-frog-600: 225 29 72;
+  --color-frog-700: 190 18 60;
+  --color-frog-800: 159 18 57;
+  --color-frog-900: 136 19 55;
+  --theme-color-hex: #F43F5E;
+}
+
+/* 4. 暖陽金橙 (Sunrise Amber) 🌅 */
+[data-theme="amber"] {
+  --color-frog-50: 255 251 235;
+  --color-frog-100: 254 243 199;
+  --color-frog-200: 253 230 138;
+  --color-frog-300: 252 211 77;
+  --color-frog-400: 251 191 36;
+  --color-frog-500: 245 158 11;
+  --color-frog-600: 217 119 6;
+  --color-frog-700: 180 83 9;
+  --color-frog-800: 146 64 14;
+  --color-frog-900: 120 53 15;
+  --theme-color-hex: #F59E0B;
+}
+
+/* 5. 星夜薰衣 (Starlight Violet) 🌌 */
+[data-theme="violet"] {
+  --color-frog-50: 245 243 255;
+  --color-frog-100: 237 233 254;
+  --color-frog-200: 221 214 254;
+  --color-frog-300: 196 181 253;
+  --color-frog-400: 167 139 250;
+  --color-frog-500: 139 92 246;
+  --color-frog-600: 124 58 237;
+  --color-frog-700: 109 40 217;
+  --color-frog-800: 91 33 182;
+  --color-frog-900: 76 29 149;
+  --theme-color-hex: #8B5CF6;
+}
+
+/* 6. 薄荷青檸 (Fresh Mint) 🍃 */
+[data-theme="mint"] {
+  --color-frog-50: 240 253 250;
+  --color-frog-100: 204 251 241;
+  --color-frog-200: 153 246 228;
+  --color-frog-300: 94 234 212;
+  --color-frog-400: 45 212 191;
+  --color-frog-500: 20 184 166;
+  --color-frog-600: 13 148 136;
+  --color-frog-700: 15 118 110;
+  --color-frog-800: 17 94 89;
+  --color-frog-900: 19 78 74;
+  --theme-color-hex: #14B8A6;
+}
+
+/* 7. 榮耀王者 (Royal Golden) 👑 */
+[data-theme="gold"] {
+  --color-frog-50: 254 252 232;
+  --color-frog-100: 254 249 195;
+  --color-frog-200: 254 240 138;
+  --color-frog-300: 253 224 71;
+  --color-frog-400: 250 204 21;
+  --color-frog-500: 234 179 8;
+  --color-frog-600: 202 138 4;
+  --color-frog-700: 161 98 7;
+  --color-frog-800: 133 77 14;
+  --color-frog-900: 113 63 18;
+  --theme-color-hex: #EAB308;
+}
+
+/* 8. 熱血赤焰 (Crimson Fire) 🔥 */
+[data-theme="crimson"] {
+  --color-frog-50: 254 242 242;
+  --color-frog-100: 254 226 226;
+  --color-frog-200: 254 202 202;
+  --color-frog-300: 252 165 165;
+  --color-frog-400: 248 113 113;
+  --color-frog-500: 239 68 68;
+  --color-frog-600: 220 38 38;
+  --color-frog-700: 185 28 28;
+  --color-frog-800: 153 27 27;
+  --color-frog-900: 127 29 29;
+  --theme-color-hex: #EF4444;
+}
+
+/* 9. 暖心奶茶 (Cozy Latte) 🧸 */
+[data-theme="latte"] {
+  --color-frog-50: 255 248 240;
+  --color-frog-100: 254 237 220;
+  --color-frog-200: 251 217 186;
+  --color-frog-300: 247 188 143;
+  --color-frog-400: 239 152 97;
+  --color-frog-500: 217 119 50;
+  --color-frog-600: 189 94 34;
+  --color-frog-700: 154 73 28;
+  --color-frog-800: 123 59 27;
+  --color-frog-900: 99 50 25;
+  --theme-color-hex: #D97732;
+}
+
+/* 10. 極光霓虹 (Cyber Aurora) ⚡ */
+[data-theme="aurora"] {
+  --color-frog-50: 238 242 255;
+  --color-frog-100: 224 231 255;
+  --color-frog-200: 199 210 254;
+  --color-frog-300: 165 180 252;
+  --color-frog-400: 129 140 248;
+  --color-frog-500: 99 102 241;
+  --color-frog-600: 79 70 229;
+  --color-frog-700: 67 56 202;
+  --color-frog-800: 55 48 163;
+  --color-frog-900: 49 46 129;
+  --theme-color-hex: #6366F1;
+}
+
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
