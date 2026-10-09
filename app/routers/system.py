@@ -31,6 +31,7 @@ from app.schemas.system import (
     SessionLockIn,
     MemberPinVerifyIn,
     MemberPinVerifyOut,
+    SystemIconIn,
 )
 from app.services.system_service import (
     run_backup,
@@ -248,5 +249,25 @@ async def verify_member_pin_endpoint(
             detail="PIN 碼錯誤，請重新輸入",
         )
     return MemberPinVerifyOut(valid=True, role=role, message="PIN 碼驗證成功")
+
+@router.post("/icon")
+async def update_system_icon(
+    icon_in: SystemIconIn,
+    x_parent_pin: Optional[str] = Depends(require_parent_pin_dep),
+):
+    """
+    將選定的青蛙圖示設為全站 PWA / 桌面 App 圖示 (需家長權限)
+    """
+    import subprocess
+    import sys
+    
+    script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "scripts", "apply_icon.py")
+    res = subprocess.run([sys.executable, script_path, icon_in.icon_id], capture_output=True, text=True)
+    if res.returncode != 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=res.stderr or "套用圖示失敗",
+        )
+    return {"success": True, "message": f"成功套用青蛙圖示 #{icon_in.icon_id} 為全站 PWA 圖示", "detail": res.stdout}
 
 

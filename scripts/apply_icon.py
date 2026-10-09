@@ -21,6 +21,12 @@ ICON_MAP = {
     "2": ("icon_2_crown.jpg", "榮譽金冠蛙 (Crown Kudos)"),
     "3": ("icon_3_sprout.jpg", "幸運嫩芽蛙 (Lucky Sprout)"),
     "4": ("icon_4_vector.jpg", "幾何極簡蛙 (Modern Vector)"),
+    "5": ("icon_5_scholar.jpg", "智慧博士蛙 (Scholar Frog)"),
+    "6": ("icon_6_superhero.jpg", "超人英雄蛙 (Superhero Frog)"),
+    "7": ("icon_7_wizard.jpg", "奇幻魔法蛙 (Magic Wizard Frog)"),
+    "8": ("icon_8_astronaut.jpg", "太空探險蛙 (Astronaut Frog)"),
+    "9": ("icon_9_party.jpg", "派對歡慶蛙 (Party Celebration Frog)"),
+    "10": ("icon_10_cool.jpg", "酷炫墨鏡蛙 (Cool Shades Frog)"),
 }
 
 def main():

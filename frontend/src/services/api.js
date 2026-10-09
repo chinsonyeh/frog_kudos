@@ -167,6 +167,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ member_id: memberId, pin }),
     }),
+  updateSystemIcon: (iconId) =>
+    request('/system/icon', {
+      method: 'POST',
+      body: JSON.stringify({ icon_id: iconId }),
+    }),
 
   // 成就勳章管理 (FR-18)
   getBadges: (all = true) =>

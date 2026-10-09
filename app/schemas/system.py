@@ -87,3 +87,6 @@ class MemberPinVerifyOut(BaseModel):
     valid: bool
     role: str
     message: str
+
+class SystemIconIn(BaseModel):
+    icon_id: str

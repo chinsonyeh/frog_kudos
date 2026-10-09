@@ -2,12 +2,14 @@
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
 
 const emit = defineEmits(['openPinModal', 'openSystemModal', 'openMemberModal', 'openThemeModal'])
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const themeStore = useThemeStore()
 
 const currentPath = computed(() => route.path)
 
@@ -63,11 +65,28 @@ function handleOpenSystem() {
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-16">
         <!-- Logo 與品牌 -->
-        <div class="flex items-center space-x-3 cursor-pointer" @click="router.push(authStore.isParent ? '/record' : '/ledger')">
-          <div class="w-10 h-10 rounded-2xl bg-frog-100 text-frog-700 flex items-center justify-center text-2xl shadow-inner">
-            🐸
+        <div class="flex items-center space-x-3">
+          <!-- 頁面左上青蛙圖示 (支援即時更換不同青蛙造型) -->
+          <div
+            @click.stop="emit('openThemeModal', 'icon')"
+            class="w-10 h-10 rounded-2xl overflow-hidden shadow-inner flex items-center justify-center relative group cursor-pointer border border-frog-200/60 bg-frog-50 hover:ring-2 hover:ring-frog-400 transition transform active:scale-95 flex-shrink-0"
+            title="點擊更換青蛙圖示與風格配色 🎨"
+          >
+            <img
+              v-if="themeStore.currentLogo?.src"
+              :src="themeStore.currentLogo.src"
+              :alt="themeStore.currentLogo.name"
+              class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+            />
+            <span v-else class="text-2xl">🐸</span>
+            
+            <!-- 懸浮提示小指示 -->
+            <span class="absolute bottom-0 right-0 bg-black/60 text-white text-[8px] rounded-tl-md px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              🎨
+            </span>
           </div>
-          <div>
+
+          <div class="cursor-pointer" @click="router.push(authStore.isParent ? '/record' : '/ledger')">
             <h1 class="text-lg font-black tracking-tight text-gray-900 leading-none">
               Frog Kudos
             </h1>
@@ -149,9 +168,9 @@ function handleOpenSystem() {
 
           <!-- 佈景主題切換按鈕 (🎨 10 款特色主題) -->
           <button
-            @click="emit('openThemeModal')"
+            @click="emit('openThemeModal', 'theme')"
             class="w-9 h-9 rounded-xl border border-gray-200 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-50 active:bg-gray-100 transition shadow-sm cursor-pointer"
-            title="更換個人佈景主題 (10 款特色配色)"
+            title="更換個人佈景主題與青蛙圖示"
           >
             🎨
           </button>

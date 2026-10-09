@@ -35,6 +35,25 @@ const lineUserId = ref('')
 const lineLoading = ref(false)
 const lineTestMsg = ref('')
 
+// Tab 4: 圖示與主題
+const pwaLoading = ref(false)
+const pwaSuccessMsg = ref('')
+const pwaErrorMsg = ref('')
+
+async function applyToSystemPwa() {
+  pwaLoading.value = true
+  pwaSuccessMsg.value = ''
+  pwaErrorMsg.value = ''
+  try {
+    const res = await api.updateSystemIcon(themeStore.currentLogoId)
+    pwaSuccessMsg.value = res.message || '已成功套用為全站 PWA / 桌面 App 圖示！'
+  } catch (err) {
+    pwaErrorMsg.value = err.message || '套用全站圖示失敗'
+  } finally {
+    pwaLoading.value = false
+  }
+}
+
 const error = ref('')
 
 watch(
@@ -239,8 +258,8 @@ onUnmounted(() => {
           class="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-1.5"
           :class="activeTab === 'theme' ? 'bg-frog-50 text-frog-700 shadow-sm border border-frog-200' : 'text-gray-500 hover:bg-gray-50'"
         >
-          <span>🎨</span>
-          <span>佈景主題 (10 款)</span>
+          <span>🐸</span>
+          <span>青蛙圖示與主題</span>
         </button>
       </div>
 
@@ -463,77 +482,152 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- 【分頁 4: 10 款特色佈景主題】 -->
-        <div v-if="activeTab === 'theme'" class="space-y-4">
-          <div class="flex items-center justify-between pb-1">
-            <div>
-              <h4 class="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                選擇您喜愛的介面視覺配色
-              </h4>
-              <p class="text-[11px] text-gray-500 mt-0.5">
-                點選立即套用，設定將安全記錄於目前裝置與瀏覽器中。
-              </p>
+        <!-- 【分頁 4: 青蛙圖示與 10 款特色佈景主題】 -->
+        <div v-if="activeTab === 'theme'" class="space-y-6">
+          <!-- 區塊 1: 頁面左上青蛙圖示 -->
+          <div class="space-y-3">
+            <div class="flex items-center justify-between pb-1 border-b border-gray-100">
+              <div>
+                <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center space-x-1.5">
+                  <span>🐸</span>
+                  <span>頁面左上青蛙圖示 (共 10 款原創造型)</span>
+                </h4>
+                <p class="text-[11px] text-gray-500 mt-0.5">
+                  點選立即套用，頁面左上角標誌將同步換上專屬青蛙造型。
+                </p>
+              </div>
+              <span class="text-xs font-bold text-frog-700 bg-frog-50 px-2.5 py-1 rounded-full border border-frog-200">
+                目前：{{ themeStore.currentLogo.name }}
+              </span>
             </div>
-            <span class="text-xs font-bold text-frog-700 bg-frog-50 px-2.5 py-1 rounded-full border border-frog-200">
-              共 10 款主題
-            </span>
-          </div>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            <div
-              v-for="theme in themeStore.themes"
-              :key="theme.id"
-              @click="themeStore.setTheme(theme.id)"
-              class="p-3 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between"
-              :class="
-                themeStore.currentTheme === theme.id
-                  ? 'border-frog-500 bg-frog-50/60 shadow-sm ring-2 ring-frog-500/20'
-                  : 'border-gray-200/80 bg-white hover:border-gray-300 hover:shadow-xs'
-              "
-            >
-              <div class="flex items-start justify-between">
-                <div class="flex items-center space-x-2">
-                  <span class="text-xl">{{ theme.emoji }}</span>
-                  <div>
-                    <div class="flex items-center space-x-1.5">
-                      <span class="font-bold text-gray-900 text-xs">{{ theme.name }}</span>
-                      <span
-                        class="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
-                        :style="{
-                          backgroundColor: theme.palette[0],
-                          color: theme.palette[2],
-                        }"
-                      >
-                        {{ theme.tag }}
-                      </span>
-                    </div>
-                    <p class="text-[10px] text-gray-500 mt-0.5 line-clamp-1">{{ theme.description }}</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div
+                v-for="icon in themeStore.logoIcons"
+                :key="icon.id"
+                @click="themeStore.setLogoIcon(icon.id); pwaSuccessMsg = ''; pwaErrorMsg = ''"
+                class="p-2.5 rounded-2xl border-2 transition-all cursor-pointer flex items-center space-x-3"
+                :class="
+                  themeStore.currentLogoId === icon.id
+                    ? 'border-frog-500 bg-frog-50/60 shadow-sm ring-2 ring-frog-500/20'
+                    : 'border-gray-200/80 bg-white hover:border-gray-300 hover:shadow-xs'
+                "
+              >
+                <img
+                  :src="icon.src"
+                  :alt="icon.name"
+                  class="w-12 h-12 rounded-xl object-cover shadow-sm border border-gray-100 flex-shrink-0"
+                />
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center space-x-1">
+                    <span class="font-bold text-gray-900 text-xs truncate">{{ icon.name }}</span>
+                    <span class="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-gray-100 text-gray-600 flex-shrink-0">
+                      {{ icon.tag }}
+                    </span>
                   </div>
+                  <p class="text-[10px] text-gray-500 mt-0.5 line-clamp-1">{{ icon.description }}</p>
                 </div>
-
                 <div
-                  v-if="themeStore.currentTheme === theme.id"
+                  v-if="themeStore.currentLogoId === icon.id"
                   class="w-4 h-4 rounded-full bg-frog-500 text-white flex items-center justify-center text-[10px] font-bold shadow-xs flex-shrink-0"
                 >
                   ✓
                 </div>
               </div>
-
-              <!-- 3階色票條形預覽 -->
-              <div class="mt-2.5 flex items-center space-x-1 pt-1.5 border-t border-gray-100">
-                <div
-                  v-for="(c, idx) in theme.palette"
-                  :key="idx"
-                  class="h-2 flex-1 rounded-full"
-                  :style="{ backgroundColor: c }"
-                ></div>
-              </div>
             </div>
+
+            <!-- 家長同步 PWA 按鈕 -->
+            <div class="p-3 bg-gray-50 rounded-2xl border border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <div class="text-xs font-bold text-gray-800">📱 同步為全站手機 PWA / 桌面 App 圖示</div>
+                <div class="text-[11px] text-gray-500">將目前選中的「{{ themeStore.currentLogo.name }}」同步設為系統預設 App 圖示</div>
+              </div>
+              <button
+                @click="applyToSystemPwa"
+                :disabled="pwaLoading"
+                type="button"
+                class="px-3.5 py-1.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition flex items-center justify-center space-x-1 cursor-pointer disabled:opacity-50"
+              >
+                <span>{{ pwaLoading ? '⏳ 套用中...' : '⭐ 立即同步' }}</span>
+              </button>
+            </div>
+            <p v-if="pwaSuccessMsg" class="text-xs text-frog-600 font-bold">✅ {{ pwaSuccessMsg }}</p>
+            <p v-if="pwaErrorMsg" class="text-xs text-red-600 font-bold">❌ {{ pwaErrorMsg }}</p>
           </div>
 
-          <div class="p-3 bg-gray-50 rounded-xl text-[11px] text-gray-500 flex items-center space-x-1.5 border border-gray-100">
-            <span>💡</span>
-            <span>各手機、平板與電腦分頁各自獨立記憶，不同家庭成員可使用專屬的視覺主題！</span>
+          <!-- 區塊 2: 10 款全域色彩主題 -->
+          <div class="space-y-3 pt-2 border-t border-gray-100">
+            <div class="flex items-center justify-between pb-1">
+              <div>
+                <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center space-x-1.5">
+                  <span>🎨</span>
+                  <span>全域介面色彩佈景主題 (共 10 款)</span>
+                </h4>
+                <p class="text-[11px] text-gray-500 mt-0.5">
+                  選擇全站按鈕、存摺卡片與重點裝飾的色彩主題。
+                </p>
+              </div>
+              <span class="text-xs font-bold text-frog-700 bg-frog-50 px-2.5 py-1 rounded-full border border-frog-200">
+                目前：{{ themeStore.themes.find(t => t.id === themeStore.currentTheme)?.name }}
+              </span>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div
+                v-for="theme in themeStore.themes"
+                :key="theme.id"
+                @click="themeStore.setTheme(theme.id)"
+                class="p-3 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between"
+                :class="
+                  themeStore.currentTheme === theme.id
+                    ? 'border-frog-500 bg-frog-50/60 shadow-sm ring-2 ring-frog-500/20'
+                    : 'border-gray-200/80 bg-white hover:border-gray-300 hover:shadow-xs'
+                "
+              >
+                <div class="flex items-start justify-between">
+                  <div class="flex items-center space-x-2">
+                    <span class="text-xl">{{ theme.emoji }}</span>
+                    <div>
+                      <div class="flex items-center space-x-1.5">
+                        <span class="font-bold text-gray-900 text-xs">{{ theme.name }}</span>
+                        <span
+                          class="text-[9px] font-semibold px-1.5 py-0.5 rounded-full"
+                          :style="{
+                            backgroundColor: theme.palette[0],
+                            color: theme.palette[2],
+                          }"
+                        >
+                          {{ theme.tag }}
+                        </span>
+                      </div>
+                      <p class="text-[10px] text-gray-500 mt-0.5 line-clamp-1">{{ theme.description }}</p>
+                    </div>
+                  </div>
+
+                  <div
+                    v-if="themeStore.currentTheme === theme.id"
+                    class="w-4 h-4 rounded-full bg-frog-500 text-white flex items-center justify-center text-[10px] font-bold shadow-xs flex-shrink-0"
+                  >
+                    ✓
+                  </div>
+                </div>
+
+                <!-- 3階色票條形預覽 -->
+                <div class="mt-2.5 flex items-center space-x-1 pt-1.5 border-t border-gray-100">
+                  <div
+                    v-for="(c, idx) in theme.palette"
+                    :key="idx"
+                    class="h-2 flex-1 rounded-full"
+                    :style="{ backgroundColor: c }"
+                  ></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="p-3 bg-gray-50 rounded-xl text-[11px] text-gray-500 flex items-center space-x-1.5 border border-gray-100">
+              <span>💡</span>
+              <span>各手機、平板與電腦分頁各自獨立記憶，不同家庭成員可使用專屬的視覺主題與青蛙圖示！</span>
+            </div>
           </div>
         </div>
       </div>

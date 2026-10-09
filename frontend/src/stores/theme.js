@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
 export const THEMES = [
   {
@@ -94,10 +94,141 @@ export const THEMES = [
   },
 ]
 
+export const LOGO_ICONS = [
+  {
+    id: '1',
+    name: '經典萌眼蛙',
+    subtitle: 'Classic 3D',
+    tag: '招牌推薦',
+    description: '圓潤大眼、親切溫暖的元祖招牌 3D 黏土青蛙',
+    src: '/icons/gallery/icon_1_classic.jpg',
+    emoji: '🐸',
+  },
+  {
+    id: '2',
+    name: '榮譽金冠蛙',
+    subtitle: 'Crown Kudos',
+    tag: '榮譽王者',
+    description: '頭戴精緻閃耀金冠，象徵累積積分與榮譽桂冠',
+    src: '/icons/gallery/icon_2_crown.jpg',
+    emoji: '👑',
+  },
+  {
+    id: '3',
+    name: '幸運嫩芽蛙',
+    subtitle: 'Lucky Sprout',
+    tag: '成長茁壯',
+    description: '頭頂四葉草與陽光綠芽，象徵好習慣每日成長',
+    src: '/icons/gallery/icon_3_sprout.jpg',
+    emoji: '🌱',
+  },
+  {
+    id: '4',
+    name: '幾何極簡蛙',
+    subtitle: 'Modern Vector',
+    tag: '現代扁平',
+    description: 'Apple 極簡風格俐落向量線條，乾淨純粹',
+    src: '/icons/gallery/icon_4_vector.jpg',
+    emoji: '🍏',
+  },
+  {
+    id: '5',
+    name: '智慧博士蛙',
+    subtitle: 'Scholar Frog',
+    tag: '認真學習',
+    description: '戴學士帽與小圓眼鏡，象徵用功學習與金榜題名',
+    src: '/icons/gallery/icon_5_scholar.jpg',
+    emoji: '🎓',
+  },
+  {
+    id: '6',
+    name: '超人英雄蛙',
+    subtitle: 'Superhero Frog',
+    tag: '勇敢自信',
+    description: '手叉腰繫紅披風與星章，象徵自信勇敢、樂於助人',
+    src: '/icons/gallery/icon_6_superhero.jpg',
+    emoji: '🦸',
+  },
+  {
+    id: '7',
+    name: '奇幻魔法蛙',
+    subtitle: 'Magic Wizard',
+    tag: '夢想奇幻',
+    description: '戴星空巫師帽揮舞仙女星杖，充滿夢想與驚喜',
+    src: '/icons/gallery/icon_7_wizard.jpg',
+    emoji: '🪄',
+  },
+  {
+    id: '8',
+    name: '太空探險蛙',
+    subtitle: 'Astronaut Frog',
+    tag: '勇於探索',
+    description: '身穿太空裝漫遊星雲，象徵勇於探索新知識',
+    src: '/icons/gallery/icon_8_astronaut.jpg',
+    emoji: '🚀',
+  },
+  {
+    id: '9',
+    name: '派對歡慶蛙',
+    subtitle: 'Party Celebration',
+    tag: '歡慶達標',
+    description: '繽紛派對帽與飄落彩紙，歡慶每一次達標',
+    src: '/icons/gallery/icon_9_party.jpg',
+    emoji: '🎉',
+  },
+  {
+    id: '10',
+    name: '酷炫墨鏡蛙',
+    subtitle: 'Cool Shades',
+    tag: '陽光活力',
+    description: '頭頂酷炫小墨鏡眨眼比讚，散發夏日活力與自信',
+    src: '/icons/gallery/icon_10_cool.jpg',
+    emoji: '🕶️',
+  },
+]
+
 const STORAGE_KEY = 'frog_kudos_theme'
+const STORAGE_ICON_KEY = 'frog_kudos_logo_icon'
 
 export const useThemeStore = defineStore('theme', () => {
   const currentTheme = ref('emerald')
+  const currentLogoId = ref('1')
+
+  const currentLogo = computed(() => {
+    return LOGO_ICONS.find((i) => i.id === currentLogoId.value) || LOGO_ICONS[0]
+  })
+
+  function updateFavicon(src) {
+    if (typeof document === 'undefined') return
+    let link = document.querySelector("link[rel*='icon']")
+    if (!link) {
+      link = document.createElement('link')
+      link.rel = 'shortcut icon'
+      document.getElementsByTagName('head')[0].appendChild(link)
+    }
+    link.type = 'image/jpeg'
+    link.href = src
+  }
+
+  function applyLogoIcon(iconId) {
+    const validIcon = LOGO_ICONS.find((i) => i.id === iconId)
+    const activeId = validIcon ? validIcon.id : '1'
+    currentLogoId.value = activeId
+
+    try {
+      localStorage.setItem(STORAGE_ICON_KEY, activeId)
+    } catch {
+      // 容錯處理
+    }
+
+    if (validIcon) {
+      updateFavicon(validIcon.src)
+    }
+  }
+
+  function setLogoIcon(iconId) {
+    applyLogoIcon(iconId)
+  }
 
   function applyTheme(themeId) {
     const validTheme = THEMES.find((t) => t.id === themeId)
@@ -128,13 +259,17 @@ export const useThemeStore = defineStore('theme', () => {
   }
 
   function initTheme() {
-    let saved = 'emerald'
+    let savedTheme = 'emerald'
+    let savedLogo = '1'
     try {
-      saved = localStorage.getItem(STORAGE_KEY) || 'emerald'
+      savedTheme = localStorage.getItem(STORAGE_KEY) || 'emerald'
+      savedLogo = localStorage.getItem(STORAGE_ICON_KEY) || '1'
     } catch {
-      saved = 'emerald'
+      savedTheme = 'emerald'
+      savedLogo = '1'
     }
-    applyTheme(saved)
+    applyTheme(savedTheme)
+    applyLogoIcon(savedLogo)
   }
 
   return {
@@ -142,5 +277,9 @@ export const useThemeStore = defineStore('theme', () => {
     currentTheme,
     setTheme,
     initTheme,
+    logoIcons: LOGO_ICONS,
+    currentLogoId,
+    currentLogo,
+    setLogoIcon,
   }
 })
