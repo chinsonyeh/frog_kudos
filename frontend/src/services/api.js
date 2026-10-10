@@ -62,6 +62,11 @@ export const api = {
     formData.append('file', file)
     return request(`/members/${id}/avatar-upload`, { method: 'POST', body: formData })
   },
+  uploadCustomAvatarToGallery: (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return request('/members/avatars/gallery/upload', { method: 'POST', body: formData })
+  },
   getCustomAvatarsGallery: () =>
     request('/members/avatars/gallery'),
   deleteCustomAvatar: (filename) =>

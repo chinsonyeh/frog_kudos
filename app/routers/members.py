@@ -84,6 +84,68 @@ async def delete_custom_avatar(
         "affected_members": len(affected_members),
     }
 
+@router.post("/avatars/gallery/upload")
+async def upload_gallery_avatar(
+    file: UploadFile = File(...),
+):
+    """
+    上傳自訂頭像照片至歷史相片庫 (不立即套用至成員):
+    - 檢查檔案大小與圖片格式 (jpg, png, webp, gif, heic 等)
+    - 使用 Pillow 正方形置中裁切並壓縮為 256x256 WebP
+    - 檢查上限 (最多 100 個)
+    - 儲存至 uploads/avatars/，回傳相片 URL 與詳細資訊
+    """
+    # 1. 檢查檔案格式
+    valid_content_types = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic"]
+    content_type = file.content_type or ""
+    if content_type not in valid_content_types and not any(file.filename.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"]):
+        raise HTTPException(status_code=400, detail="僅支援 JPG、PNG、WebP 等圖片格式")
+
+    # 2. 讀取並檢查檔案大小 (上限 5MB)
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="圖片檔案過大，請選擇 5MB 以內的照片")
+
+    # 3. 使用 Pillow 讀取並處理旋轉與正方形中心裁切
+    try:
+        image = Image.open(io.BytesIO(contents))
+        image = ImageOps.exif_transpose(image)
+        image = image.convert("RGB")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"無法解析圖片檔案：{e}")
+
+    width, height = image.size
+    min_dim = min(width, height)
+    left = (width - min_dim) // 2
+    top = (height - min_dim) // 2
+    right = left + min_dim
+    bottom = top + min_dim
+    cropped = image.crop((left, top, right, bottom))
+    resized = cropped.resize((256, 256), Image.Resampling.LANCZOS)
+
+    # 4. 準備儲存目錄並檢查上限 (最多 100 個)
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    avatars_dir = root_dir / "uploads" / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+
+    existing_files = [f for f in avatars_dir.glob("*.webp") if f.is_file()]
+    if len(existing_files) >= MAX_CUSTOM_AVATARS:
+        raise HTTPException(status_code=400, detail="自訂頭像庫已達上限 (最多 100 個)，請先刪除不再使用的舊頭像！")
+
+    # 5. 輸出新檔案 (儲存裁切縮放後之 256x256 WebP)
+    timestamp = int(time.time() * 1000)
+    new_filename = f"custom_{timestamp}_{uuid.uuid4().hex[:6]}.webp"
+    save_path = avatars_dir / new_filename
+    resized.save(save_path, "WEBP", quality=88, optimize=True)
+
+    stat = save_path.stat()
+    return {
+        "url": f"/uploads/avatars/{new_filename}",
+        "filename": new_filename,
+        "size_kb": round(stat.st_size / 1024, 1),
+        "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+    }
+
 @router.get("", response_model=List[MemberOut])
 async def list_members(
     include_inactive: bool = Query(False, description="是否包含已停用成員"),

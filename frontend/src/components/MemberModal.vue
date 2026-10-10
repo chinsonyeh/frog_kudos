@@ -26,6 +26,7 @@ const editingMemberId = ref(null)
 const name = ref('')
 const role = ref('child')
 const avatar = ref('🐸')
+const originalAvatar = ref('🐸')
 const pinCode = ref('')
 const isActive = ref(true)
 
@@ -39,6 +40,7 @@ const uploading = ref(false)
 // ROI 圓圈裁切器狀態
 const showCropper = ref(false)
 const rawImageSrc = ref('')
+const latestUploadedAvatar = ref(null) // { url, filename, size_kb, created_at }
 
 function isImageAvatar(av) {
   if (!av) return false
@@ -70,36 +72,51 @@ function handleFileSelect(event) {
   }
 }
 
-function handleCropped({ blob, dataUrl, file }) {
-  if (filePreviewUrl.value && filePreviewUrl.value.startsWith('blob:')) {
-    URL.revokeObjectURL(filePreviewUrl.value)
-  }
-  selectedFile.value = file
-  filePreviewUrl.value = dataUrl
-  avatar.value = dataUrl
+async function handleCropped({ blob, dataUrl, file }) {
   showCropper.value = false
-}
-
-async function uploadSelectedFile() {
-  if (!selectedFile.value || !editingMemberId.value) return
   uploading.value = true
   errorMsg.value = ''
   try {
-    const res = await api.uploadMemberAvatar(editingMemberId.value, selectedFile.value)
-    avatar.value = res.avatar
-    selectedFile.value = null
-    if (authStore.unlockedMemberId === editingMemberId.value) {
-      authStore.updateUnlockedMember({ avatar: res.avatar })
-    }
-    successMsg.value = `✅ 已成功上傳並更換「${name.value}」的專屬相片頭像！`
-    setTimeout(() => { successMsg.value = '' }, 3000)
-    emit('memberUpdated')
-    await loadMembers()
+    // 立即將裁切壓製後之圖片上傳並保存至歷史相片庫
+    const res = await api.uploadCustomAvatarToGallery(file)
+    latestUploadedAvatar.value = res
+    // 重新整理歷史相片庫列表，剛上傳之相片立即呈現在列表中第一位
     await loadCustomAvatars()
+    // 注意：尚不要套用，維持 avatar.value 不變！
+    successMsg.value = '✅ 相片已裁切並加入自訂相片庫！點選相片或點擊「立即套用」即可生效。'
+    setTimeout(() => { successMsg.value = '' }, 4000)
   } catch (err) {
-    errorMsg.value = err.message || '上傳相片頭像失敗'
+    errorMsg.value = err.message || '相片處理並加入相片庫失敗'
   } finally {
     uploading.value = false
+  }
+}
+
+async function applyAvatar(targetUrl) {
+  avatar.value = targetUrl
+  // 若處於編輯既有成員模式，立即儲存更新至資料庫
+  if (editingMemberId.value) {
+    loading.value = true
+    errorMsg.value = ''
+    try {
+      await api.updateMemberAvatar(editingMemberId.value, targetUrl)
+      originalAvatar.value = targetUrl
+      if (authStore.unlockedMemberId === editingMemberId.value) {
+        authStore.updateUnlockedMember({ avatar: targetUrl })
+      }
+      successMsg.value = `✅ 已成功套用為「${name.value}」的代表頭像！`
+      setTimeout(() => { successMsg.value = '' }, 3000)
+      emit('memberUpdated')
+      await loadMembers()
+    } catch (err) {
+      errorMsg.value = err.message || '套用頭像失敗'
+    } finally {
+      loading.value = false
+    }
+  } else {
+    // 新增成員模式：套用至表單頭像預覽
+    successMsg.value = '✅ 已套用至頭像預覽！'
+    setTimeout(() => { successMsg.value = '' }, 3000)
   }
 }
 
@@ -129,6 +146,10 @@ async function handleDeleteCustomAvatar(item) {
     await api.deleteCustomAvatar(item.filename)
     if (avatar.value === item.url) {
       avatar.value = '🐸'
+      originalAvatar.value = '🐸'
+    }
+    if (latestUploadedAvatar.value && latestUploadedAvatar.value.filename === item.filename) {
+      latestUploadedAvatar.value = null
     }
     await loadCustomAvatars()
     await loadMembers()
@@ -265,6 +286,8 @@ function openCreateForm() {
   name.value = ''
   role.value = 'child'
   avatar.value = '🐸'
+  originalAvatar.value = '🐸'
+  latestUploadedAvatar.value = null
   avatarTab.value = 'frog'
   selectedFile.value = null
   filePreviewUrl.value = ''
@@ -292,6 +315,8 @@ function openEditForm(member) {
   name.value = member.name
   role.value = member.role
   avatar.value = member.avatar || '🐸'
+  originalAvatar.value = member.avatar || '🐸'
+  latestUploadedAvatar.value = null
   selectedFile.value = null
   filePreviewUrl.value = ''
   showCropper.value = false
@@ -372,13 +397,8 @@ async function handleSave() {
     errorMsg.value = ''
     try {
       let finalAvatar = avatar.value
-      if (selectedFile.value) {
-        const uploadRes = await api.uploadMemberAvatar(editingMemberId.value, selectedFile.value)
-        finalAvatar = uploadRes.avatar
-        selectedFile.value = null
-      } else {
-        await api.updateMemberAvatar(editingMemberId.value, avatar.value)
-      }
+      await api.updateMemberAvatar(editingMemberId.value, finalAvatar)
+      originalAvatar.value = finalAvatar
       if (authStore.unlockedMemberId === editingMemberId.value) {
         authStore.updateUnlockedMember({ avatar: finalAvatar })
       }
@@ -414,30 +434,21 @@ async function handleSave() {
       const created = await api.createMember({
         name: name.value.trim(),
         role: role.value,
-        avatar: selectedFile.value ? '🐸' : avatar.value,
+        avatar: avatar.value,
         pin_code: pinCode.value ? pinCode.value.trim() : (role.value === 'parent' ? null : '0000'),
         parent_pin: authStore.parentPin,
       })
-      if (selectedFile.value) {
-        await api.uploadMemberAvatar(created.id, selectedFile.value)
-        selectedFile.value = null
-      }
       successMsg.value = `✅ 已成功新增家庭成員「${name.value}」！`
     } else {
-      let finalAvatar = avatar.value
-      if (selectedFile.value) {
-        const uploadRes = await api.uploadMemberAvatar(editingMemberId.value, selectedFile.value)
-        finalAvatar = uploadRes.avatar
-        selectedFile.value = null
-      }
       const updated = await api.updateMember(editingMemberId.value, {
         name: name.value.trim(),
         role: role.value,
-        avatar: finalAvatar,
+        avatar: avatar.value,
         pin_code: pinCode.value && pinCode.value.trim() ? pinCode.value.trim() : undefined,
         is_active: isActive.value,
         parent_pin: authStore.parentPin,
       })
+      originalAvatar.value = updated.avatar
       if (authStore.unlockedMemberId === editingMemberId.value) {
         authStore.updateUnlockedMember({
           name: updated.name,
@@ -727,6 +738,15 @@ async function handleDelete(member) {
                 </p>
               </div>
               <button
+                v-if="editingMemberId && avatar !== originalAvatar"
+                type="button"
+                @click="applyAvatar(avatar)"
+                :disabled="loading"
+                class="px-3 py-1.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-xs transition cursor-pointer flex-shrink-0 disabled:opacity-50"
+              >
+                {{ loading ? '套用中...' : '👉 立即套用' }}
+              </button>
+              <button
                 v-if="avatar !== '🐸'"
                 type="button"
                 @click="avatar = '🐸'; selectedFile = null"
@@ -788,21 +808,36 @@ async function handleDelete(member) {
                 </div>
               </div>
 
-              <!-- 選定檔案預覽、重新裁切與上傳確認 -->
-              <div v-if="selectedFile || rawImageSrc" class="p-2.5 bg-white rounded-xl border border-frog-200 shadow-xs">
+              <!-- 上傳處理中提示 -->
+              <div v-if="uploading" class="p-3 bg-frog-50 border border-frog-200 rounded-xl text-center text-xs font-bold text-frog-700 flex items-center justify-center space-x-2">
+                <span class="animate-spin text-base">⏳</span>
+                <span>裁切相片壓製中，正在加入自訂相片庫...</span>
+              </div>
+
+              <!-- 剛裁切完成之相片 (已加入相片庫，尚未套用 / 已套用) -->
+              <div v-if="latestUploadedAvatar" class="p-3 bg-white rounded-xl border-2 transition shadow-xs" :class="avatar === latestUploadedAvatar.url ? 'border-frog-500 bg-frog-50/40' : 'border-frog-200'">
                 <div class="flex items-center justify-between gap-2">
                   <div class="flex items-center space-x-2.5 min-w-0">
-                    <img :src="filePreviewUrl || rawImageSrc" class="w-11 h-11 rounded-full object-cover border-2 border-frog-300 shadow-xs flex-shrink-0" />
+                    <img :src="latestUploadedAvatar.url" class="w-12 h-12 rounded-full object-cover border-2 border-frog-400 shadow-xs flex-shrink-0" />
                     <div class="min-w-0 text-xs text-left">
-                      <div class="font-bold text-gray-800 truncate">{{ selectedFile ? selectedFile.name : '已選用之自訂相片' }}</div>
-                      <div class="text-[10px] text-frog-600 font-semibold">
-                        {{ selectedFile ? '✅ 圓形 ROI 裁切完成' : '點擊右方可微調位置' }}
+                      <div class="font-bold text-gray-800 flex items-center space-x-1.5">
+                        <span>剛裁切完成之相片</span>
+                        <span class="text-[10px] text-gray-400 font-normal">({{ latestUploadedAvatar.size_kb }} KB)</span>
+                      </div>
+                      <div class="text-[11px] font-semibold mt-0.5">
+                        <span v-if="avatar === latestUploadedAvatar.url" class="text-frog-600 flex items-center space-x-1">
+                          <span>✓</span>
+                          <span>目前已套用為此成員代表頭像</span>
+                        </span>
+                        <span v-else class="text-amber-600">
+                          已加入相片庫（尚未套用）
+                        </span>
                       </div>
                     </div>
                   </div>
 
                   <div class="flex items-center space-x-1.5 flex-shrink-0">
-                    <!-- 重新裁切按鈕 -->
+                    <!-- 重新微調裁切按鈕 -->
                     <button
                       v-if="rawImageSrc"
                       type="button"
@@ -811,19 +846,22 @@ async function handleDelete(member) {
                       title="調整 ROI 圓圈位置與放大縮小"
                     >
                       <span>✂️</span>
-                      <span>調整位置</span>
+                      <span>微調</span>
                     </button>
 
-                    <!-- 立即上傳套用按鈕 -->
+                    <!-- 立即套用按鈕 -->
                     <button
-                      v-if="selectedFile && editingMemberId"
+                      v-if="avatar !== latestUploadedAvatar.url"
                       type="button"
-                      @click="uploadSelectedFile"
-                      :disabled="uploading"
-                      class="px-3 py-1.5 rounded-lg bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-xs transition flex-shrink-0 cursor-pointer disabled:opacity-50"
+                      @click="applyAvatar(latestUploadedAvatar.url)"
+                      :disabled="loading"
+                      class="px-3.5 py-1.5 rounded-lg bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-xs transition flex-shrink-0 cursor-pointer disabled:opacity-50"
                     >
-                      {{ uploading ? '上傳中...' : '📤 立即套用' }}
+                      {{ loading ? '套用中...' : '👉 立即套用' }}
                     </button>
+                    <span v-else class="px-2.5 py-1.5 rounded-lg bg-frog-100 text-frog-800 font-bold text-xs">
+                      已套用
+                    </span>
                   </div>
                 </div>
               </div>

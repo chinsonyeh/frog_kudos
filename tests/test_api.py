@@ -1075,11 +1075,58 @@ async def test_member_avatar_update_and_upload():
             assert target_child is not None
             assert target_child["avatar"] == "🐸"
 
+            # 7. 測試相片上傳至相片庫但不立即套用 (POST /api/members/avatars/gallery/upload)
+            img_byte_arr3 = io.BytesIO()
+            test_img3 = Image.new("RGB", (250, 250), color="orange")
+            test_img3.save(img_byte_arr3, format="PNG")
+            upload_gallery_res = await client.post(
+                "/api/members/avatars/gallery/upload",
+                files={"file": ("gallery_avatar.png", img_byte_arr3.getvalue(), "image/png")},
+            )
+            assert upload_gallery_res.status_code == 200
+            gallery_avatar_data = upload_gallery_res.json()
+            assert "url" in gallery_avatar_data
+            assert "filename" in gallery_avatar_data
+            assert gallery_avatar_data["url"].startswith("/uploads/avatars/custom_")
+            uploaded_filepath3 = UPLOADS_DIR / "avatars" / gallery_avatar_data["filename"]
+            assert uploaded_filepath3.exists()
+
+            # 驗證成員當前頭像「尚未被套用」，依然保持為 🐸
+            members_res2 = await client.get("/api/members")
+            target_child2 = next((m for m in members_res2.json() if m["id"] == child_id), None)
+            assert target_child2["avatar"] == "🐸"
+
+            # 驗證相片已出現在相片庫清單中
+            gallery_list_res2 = await client.get("/api/members/avatars/gallery")
+            assert gallery_list_res2.status_code == 200
+            urls2 = [item["url"] for item in gallery_list_res2.json()["avatars"]]
+            assert gallery_avatar_data["url"] in urls2
+
+            # 模擬用戶按下「立即套用」：呼叫 PATCH /api/members/{member_id}/avatar
+            apply_res = await client.patch(
+                f"/api/members/{child_id}/avatar",
+                json={"avatar": gallery_avatar_data["url"]},
+            )
+            assert apply_res.status_code == 200
+            assert apply_res.json()["avatar"] == gallery_avatar_data["url"]
+
+            # 驗證成員頭像已正式變更
+            members_res3 = await client.get("/api/members")
+            target_child3 = next((m for m in members_res3.json() if m["id"] == child_id), None)
+            assert target_child3["avatar"] == gallery_avatar_data["url"]
+
+            # 刪除測試相片
+            del_gallery_res = await client.delete(f"/api/members/avatars/gallery/{gallery_avatar_data['filename']}")
+            assert del_gallery_res.status_code == 200
+            assert not uploaded_filepath3.exists()
+
         finally:
             if uploaded_filepath and uploaded_filepath.exists():
                 uploaded_filepath.unlink(missing_ok=True)
             if 'uploaded_filepath2' in locals() and uploaded_filepath2 and uploaded_filepath2.exists():
                 uploaded_filepath2.unlink(missing_ok=True)
+            if 'uploaded_filepath3' in locals() and uploaded_filepath3 and uploaded_filepath3.exists():
+                uploaded_filepath3.unlink(missing_ok=True)
             await cleanup_test_child(client, child_id)
 
 
