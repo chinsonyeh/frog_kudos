@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
@@ -33,7 +33,6 @@ const isActive = ref(true)
 // 自訂頭像三合一選擇器狀態
 const avatarTab = ref('upload') // 'upload' | 'frog' | 'emoji'
 const selectedFile = ref(null)
-const filePreviewUrl = ref('')
 const fileInputRef = ref(null)
 const uploading = ref(false)
 
@@ -49,6 +48,10 @@ function isImageAvatar(av) {
 }
 
 function triggerFileInput() {
+  if (customAvatarsCount.value >= customAvatarsMax.value) {
+    errorMsg.value = '自訂相片庫已達 100 張上限，請先刪除不需要的舊相片以釋出空間！'
+    return
+  }
   if (fileInputRef.value) {
     fileInputRef.value.click()
   }
@@ -57,6 +60,11 @@ function triggerFileInput() {
 function handleFileSelect(event) {
   const file = event.target.files?.[0]
   if (!file) return
+  if (customAvatarsCount.value >= customAvatarsMax.value) {
+    errorMsg.value = '自訂相片庫已達 100 張上限，請先刪除不需要的舊相片以釋出空間！'
+    if (event.target) event.target.value = ''
+    return
+  }
   if (file.size > 10 * 1024 * 1024) {
     errorMsg.value = '圖片大小超過 10MB，請挑選較小的相片！'
     return
@@ -146,6 +154,8 @@ async function handleDeleteCustomAvatar(item) {
     await api.deleteCustomAvatar(item.filename)
     if (avatar.value === item.url) {
       avatar.value = '🐸'
+    }
+    if (originalAvatar.value === item.url) {
       originalAvatar.value = '🐸'
     }
     if (latestUploadedAvatar.value && latestUploadedAvatar.value.filename === item.filename) {
@@ -264,6 +274,20 @@ watch(() => props.show, (newVal) => {
     viewMode.value = 'list'
     errorMsg.value = ''
     successMsg.value = ''
+  } else {
+    // 關閉 Modal 時釋放 Blob ObjectURL 與重設暫存
+    if (rawImageSrc.value && rawImageSrc.value.startsWith('blob:')) {
+      URL.revokeObjectURL(rawImageSrc.value)
+    }
+    rawImageSrc.value = ''
+    latestUploadedAvatar.value = null
+    showCropper.value = false
+  }
+})
+
+onBeforeUnmount(() => {
+  if (rawImageSrc.value && rawImageSrc.value.startsWith('blob:')) {
+    URL.revokeObjectURL(rawImageSrc.value)
   }
 })
 
@@ -792,19 +816,27 @@ async function handleDelete(member) {
             <div v-if="avatarTab === 'upload'" class="space-y-3 p-3 bg-gray-50 rounded-2xl border border-gray-100 mb-2">
               <div
                 @click="triggerFileInput"
-                class="border-2 border-dashed border-gray-200 hover:border-frog-400 rounded-2xl p-4 text-center cursor-pointer transition bg-white group"
+                class="border-2 border-dashed rounded-2xl p-4 text-center transition group"
+                :class="customAvatarsCount >= customAvatarsMax ? 'border-amber-300 bg-amber-50/50 cursor-not-allowed opacity-80' : 'border-gray-200 hover:border-frog-400 bg-white cursor-pointer'"
               >
                 <input
                   ref="fileInputRef"
                   type="file"
                   accept="image/jpeg,image/png,image/webp,image/gif"
                   class="hidden"
+                  :disabled="customAvatarsCount >= customAvatarsMax"
                   @change="handleFileSelect"
                 />
                 <div class="space-y-1.5">
-                  <div class="text-3xl group-hover:scale-110 transition-transform">📷</div>
-                  <div class="text-xs font-bold text-gray-700">點擊選取相簿照片或大頭貼</div>
-                  <div class="text-[11px] text-gray-400">支援 JPG、PNG、WebP，系統將自動居中圓形裁切與壓製 (上限 5MB)</div>
+                  <div class="text-3xl transition-transform" :class="customAvatarsCount < customAvatarsMax ? 'group-hover:scale-110' : ''">
+                    {{ customAvatarsCount >= customAvatarsMax ? '⚠️' : '📷' }}
+                  </div>
+                  <div class="text-xs font-bold" :class="customAvatarsCount >= customAvatarsMax ? 'text-amber-800' : 'text-gray-700'">
+                    {{ customAvatarsCount >= customAvatarsMax ? '已達 100 張儲存上限，請先刪除舊相片' : '點擊選取相簿照片或大頭貼' }}
+                  </div>
+                  <div class="text-[11px] text-gray-400">
+                    {{ customAvatarsCount >= customAvatarsMax ? '需先從下方相片庫點選 ✕ 刪除不需要的頭像' : '支援 JPG、PNG、WebP，系統將自動居中圓形裁切與壓製 (上限 5MB)' }}
+                  </div>
                 </div>
               </div>
 
@@ -827,7 +859,7 @@ async function handleDelete(member) {
                       <div class="text-[11px] font-semibold mt-0.5">
                         <span v-if="avatar === latestUploadedAvatar.url" class="text-frog-600 flex items-center space-x-1">
                           <span>✓</span>
-                          <span>目前已套用為此成員代表頭像</span>
+                          <span>目前已套用為代表頭像</span>
                         </span>
                         <span v-else class="text-amber-600">
                           已加入相片庫（尚未套用）

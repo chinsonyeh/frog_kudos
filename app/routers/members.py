@@ -96,10 +96,11 @@ async def upload_gallery_avatar(
     - 儲存至 uploads/avatars/，回傳相片 URL 與詳細資訊
     """
     # 1. 檢查檔案格式
-    valid_content_types = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic"]
+    valid_content_types = ["image/jpeg", "image/png", "image/webp", "image/gif"]
     content_type = file.content_type or ""
-    if content_type not in valid_content_types and not any(file.filename.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"]):
-        raise HTTPException(status_code=400, detail="僅支援 JPG、PNG、WebP 等圖片格式")
+    filename = (file.filename or "").lower()
+    if content_type not in valid_content_types and not any(filename.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]):
+        raise HTTPException(status_code=400, detail="僅支援 JPG、PNG、WebP、GIF 等圖片格式")
 
     # 2. 讀取並檢查檔案大小 (上限 5MB)
     contents = await file.read()
@@ -277,10 +278,11 @@ async def upload_member_avatar(
         raise HTTPException(status_code=404, detail="成員不存在或已停用")
 
     # 1. 檢查檔案格式
-    valid_content_types = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic"]
+    valid_content_types = ["image/jpeg", "image/png", "image/webp", "image/gif"]
     content_type = file.content_type or ""
-    if content_type not in valid_content_types and not any(file.filename.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"]):
-        raise HTTPException(status_code=400, detail="僅支援 JPG、PNG、WebP 等圖片格式")
+    filename = (file.filename or "").lower()
+    if content_type not in valid_content_types and not any(filename.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]):
+        raise HTTPException(status_code=400, detail="僅支援 JPG、PNG、WebP、GIF 等圖片格式")
 
     # 2. 讀取並檢查檔案大小 (上限 5MB)
     contents = await file.read()
