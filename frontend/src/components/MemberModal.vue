@@ -8,6 +8,10 @@ import AvatarCropperModal from '@/components/AvatarCropperModal.vue'
 
 const props = defineProps({
   show: Boolean,
+  initialMemberId: {
+    type: String,
+    default: null,
+  },
 })
 const emit = defineEmits(['close', 'memberUpdated'])
 
@@ -274,13 +278,20 @@ const displayedAvatars = computed(() => {
   return cat ? cat.avatars : avatarCategories[0].avatars
 })
 
-watch(() => props.show, (newVal) => {
+watch(() => props.show, async (newVal) => {
   if (newVal) {
-    loadMembers()
-    loadCustomAvatars()
-    viewMode.value = 'list'
+    await loadMembers()
     errorMsg.value = ''
     successMsg.value = ''
+    if (props.initialMemberId) {
+      const target = membersList.value.find(m => m.id === props.initialMemberId)
+      if (target) {
+        openEditForm(target)
+        return
+      }
+    }
+    loadCustomAvatars()
+    viewMode.value = 'list'
   } else {
     // 關閉 Modal 時釋放 Blob ObjectURL 與重設暫存
     if (rawImageSrc.value && rawImageSrc.value.startsWith('blob:')) {
@@ -334,15 +345,7 @@ function openCreateForm() {
 }
 
 function openEditForm(member) {
-  if (!authStore.isUnlocked) {
-    errorMsg.value = '訪客模式無法更換頭像，請先解鎖！'
-    return
-  }
-  if (authStore.isChild && member.id !== authStore.unlockedMemberId) {
-    errorMsg.value = `目前以「${authStore.unlockedMember?.name}」身分解鎖，僅可修改個人代表頭像！`
-    return
-  }
-  // 若未解鎖則僅允許更換頭像 (avatar)
+  // 若為家長模式則為完整編輯；未解鎖/訪客或小孩模式則為更換代表頭像模式
   formMode.value = authStore.isParent ? 'edit' : 'avatar'
   editingMemberId.value = member.id
   name.value = member.name
@@ -564,7 +567,7 @@ async function handleDelete(member) {
       <div v-if="viewMode === 'list'" class="flex-1 overflow-y-auto py-4 space-y-4">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">
-            {{ authStore.isParent ? `目前家庭成員清單 (${membersList.length})` : (authStore.isChild ? `已解鎖「${authStore.unlockedMember?.name}」帳號：僅限維護個人頭像與 PIN 碼` : '家庭成員清單 (請先解鎖以進行維護)') }}
+            {{ authStore.isParent ? `目前家庭成員清單 (${membersList.length})` : (authStore.isChild ? `已解鎖「${authStore.unlockedMember?.name}」：點選成員可更換頭像` : '點選任一成員即可挑選或更換代表頭像') }}
           </span>
           <!-- 僅家長模式顯示 + 新增成員；未解鎖與小孩模式嚴格隱藏 -->
           <button
@@ -580,21 +583,17 @@ async function handleDelete(member) {
           <div
             v-for="m in membersList"
             :key="m.id"
-            @click="(authStore.isUnlocked && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? openEditForm(m) : null"
-            class="p-4 rounded-2xl border transition flex items-center justify-between"
-            :class="[
-              m.is_active ? 'bg-gray-50 border-gray-100 hover:border-gray-200' : 'bg-gray-100/60 border-gray-200 opacity-60',
-              (authStore.isUnlocked && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? 'cursor-pointer hover:bg-frog-50/50 hover:border-frog-300' : (authStore.isChild && m.id !== authStore.unlockedMemberId ? 'opacity-50 cursor-not-allowed' : '')
-            ]"
+            @click="openEditForm(m)"
+            class="p-4 rounded-2xl border transition flex items-center justify-between cursor-pointer hover:bg-frog-50/50 hover:border-frog-300"
+            :class="m.is_active ? 'bg-gray-50 border-gray-100 hover:border-gray-200' : 'bg-gray-100/60 border-gray-200 opacity-60'"
           >
             <div class="flex items-center space-x-3">
               <MemberAvatar
                 :avatar="m.avatar"
                 size="lg"
                 :alt="m.name"
-                class="transition"
-                :class="(authStore.isUnlocked && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? 'hover:scale-110' : ''"
-                :title="authStore.isUnlocked ? '點擊更換頭像' : ''"
+                class="transition hover:scale-110 flex-shrink-0"
+                title="點擊更換代表頭像"
               />
               <div>
                 <div class="flex items-center space-x-2">
@@ -630,32 +629,34 @@ async function handleDelete(member) {
               >
                 編輯
               </button>
-              <!-- 小孩解鎖模式：僅自己的項目顯示更換頭像與修改 PIN 按鈕 -->
-              <template v-else-if="authStore.isChild">
-                <template v-if="m.id === authStore.unlockedMemberId">
-                  <button
-                    @click.stop="openEditForm(m)"
-                    type="button"
-                    class="px-2.5 py-1.5 rounded-xl bg-frog-50 hover:bg-frog-100 border border-frog-200 text-xs font-bold text-frog-700 transition flex items-center space-x-1 cursor-pointer"
-                  >
-                    <span>🎨 頭像</span>
-                  </button>
-                  <button
-                    @click.stop="openChangePinForm(m)"
-                    type="button"
-                    class="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-xs font-bold text-amber-700 transition flex items-center space-x-1 cursor-pointer"
-                    title="變更個人 PIN 碼"
-                  >
-                    <span>🔑 PIN</span>
-                  </button>
-                </template>
-                <template v-else>
-                  <span class="text-xs text-gray-400 font-medium px-2">🔒 無權限</span>
-                </template>
+              <!-- 小孩解鎖模式：自己項目顯示更換頭像與修改 PIN 按鈕 -->
+              <template v-else-if="authStore.isChild && m.id === authStore.unlockedMemberId">
+                <button
+                  @click.stop="openEditForm(m)"
+                  type="button"
+                  class="px-2.5 py-1.5 rounded-xl bg-frog-50 hover:bg-frog-100 border border-frog-200 text-xs font-bold text-frog-700 transition flex items-center space-x-1 cursor-pointer"
+                >
+                  <span>🎨 頭像</span>
+                </button>
+                <button
+                  @click.stop="openChangePinForm(m)"
+                  type="button"
+                  class="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-xs font-bold text-amber-700 transition flex items-center space-x-1 cursor-pointer"
+                  title="變更個人 PIN 碼"
+                >
+                  <span>🔑 PIN</span>
+                </button>
               </template>
               <template v-else>
-                <!-- 訪客未解鎖模式：無任何更換頭像按鈕 -->
-                <span class="text-xs text-gray-400 font-medium px-2">🔒 請先解鎖</span>
+                <!-- 其他情況 (訪客模式或小孩檢視其他成員)：皆可點擊更換頭像按鈕 -->
+                <button
+                  @click.stop="openEditForm(m)"
+                  type="button"
+                  class="px-2.5 py-1.5 rounded-xl bg-frog-50 hover:bg-frog-100 border border-frog-200 text-xs font-bold text-frog-700 transition flex items-center space-x-1 cursor-pointer"
+                  title="點擊挑選或更換頭像"
+                >
+                  <span>🎨 頭像</span>
+                </button>
               </template>
 
               <!-- 僅家長模式顯示刪除/停用按鈕，未解鎖時嚴格隱藏且禁用 -->

@@ -83,7 +83,9 @@ watch(
 function loadImage(src) {
   imageLoaded.value = false
   const img = new Image()
-  img.crossOrigin = 'anonymous'
+  if (src.startsWith('http://') || src.startsWith('https://')) {
+    img.crossOrigin = 'anonymous'
+  }
   img.onload = () => {
     naturalWidth.value = img.naturalWidth || 1
     naturalHeight.value = img.naturalHeight || 1
@@ -105,6 +107,31 @@ function loadImage(src) {
     offsetX.value = 0
     offsetY.value = 0
     imageLoaded.value = true
+  }
+  img.onerror = () => {
+    if (img.crossOrigin) {
+      const fallbackImg = new Image()
+      fallbackImg.onload = () => {
+        naturalWidth.value = fallbackImg.naturalWidth || 1
+        naturalHeight.value = fallbackImg.naturalHeight || 1
+        const aspect = naturalWidth.value / naturalHeight.value
+        if (aspect >= 1) {
+          baseHeight.value = ROI_DIAMETER
+          baseWidth.value = ROI_DIAMETER * aspect
+        } else {
+          baseWidth.value = ROI_DIAMETER
+          baseHeight.value = ROI_DIAMETER / aspect
+        }
+        scale.value = 1.0
+        minScale.value = 1.0
+        offsetX.value = 0
+        offsetY.value = 0
+        imageLoaded.value = true
+      }
+      fallbackImg.src = src
+    } else {
+      console.error('裁切器圖片載入失敗:', src)
+    }
   }
   img.src = src
 }

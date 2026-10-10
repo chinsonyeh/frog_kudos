@@ -33,9 +33,10 @@ const navItems = computed(() => {
       { type: 'link', name: '使用說明', path: '/guide', icon: '📖' },
     ]
   } else {
-    // 訪客模式：移除家庭成員按鈕、兌換商城按鈕、點數登記按鈕，僅允許看榮譽點數頁面與使用說明
+    // 訪客模式：提供榮譽存摺、更換頭像與使用說明
     return [
       { type: 'link', name: '榮譽存摺', path: '/ledger', icon: '🏆' },
+      { type: 'button', name: '更換頭像', action: () => emit('openMemberModal'), icon: '🎨', title: '選擇成員並更換代表頭像' },
       { type: 'link', name: '使用說明', path: '/guide', icon: '📖' },
     ]
   }

@@ -11,6 +11,13 @@ import MemberAvatar from '@/components/MemberAvatar.vue'
 const authStore = useAuthStore()
 
 const showMemberModal = ref(false)
+const targetMemberIdForModal = ref(null)
+
+function openMemberAvatarModal(memberId = null) {
+  targetMemberIdForModal.value = memberId || selectedMemberId.value
+  showMemberModal.value = true
+}
+
 const showBadgeManageModal = ref(false)
 const members = ref([])
 const selectedMemberId = ref(null)
@@ -152,7 +159,8 @@ function onUnlockedBadges(bList) {
     <!-- 成員管理彈窗 -->
     <MemberModal
       :show="showMemberModal"
-      @close="showMemberModal = false"
+      :initial-member-id="targetMemberIdForModal"
+      @close="showMemberModal = false; targetMemberIdForModal = null"
       @member-updated="authStore.triggerMemberRefresh"
     />
 
@@ -199,22 +207,22 @@ function onUnlockedBadges(bList) {
           <span>{{ m.name }}</span>
         </button>
 
-        <!-- 家長管理成員按鈕 / 小孩解鎖時更換個人頭像按鈕 / 訪客模式隱藏 -->
+        <!-- 家長管理成員按鈕 / 更換個人頭像按鈕 -->
         <button
           v-if="authStore.isParent"
-          @click="showMemberModal = true"
+          @click="targetMemberIdForModal = null; showMemberModal = true"
           class="flex items-center space-x-1 px-3 py-2 rounded-2xl text-xs font-bold border border-dashed border-gray-300 hover:border-frog-500 hover:bg-frog-50/50 text-gray-500 hover:text-frog-700 transition flex-shrink-0 cursor-pointer"
           title="新增或維護家庭成員"
         >
           <span>+ 管理成員</span>
         </button>
         <button
-          v-else-if="authStore.isChild"
-          @click="showMemberModal = true"
+          v-else
+          @click="openMemberAvatarModal(selectedMemberId)"
           class="flex items-center space-x-1 px-3 py-2 rounded-2xl text-xs font-bold border border-dashed border-gray-300 hover:border-frog-500 hover:bg-frog-50/50 text-gray-500 hover:text-frog-700 transition flex-shrink-0 cursor-pointer"
-          title="更換個人代表頭像與 PIN 碼"
+          title="挑選或更換代表頭像"
         >
-          <span>🎨 個人頭像</span>
+          <span>🎨 更換頭像</span>
         </button>
       </div>
 
@@ -250,10 +258,9 @@ function onUnlockedBadges(bList) {
         <div>
           <div class="flex items-center space-x-3 mb-2">
             <div
-              @click="authStore.isUnlocked ? (showMemberModal = true) : null"
-              class="transition flex-shrink-0"
-              :class="authStore.isUnlocked ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'"
-              :title="authStore.isUnlocked ? '點擊更換頭像' : ''"
+              @click="openMemberAvatarModal(currentMember.id)"
+              class="transition flex-shrink-0 cursor-pointer hover:scale-105 active:scale-95"
+              title="點擊挑選或更換代表頭像"
             >
               <MemberAvatar :avatar="currentMember.avatar" :name="currentMember.name" size="2xl" class="shadow-md ring-2 ring-white/30" />
             </div>
@@ -261,11 +268,10 @@ function onUnlockedBadges(bList) {
               <div class="flex items-center space-x-2">
                 <h3 class="text-2xl font-black tracking-tight">{{ currentMember.name }} 的點數存摺</h3>
                 <button
-                  v-if="authStore.isUnlocked"
-                  @click="showMemberModal = true"
+                  @click="openMemberAvatarModal(currentMember.id)"
                   type="button"
                   class="text-[11px] bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded-lg font-bold transition cursor-pointer"
-                  :title="authStore.isParent ? '管理成員' : '更換個人頭像'"
+                  :title="authStore.isParent ? '管理成員' : '更換代表頭像'"
                 >
                   {{ authStore.isParent ? '👥 管理成員' : '🎨 更換頭像' }}
                 </button>
