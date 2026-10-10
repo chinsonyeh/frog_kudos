@@ -2,6 +2,7 @@ import uuid
 import os
 import time
 import io
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List
 from PIL import Image, ImageOps
@@ -18,6 +19,70 @@ from app.schemas.badge import MemberBadgeOut
 from app.services.badge_service import get_member_badges
 
 router = APIRouter(prefix="/members", tags=["Members"])
+
+MAX_CUSTOM_AVATARS = 100
+
+@router.get("/avatars/gallery")
+async def list_custom_avatars():
+    """列出所有已儲存的自訂頭像列表 (上限 100 個)，按時間由新到舊排序"""
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    avatars_dir = root_dir / "uploads" / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+
+    files = [f for f in avatars_dir.glob("*.webp") if f.is_file()]
+    files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+
+    items = []
+    for f in files:
+        stat = f.stat()
+        items.append({
+            "url": f"/uploads/avatars/{f.name}",
+            "filename": f.name,
+            "size_kb": round(stat.st_size / 1024, 1),
+            "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        })
+
+    return {
+        "total": len(items),
+        "max_allowed": MAX_CUSTOM_AVATARS,
+        "avatars": items,
+    }
+
+@router.delete("/avatars/gallery/{filename}")
+async def delete_custom_avatar(
+    filename: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """刪除指定之自訂頭像，若有成員正在使用該圖檔，則將其頭像自動重設為預設青蛙"""
+    if not filename.endswith(".webp") or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="無效的頭像檔案名稱")
+
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    avatars_dir = root_dir / "uploads" / "avatars"
+    target_file = avatars_dir / filename
+
+    if not target_file.exists() or not target_file.is_file():
+        raise HTTPException(status_code=404, detail="找不到欲刪除的頭像檔案")
+
+    try:
+        target_file.unlink()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"無法刪除檔案：{e}")
+
+    # 同步更新正在使用此頭像的成員，改為預設 🐸
+    avatar_url = f"/uploads/avatars/{filename}"
+    res = await db.execute(select(Member).where(Member.avatar == avatar_url))
+    affected_members = res.scalars().all()
+    for m in affected_members:
+        m.avatar = "🐸"
+    if affected_members:
+        await db.commit()
+
+    return {
+        "success": True,
+        "message": f"已成功刪除頭像 {filename}",
+        "affected_members": len(affected_members),
+    }
 
 @router.get("", response_model=List[MemberOut])
 async def list_members(
@@ -177,28 +242,22 @@ async def upload_member_avatar(
     cropped = image.crop((left, top, right, bottom))
     resized = cropped.resize((256, 256), Image.Resampling.LANCZOS)
 
-    # 4. 準備儲存目錄
+    # 4. 準備儲存目錄並檢查上限 (最多 100 個)
     root_dir = Path(__file__).resolve().parent.parent.parent
     avatars_dir = root_dir / "uploads" / "avatars"
     avatars_dir.mkdir(parents=True, exist_ok=True)
 
-    # 5. 清理舊頭像檔案 (如果之前上傳過此成員的圖)
-    if member.avatar and member.avatar.startswith("/uploads/avatars/"):
-        old_filename = Path(member.avatar).name
-        old_file = avatars_dir / old_filename
-        if old_file.exists() and old_file.is_file():
-            try:
-                old_file.unlink()
-            except Exception:
-                pass
+    existing_files = [f for f in avatars_dir.glob("*.webp") if f.is_file()]
+    if len(existing_files) >= MAX_CUSTOM_AVATARS:
+        raise HTTPException(status_code=400, detail="自訂頭像庫已達上限 (最多 100 個)，請先刪除不再使用的舊頭像！")
 
-    # 6. 輸出新檔案
-    timestamp = int(time.time())
-    new_filename = f"{member_id}_{timestamp}.webp"
+    # 5. 輸出新檔案 (每次上傳皆保存，不自動刪除舊頭像，僅儲存裁切縮放後之 256x256 WebP)
+    timestamp = int(time.time() * 1000)
+    new_filename = f"{member_id}_{timestamp}_{uuid.uuid4().hex[:4]}.webp"
     save_path = avatars_dir / new_filename
-    resized.save(save_path, "WEBP", quality=85, optimize=True)
+    resized.save(save_path, "WEBP", quality=88, optimize=True)
 
-    # 7. 更新資料庫
+    # 6. 更新資料庫
     member.avatar = f"/uploads/avatars/{new_filename}"
     await db.commit()
     await db.refresh(member)

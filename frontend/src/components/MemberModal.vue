@@ -4,6 +4,7 @@ import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import MemberAvatar from '@/components/MemberAvatar.vue'
+import AvatarCropperModal from '@/components/AvatarCropperModal.vue'
 
 const props = defineProps({
   show: Boolean,
@@ -35,6 +36,10 @@ const filePreviewUrl = ref('')
 const fileInputRef = ref(null)
 const uploading = ref(false)
 
+// ROI 圓圈裁切器狀態
+const showCropper = ref(false)
+const rawImageSrc = ref('')
+
 function isImageAvatar(av) {
   if (!av) return false
   const a = av.trim()
@@ -50,17 +55,29 @@ function triggerFileInput() {
 function handleFileSelect(event) {
   const file = event.target.files?.[0]
   if (!file) return
-  if (file.size > 5 * 1024 * 1024) {
-    errorMsg.value = '圖片大小超過 5MB，請挑選較小的相片！'
+  if (file.size > 10 * 1024 * 1024) {
+    errorMsg.value = '圖片大小超過 10MB，請挑選較小的相片！'
     return
   }
-  selectedFile.value = file
-  if (filePreviewUrl.value) {
+  if (rawImageSrc.value && rawImageSrc.value.startsWith('blob:')) {
+    URL.revokeObjectURL(rawImageSrc.value)
+  }
+  rawImageSrc.value = URL.createObjectURL(file)
+  showCropper.value = true
+  errorMsg.value = ''
+  if (event.target) {
+    event.target.value = ''
+  }
+}
+
+function handleCropped({ blob, dataUrl, file }) {
+  if (filePreviewUrl.value && filePreviewUrl.value.startsWith('blob:')) {
     URL.revokeObjectURL(filePreviewUrl.value)
   }
-  filePreviewUrl.value = URL.createObjectURL(file)
-  avatar.value = filePreviewUrl.value
-  errorMsg.value = ''
+  selectedFile.value = file
+  filePreviewUrl.value = dataUrl
+  avatar.value = dataUrl
+  showCropper.value = false
 }
 
 async function uploadSelectedFile() {
@@ -78,12 +95,55 @@ async function uploadSelectedFile() {
     setTimeout(() => { successMsg.value = '' }, 3000)
     emit('memberUpdated')
     await loadMembers()
+    await loadCustomAvatars()
   } catch (err) {
     errorMsg.value = err.message || '上傳相片頭像失敗'
   } finally {
     uploading.value = false
   }
 }
+
+// 自訂頭像相片庫狀態 (上限 100 個)
+const customAvatars = ref([])
+const customAvatarsCount = ref(0)
+const customAvatarsMax = ref(100)
+const loadingGallery = ref(false)
+
+async function loadCustomAvatars() {
+  loadingGallery.value = true
+  try {
+    const res = await api.getCustomAvatarsGallery()
+    customAvatars.value = res.avatars || []
+    customAvatarsCount.value = res.total || 0
+    customAvatarsMax.value = res.max_allowed || 100
+  } catch (err) {
+    console.error('載入歷史頭像庫失敗:', err)
+  } finally {
+    loadingGallery.value = false
+  }
+}
+
+async function handleDeleteCustomAvatar(item) {
+  if (!confirm(`確定要從自訂頭像庫刪除這張相片嗎？`)) return
+  try {
+    await api.deleteCustomAvatar(item.filename)
+    if (avatar.value === item.url) {
+      avatar.value = '🐸'
+    }
+    await loadCustomAvatars()
+    await loadMembers()
+    emit('memberUpdated')
+  } catch (err) {
+    errorMsg.value = err.message || '刪除頭像失敗'
+  }
+}
+
+// 監聽分頁切換，若切換至相片上傳則載入相片庫
+watch(avatarTab, (newTab) => {
+  if (newTab === 'upload') {
+    loadCustomAvatars()
+  }
+})
 
 // 修改 PIN 碼專用欄位
 const oldPin = ref('')
@@ -179,6 +239,7 @@ const displayedAvatars = computed(() => {
 watch(() => props.show, (newVal) => {
   if (newVal) {
     loadMembers()
+    loadCustomAvatars()
     viewMode.value = 'list'
     errorMsg.value = ''
     successMsg.value = ''
@@ -207,6 +268,8 @@ function openCreateForm() {
   avatarTab.value = 'frog'
   selectedFile.value = null
   filePreviewUrl.value = ''
+  rawImageSrc.value = ''
+  showCropper.value = false
   activeAvatarCategory.value = '熱門精選'
   pinCode.value = ''
   isActive.value = true
@@ -231,10 +294,13 @@ function openEditForm(member) {
   avatar.value = member.avatar || '🐸'
   selectedFile.value = null
   filePreviewUrl.value = ''
+  showCropper.value = false
   if (isImageAvatar(avatar.value)) {
     avatarTab.value = avatar.value.includes('/icons/gallery/') ? 'frog' : 'upload'
+    rawImageSrc.value = avatar.value.includes('/icons/gallery/') ? '' : avatar.value
   } else {
     avatarTab.value = 'emoji'
+    rawImageSrc.value = ''
   }
   const matchedCat = avatarCategories.find(c => c.avatars.includes(avatar.value))
   activeAvatarCategory.value = matchedCat ? matchedCat.name : '熱門精選'
@@ -722,24 +788,94 @@ async function handleDelete(member) {
                 </div>
               </div>
 
-              <!-- 選定檔案預覽與上傳確認 -->
-              <div v-if="selectedFile" class="flex items-center justify-between p-2.5 bg-white rounded-xl border border-frog-200 shadow-xs">
-                <div class="flex items-center space-x-2.5 min-w-0">
-                  <img :src="filePreviewUrl" class="w-10 h-10 rounded-full object-cover border border-gray-200 flex-shrink-0" />
-                  <div class="min-w-0 text-xs">
-                    <div class="font-bold text-gray-800 truncate">{{ selectedFile.name }}</div>
-                    <div class="text-[10px] text-gray-400">{{ (selectedFile.size / 1024).toFixed(1) }} KB</div>
+              <!-- 選定檔案預覽、重新裁切與上傳確認 -->
+              <div v-if="selectedFile || rawImageSrc" class="p-2.5 bg-white rounded-xl border border-frog-200 shadow-xs">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center space-x-2.5 min-w-0">
+                    <img :src="filePreviewUrl || rawImageSrc" class="w-11 h-11 rounded-full object-cover border-2 border-frog-300 shadow-xs flex-shrink-0" />
+                    <div class="min-w-0 text-xs text-left">
+                      <div class="font-bold text-gray-800 truncate">{{ selectedFile ? selectedFile.name : '已選用之自訂相片' }}</div>
+                      <div class="text-[10px] text-frog-600 font-semibold">
+                        {{ selectedFile ? '✅ 圓形 ROI 裁切完成' : '點擊右方可微調位置' }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="flex items-center space-x-1.5 flex-shrink-0">
+                    <!-- 重新裁切按鈕 -->
+                    <button
+                      v-if="rawImageSrc"
+                      type="button"
+                      @click="showCropper = true"
+                      class="px-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-frog-400 bg-gray-50 hover:bg-frog-50/50 text-gray-700 hover:text-frog-700 font-bold text-xs shadow-2xs transition flex items-center space-x-1 cursor-pointer"
+                      title="調整 ROI 圓圈位置與放大縮小"
+                    >
+                      <span>✂️</span>
+                      <span>調整位置</span>
+                    </button>
+
+                    <!-- 立即上傳套用按鈕 -->
+                    <button
+                      v-if="selectedFile && editingMemberId"
+                      type="button"
+                      @click="uploadSelectedFile"
+                      :disabled="uploading"
+                      class="px-3 py-1.5 rounded-lg bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-xs transition flex-shrink-0 cursor-pointer disabled:opacity-50"
+                    >
+                      {{ uploading ? '上傳中...' : '📤 立即套用' }}
+                    </button>
                   </div>
                 </div>
-                <button
-                  v-if="editingMemberId"
-                  type="button"
-                  @click="uploadSelectedFile"
-                  :disabled="uploading"
-                  class="px-3 py-1.5 rounded-lg bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-xs transition flex-shrink-0 cursor-pointer disabled:opacity-50"
-                >
-                  {{ uploading ? '上傳中...' : '📤 立即上傳套用' }}
-                </button>
+              </div>
+
+              <!-- 已儲存之自訂頭像庫 (上限 100 個) -->
+              <div class="space-y-2 pt-2 border-t border-gray-200/60">
+                <div class="flex items-center justify-between text-xs font-bold text-gray-700">
+                  <span class="flex items-center space-x-1.5">
+                    <span>🖼️</span>
+                    <span>已儲存的自訂相片庫</span>
+                  </span>
+                  <span class="font-mono text-[11px]" :class="customAvatarsCount >= 100 ? 'text-red-600 font-black' : 'text-gray-400'">
+                    {{ customAvatarsCount }} / {{ customAvatarsMax }} 張
+                  </span>
+                </div>
+
+                <!-- 達到 100 個上限警告 -->
+                <div v-if="customAvatarsCount >= 100" class="p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-semibold text-left">
+                  ⚠️ 已達 100 個儲存上限！請點選右上角 ✕ 刪除不需要的舊頭像以釋出空間。
+                </div>
+
+                <!-- 頭像清單 (縮圖網格) -->
+                <div v-if="customAvatars.length > 0" class="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-48 overflow-y-auto pr-1 p-1">
+                  <div
+                    v-for="item in customAvatars"
+                    :key="item.filename"
+                    class="relative group rounded-2xl border-2 transition overflow-hidden cursor-pointer aspect-square"
+                    :class="avatar === item.url ? 'border-frog-500 ring-2 ring-frog-400/40 shadow-xs scale-102' : 'border-gray-200 hover:border-gray-300 bg-white'"
+                    @click="avatar = item.url; selectedFile = null"
+                    :title="`點擊套用此頭像 (${item.size_kb} KB)`"
+                  >
+                    <img :src="item.url" class="w-full h-full object-cover" />
+
+                    <!-- 當前選取勾勾標記 -->
+                    <div v-if="avatar === item.url" class="absolute top-1 left-1 bg-frog-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold shadow-xs">
+                      ✓
+                    </div>
+
+                    <!-- 刪除按鈕 (手機一律可見，電腦 Hover 顯示) -->
+                    <button
+                      type="button"
+                      @click.stop="handleDeleteCustomAvatar(item)"
+                      class="absolute top-1 right-1 w-5 h-5 bg-black/60 hover:bg-red-600 active:bg-red-700 text-white rounded-full flex items-center justify-center text-[10px] font-bold transition opacity-80 sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer shadow-xs"
+                      title="從頭像庫永久刪除此相片"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+                <div v-else class="text-center py-4 text-xs text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
+                  尚無儲存的自訂頭像，每次上傳裁切後皆會自動保存於此（上限 100 張）
+                </div>
               </div>
             </div>
 
@@ -864,4 +1000,12 @@ async function handleDelete(member) {
       </div>
     </div>
   </div>
+
+  <!-- 圓形 ROI 頭像相片互動式裁切器 -->
+  <AvatarCropperModal
+    :show="showCropper"
+    :image-src="rawImageSrc"
+    @close="showCropper = false"
+    @crop="handleCropped"
+  />
 </template>

@@ -62,6 +62,10 @@ export const api = {
     formData.append('file', file)
     return request(`/members/${id}/avatar-upload`, { method: 'POST', body: formData })
   },
+  getCustomAvatarsGallery: () =>
+    request('/members/avatars/gallery'),
+  deleteCustomAvatar: (filename) =>
+    request(`/members/avatars/gallery/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
   changeMemberPin: (id, data) =>
     request(`/members/${id}/change-pin`, { method: 'POST', body: JSON.stringify(data) }),
   deleteMember: (id, pin) =>

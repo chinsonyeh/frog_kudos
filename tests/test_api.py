@@ -1033,14 +1033,53 @@ async def test_member_avatar_update_and_upload():
             assert new_avatar.startswith("/uploads/avatars/")
             assert new_avatar.endswith(".webp")
 
-            # 驗證實體檔案存在且可讀取
             filename = new_avatar.replace("/uploads/avatars/", "")
             uploaded_filepath = UPLOADS_DIR / "avatars" / filename
             assert uploaded_filepath.exists()
 
+            # 4. 測試頭像庫列表 API (GET /api/members/avatars/gallery)
+            gallery_list_res = await client.get("/api/members/avatars/gallery")
+            assert gallery_list_res.status_code == 200
+            gallery_data = gallery_list_res.json()
+            assert "total" in gallery_data
+            assert gallery_data["max_allowed"] == 100
+            urls = [item["url"] for item in gallery_data["avatars"]]
+            assert new_avatar in urls
+
+            # 5. 測試再次上傳不同照片，兩張照片皆被完整保留 (不覆蓋舊檔案)
+            img_byte_arr2 = io.BytesIO()
+            test_img2 = Image.new("RGB", (200, 200), color="blue")
+            test_img2.save(img_byte_arr2, format="PNG")
+            upload_res2 = await client.post(
+                f"/api/members/{child_id}/avatar-upload",
+                files={"file": ("avatar2.png", img_byte_arr2.getvalue(), "image/png")},
+            )
+            assert upload_res2.status_code == 200
+            new_avatar2 = upload_res2.json()["avatar"]
+            assert new_avatar2 != new_avatar
+
+            filename2 = new_avatar2.replace("/uploads/avatars/", "")
+            uploaded_filepath2 = UPLOADS_DIR / "avatars" / filename2
+            assert uploaded_filepath.exists()  # 舊圖依然存在
+            assert uploaded_filepath2.exists()  # 新圖亦被保存
+
+            # 6. 測試刪除頭像 (DELETE /api/members/avatars/gallery/{filename})
+            # 刪除 new_avatar2，該成員的 avatar 應自動復原為 '🐸'
+            del_res = await client.delete(f"/api/members/avatars/gallery/{filename2}")
+            assert del_res.status_code == 200
+            assert not uploaded_filepath2.exists()
+
+            # 驗證該成員頭像已自動重設為 🐸
+            members_res = await client.get("/api/members")
+            target_child = next((m for m in members_res.json() if m["id"] == child_id), None)
+            assert target_child is not None
+            assert target_child["avatar"] == "🐸"
+
         finally:
             if uploaded_filepath and uploaded_filepath.exists():
                 uploaded_filepath.unlink(missing_ok=True)
+            if 'uploaded_filepath2' in locals() and uploaded_filepath2 and uploaded_filepath2.exists():
+                uploaded_filepath2.unlink(missing_ok=True)
             await cleanup_test_child(client, child_id)
 
 
