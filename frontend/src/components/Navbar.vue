@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import MemberAvatar from '@/components/MemberAvatar.vue'
 
 const emit = defineEmits(['openPinModal', 'openSystemModal', 'openMemberModal', 'openThemeModal'])
 
@@ -28,7 +29,7 @@ const navItems = computed(() => {
       { type: 'link', name: '點數登記', path: '/record', icon: '📝' },
       { type: 'link', name: '榮譽存摺', path: '/ledger', icon: '🏆' },
       { type: 'link', name: '兌換商城', path: '/rewards', icon: '🎁' },
-      { type: 'button', name: '個人成員', action: () => emit('openMemberModal'), icon: authStore.unlockedMember?.avatar || '👤', title: '變更個人代表頭像與 PIN 碼' },
+      { type: 'button', name: '個人成員', action: () => emit('openMemberModal'), avatar: authStore.unlockedMember?.avatar || '👤', icon: '👤', title: '變更個人代表頭像與 PIN 碼' },
       { type: 'link', name: '使用說明', path: '/guide', icon: '📖' },
     ]
   } else {
@@ -115,7 +116,8 @@ function handleOpenSystem() {
               class="px-4 py-2 rounded-xl text-sm font-semibold transition flex items-center space-x-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-50 active:bg-gray-100 cursor-pointer"
               :title="item.title || item.name"
             >
-              <span>{{ item.icon }}</span>
+              <MemberAvatar v-if="item.avatar" :avatar="item.avatar" size="xs" />
+              <span v-else>{{ item.icon }}</span>
               <span>{{ item.name }}</span>
             </button>
           </template>
@@ -142,10 +144,11 @@ function handleOpenSystem() {
           <!-- 2. 小孩解鎖狀態 -->
           <div
             v-else-if="authStore.isChild"
-            class="flex items-center bg-frog-50 border border-frog-200 text-frog-800 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm"
+            class="flex items-center space-x-1.5 bg-frog-50 border border-frog-200 text-frog-800 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm"
           >
-            <span class="mr-1.5">{{ authStore.unlockedMember?.avatar }} {{ authStore.unlockedMember?.name }} (小孩模式)</span>
-            <span class="text-frog-600 font-mono text-[11px] mr-2">({{ authStore.remainingMinutesFormatted }})</span>
+            <MemberAvatar :avatar="authStore.unlockedMember?.avatar" :name="authStore.unlockedMember?.name" size="xs" />
+            <span>{{ authStore.unlockedMember?.name }} (小孩模式)</span>
+            <span class="text-frog-600 font-mono text-[11px] mr-1">({{ authStore.remainingMinutesFormatted }})</span>
             <button
               @click="handleModeToggle"
               class="text-frog-700 hover:text-red-600 transition underline underline-offset-2 ml-1 cursor-pointer"
@@ -205,7 +208,10 @@ function handleOpenSystem() {
           type="button"
           class="flex flex-col items-center py-1 px-2 rounded-lg text-xs font-medium text-gray-500 hover:text-gray-800 transition cursor-pointer whitespace-nowrap flex-shrink-0"
         >
-          <span class="text-lg leading-none mb-0.5">{{ item.icon }}</span>
+          <div v-if="item.avatar" class="w-5 h-5 mb-0.5 flex items-center justify-center">
+            <MemberAvatar :avatar="item.avatar" size="xs" />
+          </div>
+          <span v-else class="text-lg leading-none mb-0.5">{{ item.icon }}</span>
           <span>{{ item.name }}</span>
         </button>
       </template>

@@ -6,6 +6,7 @@ import BatchAdjustModal from '@/components/BatchAdjustModal.vue'
 import BadgeUnlockModal from '@/components/BadgeUnlockModal.vue'
 import MemberModal from '@/components/MemberModal.vue'
 import BadgeManageModal from '@/components/BadgeManageModal.vue'
+import MemberAvatar from '@/components/MemberAvatar.vue'
 
 const authStore = useAuthStore()
 
@@ -194,7 +195,7 @@ function onUnlockedBadges(bList) {
             ? 'bg-frog-500 text-white shadow-md shadow-frog-200'
             : 'bg-gray-100 hover:bg-gray-200 text-gray-700'"
         >
-          <span>{{ m.avatar }}</span>
+          <MemberAvatar :avatar="m.avatar" :name="m.name" size="xs" />
           <span>{{ m.name }}</span>
         </button>
 
@@ -248,12 +249,14 @@ function onUnlockedBadges(bList) {
       <div class="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
         <div>
           <div class="flex items-center space-x-3 mb-2">
-            <span
+            <div
               @click="authStore.isUnlocked ? (showMemberModal = true) : null"
-              class="text-4xl sm:text-5xl transition"
-              :class="authStore.isUnlocked ? 'cursor-pointer hover:scale-110 active:scale-95' : 'cursor-default'"
+              class="transition flex-shrink-0"
+              :class="authStore.isUnlocked ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'"
               :title="authStore.isUnlocked ? '點擊更換頭像' : ''"
-            >{{ currentMember.avatar }}</span>
+            >
+              <MemberAvatar :avatar="currentMember.avatar" :name="currentMember.name" size="2xl" class="shadow-md ring-2 ring-white/30" />
+            </div>
             <div>
               <div class="flex items-center space-x-2">
                 <h3 class="text-2xl font-black tracking-tight">{{ currentMember.name }} 的點數存摺</h3>

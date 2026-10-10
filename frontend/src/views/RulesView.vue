@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import MemberAvatar from '@/components/MemberAvatar.vue'
 
 const authStore = useAuthStore()
 
@@ -155,7 +156,7 @@ function getCategoryName(catId) {
           class="flex items-center space-x-2 px-4 py-2 rounded-2xl text-xs sm:text-sm font-bold transition flex-shrink-0"
           :class="selectedTab === m.id ? 'bg-frog-500 text-white shadow-md shadow-frog-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'"
         >
-          <span>{{ m.avatar }}</span>
+          <MemberAvatar :avatar="m.avatar" :name="m.name" size="xs" />
           <span>{{ m.name }} 專屬</span>
         </button>
 

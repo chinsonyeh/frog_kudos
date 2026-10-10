@@ -2,6 +2,8 @@
 import { ref, watch, computed } from 'vue'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
+import MemberAvatar from '@/components/MemberAvatar.vue'
 
 const props = defineProps({
   show: Boolean,
@@ -9,6 +11,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'memberUpdated'])
 
 const authStore = useAuthStore()
+const themeStore = useThemeStore()
 
 const viewMode = ref('list') // 'list' | 'form'
 const formMode = ref('create') // 'create' | 'edit' | 'avatar' | 'change_pin'
@@ -24,6 +27,63 @@ const role = ref('child')
 const avatar = ref('🐸')
 const pinCode = ref('')
 const isActive = ref(true)
+
+// 自訂頭像三合一選擇器狀態
+const avatarTab = ref('upload') // 'upload' | 'frog' | 'emoji'
+const selectedFile = ref(null)
+const filePreviewUrl = ref('')
+const fileInputRef = ref(null)
+const uploading = ref(false)
+
+function isImageAvatar(av) {
+  if (!av) return false
+  const a = av.trim()
+  return a.startsWith('/') || a.startsWith('http') || a.startsWith('data:')
+}
+
+function triggerFileInput() {
+  if (fileInputRef.value) {
+    fileInputRef.value.click()
+  }
+}
+
+function handleFileSelect(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  if (file.size > 5 * 1024 * 1024) {
+    errorMsg.value = '圖片大小超過 5MB，請挑選較小的相片！'
+    return
+  }
+  selectedFile.value = file
+  if (filePreviewUrl.value) {
+    URL.revokeObjectURL(filePreviewUrl.value)
+  }
+  filePreviewUrl.value = URL.createObjectURL(file)
+  avatar.value = filePreviewUrl.value
+  errorMsg.value = ''
+}
+
+async function uploadSelectedFile() {
+  if (!selectedFile.value || !editingMemberId.value) return
+  uploading.value = true
+  errorMsg.value = ''
+  try {
+    const res = await api.uploadMemberAvatar(editingMemberId.value, selectedFile.value)
+    avatar.value = res.avatar
+    selectedFile.value = null
+    if (authStore.unlockedMemberId === editingMemberId.value) {
+      authStore.updateUnlockedMember({ avatar: res.avatar })
+    }
+    successMsg.value = `✅ 已成功上傳並更換「${name.value}」的專屬相片頭像！`
+    setTimeout(() => { successMsg.value = '' }, 3000)
+    emit('memberUpdated')
+    await loadMembers()
+  } catch (err) {
+    errorMsg.value = err.message || '上傳相片頭像失敗'
+  } finally {
+    uploading.value = false
+  }
+}
 
 // 修改 PIN 碼專用欄位
 const oldPin = ref('')
@@ -144,6 +204,9 @@ function openCreateForm() {
   name.value = ''
   role.value = 'child'
   avatar.value = '🐸'
+  avatarTab.value = 'frog'
+  selectedFile.value = null
+  filePreviewUrl.value = ''
   activeAvatarCategory.value = '熱門精選'
   pinCode.value = ''
   isActive.value = true
@@ -166,6 +229,13 @@ function openEditForm(member) {
   name.value = member.name
   role.value = member.role
   avatar.value = member.avatar || '🐸'
+  selectedFile.value = null
+  filePreviewUrl.value = ''
+  if (isImageAvatar(avatar.value)) {
+    avatarTab.value = avatar.value.includes('/icons/gallery/') ? 'frog' : 'upload'
+  } else {
+    avatarTab.value = 'emoji'
+  }
   const matchedCat = avatarCategories.find(c => c.avatars.includes(avatar.value))
   activeAvatarCategory.value = matchedCat ? matchedCat.name : '熱門精選'
   pinCode.value = ''
@@ -235,11 +305,18 @@ async function handleSave() {
     loading.value = true
     errorMsg.value = ''
     try {
-      await api.updateMemberAvatar(editingMemberId.value, avatar.value)
-      if (authStore.unlockedMemberId === editingMemberId.value) {
-        authStore.updateUnlockedMember({ avatar: avatar.value })
+      let finalAvatar = avatar.value
+      if (selectedFile.value) {
+        const uploadRes = await api.uploadMemberAvatar(editingMemberId.value, selectedFile.value)
+        finalAvatar = uploadRes.avatar
+        selectedFile.value = null
+      } else {
+        await api.updateMemberAvatar(editingMemberId.value, avatar.value)
       }
-      successMsg.value = `✅ 已成功更換「${name.value}」的代表頭像為 ${avatar.value}！`
+      if (authStore.unlockedMemberId === editingMemberId.value) {
+        authStore.updateUnlockedMember({ avatar: finalAvatar })
+      }
+      successMsg.value = `✅ 已成功更換「${name.value}」的代表頭像！`
       setTimeout(() => { successMsg.value = '' }, 3000)
       emit('memberUpdated')
       await loadMembers()
@@ -268,19 +345,29 @@ async function handleSave() {
 
   try {
     if (formMode.value === 'create') {
-      await api.createMember({
+      const created = await api.createMember({
         name: name.value.trim(),
         role: role.value,
-        avatar: avatar.value,
+        avatar: selectedFile.value ? '🐸' : avatar.value,
         pin_code: pinCode.value ? pinCode.value.trim() : (role.value === 'parent' ? null : '0000'),
         parent_pin: authStore.parentPin,
       })
+      if (selectedFile.value) {
+        await api.uploadMemberAvatar(created.id, selectedFile.value)
+        selectedFile.value = null
+      }
       successMsg.value = `✅ 已成功新增家庭成員「${name.value}」！`
     } else {
+      let finalAvatar = avatar.value
+      if (selectedFile.value) {
+        const uploadRes = await api.uploadMemberAvatar(editingMemberId.value, selectedFile.value)
+        finalAvatar = uploadRes.avatar
+        selectedFile.value = null
+      }
       const updated = await api.updateMember(editingMemberId.value, {
         name: name.value.trim(),
         role: role.value,
-        avatar: avatar.value,
+        avatar: finalAvatar,
         pin_code: pinCode.value && pinCode.value.trim() ? pinCode.value.trim() : undefined,
         is_active: isActive.value,
         parent_pin: authStore.parentPin,
@@ -300,7 +387,7 @@ async function handleSave() {
     await loadMembers()
     viewMode.value = 'list'
   } catch (err) {
-    errorMsg.value = err.message || '操作失敗'
+    errorMsg.value = err.message || '儲存成員失敗'
   } finally {
     loading.value = false
   }
@@ -389,13 +476,14 @@ async function handleDelete(member) {
             ]"
           >
             <div class="flex items-center space-x-3">
-              <span
-                class="text-3xl transition"
-                :class="(authStore.isUnlocked && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? 'hover:scale-125' : ''"
+              <MemberAvatar
+                :avatar="m.avatar"
+                size="lg"
+                :alt="m.name"
+                class="transition"
+                :class="(authStore.isUnlocked && (!authStore.isChild || m.id === authStore.unlockedMemberId)) ? 'hover:scale-110' : ''"
                 :title="authStore.isUnlocked ? '點擊更換頭像' : ''"
-              >
-                {{ m.avatar }}
-              </span>
+              />
               <div>
                 <div class="flex items-center space-x-2">
                   <span class="font-bold text-gray-900 text-base leading-tight">{{ m.name }}</span>
@@ -551,60 +639,172 @@ async function handleDelete(member) {
             </div>
           </div>
 
-          <!-- 代表頭像選擇 (無論是否解鎖皆可自由挑選) -->
+          <!-- 代表頭像自訂設定 (三合一：相片上傳、10 款青蛙、Emoji) -->
           <div>
-            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-              {{ authStore.isParent ? `代表頭像 Emoji (目前: ${avatar || '🐸'})` : `為「${name}」選擇代表頭像 (目前: ${avatar || '🐸'})` }}
-            </label>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                {{ authStore.isParent ? '代表頭像自訂' : `為「${name}」設定代表頭像` }}
+              </label>
+              <span class="text-[11px] text-gray-400">支援相片上傳、青蛙公仔與 Emoji</span>
+            </div>
 
-            <!-- 當前頭像預覽與自訂 Emoji 輸入框 -->
-            <div class="flex items-center space-x-3 p-3 bg-frog-50/60 rounded-2xl border border-frog-100 mb-2.5">
-              <div class="w-12 h-12 rounded-2xl bg-white shadow-xs flex items-center justify-center text-3xl border border-frog-200 flex-shrink-0">
-                {{ avatar || '🐸' }}
-              </div>
+            <!-- 當前頭像即時大預覽卡片 -->
+            <div class="flex items-center space-x-3.5 p-3.5 bg-frog-50/70 rounded-2xl border border-frog-200/80 mb-3">
+              <MemberAvatar :avatar="avatar" size="xl" :alt="name" class="shadow-sm" />
               <div class="flex-1 min-w-0">
-                <div class="text-[11px] font-bold text-gray-600 mb-1">
-                  目前選擇圖示（可直接點選下方分類，或在此輸入/貼上任意 Emoji）：
+                <div class="flex items-center space-x-2">
+                  <span class="font-bold text-gray-900 text-sm">目前代表頭像</span>
+                  <span class="text-[10px] bg-frog-500 text-white font-bold px-2 py-0.5 rounded-full">即時預覽</span>
                 </div>
+                <p class="text-xs text-gray-500 mt-0.5 truncate">
+                  {{ isImageAvatar(avatar) ? '已選用自訂相片 / 青蛙造型' : `目前 Emoji：${avatar || '🐸'}` }}
+                </p>
+              </div>
+              <button
+                v-if="avatar !== '🐸'"
+                type="button"
+                @click="avatar = '🐸'; selectedFile = null"
+                class="text-xs text-gray-400 hover:text-red-500 transition px-2 py-1 rounded-lg hover:bg-white cursor-pointer"
+                title="重設為預設青蛙 Emoji"
+              >
+                重設
+              </button>
+            </div>
+
+            <!-- 三合一分頁切換列 -->
+            <div class="flex space-x-1.5 p-1 bg-gray-100 rounded-xl mb-3">
+              <button
+                type="button"
+                @click="avatarTab = 'upload'"
+                class="flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center space-x-1 cursor-pointer"
+                :class="avatarTab === 'upload' ? 'bg-white text-frog-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'"
+              >
+                <span>📸</span>
+                <span>自訂照片上傳</span>
+              </button>
+              <button
+                type="button"
+                @click="avatarTab = 'frog'"
+                class="flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center space-x-1 cursor-pointer"
+                :class="avatarTab === 'frog' ? 'bg-white text-frog-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'"
+              >
+                <span>🐸</span>
+                <span>10 款青蛙公仔</span>
+              </button>
+              <button
+                type="button"
+                @click="avatarTab = 'emoji'"
+                class="flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center space-x-1 cursor-pointer"
+                :class="avatarTab === 'emoji' ? 'bg-white text-frog-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'"
+              >
+                <span>🎨</span>
+                <span>Emoji 選擇庫</span>
+              </button>
+            </div>
+
+            <!-- 【分頁 1：照片上傳】 -->
+            <div v-if="avatarTab === 'upload'" class="space-y-3 p-3 bg-gray-50 rounded-2xl border border-gray-100 mb-2">
+              <div
+                @click="triggerFileInput"
+                class="border-2 border-dashed border-gray-200 hover:border-frog-400 rounded-2xl p-4 text-center cursor-pointer transition bg-white group"
+              >
+                <input
+                  ref="fileInputRef"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  class="hidden"
+                  @change="handleFileSelect"
+                />
+                <div class="space-y-1.5">
+                  <div class="text-3xl group-hover:scale-110 transition-transform">📷</div>
+                  <div class="text-xs font-bold text-gray-700">點擊選取相簿照片或大頭貼</div>
+                  <div class="text-[11px] text-gray-400">支援 JPG、PNG、WebP，系統將自動居中圓形裁切與壓製 (上限 5MB)</div>
+                </div>
+              </div>
+
+              <!-- 選定檔案預覽與上傳確認 -->
+              <div v-if="selectedFile" class="flex items-center justify-between p-2.5 bg-white rounded-xl border border-frog-200 shadow-xs">
+                <div class="flex items-center space-x-2.5 min-w-0">
+                  <img :src="filePreviewUrl" class="w-10 h-10 rounded-full object-cover border border-gray-200 flex-shrink-0" />
+                  <div class="min-w-0 text-xs">
+                    <div class="font-bold text-gray-800 truncate">{{ selectedFile.name }}</div>
+                    <div class="text-[10px] text-gray-400">{{ (selectedFile.size / 1024).toFixed(1) }} KB</div>
+                  </div>
+                </div>
+                <button
+                  v-if="editingMemberId"
+                  type="button"
+                  @click="uploadSelectedFile"
+                  :disabled="uploading"
+                  class="px-3 py-1.5 rounded-lg bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-xs transition flex-shrink-0 cursor-pointer disabled:opacity-50"
+                >
+                  {{ uploading ? '上傳中...' : '📤 立即上傳套用' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 【分頁 2：10 款青蛙公仔庫】 -->
+            <div v-else-if="avatarTab === 'frog'" class="space-y-2 p-3 bg-gray-50 rounded-2xl border border-gray-100 mb-2">
+              <div class="text-[11px] text-gray-500 mb-1">
+                點選以下任一原創 3D 青蛙造型，立即設為個人代表頭像：
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-56 overflow-y-auto pr-1">
+                <button
+                  v-for="frog in themeStore.logoIcons"
+                  :key="frog.id"
+                  type="button"
+                  @click="avatar = frog.src; selectedFile = null"
+                  class="p-2 rounded-xl border-2 transition text-center flex flex-col items-center space-y-1 cursor-pointer"
+                  :class="avatar === frog.src ? 'border-frog-500 bg-frog-50 shadow-xs' : 'border-gray-200 bg-white hover:border-gray-300'"
+                >
+                  <img :src="frog.src" :alt="frog.name" class="w-11 h-11 rounded-xl object-cover shadow-xs" />
+                  <span class="text-[10px] font-bold text-gray-800 truncate w-full">{{ frog.name }}</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 【分頁 3：Emoji 選擇庫與自訂輸入】 -->
+            <div v-else class="space-y-2.5 mb-2">
+              <div class="flex items-center space-x-2">
                 <input
                   v-model="avatar"
                   type="text"
                   maxlength="20"
-                  placeholder="例如 🦁、🦄 或自選 Emoji"
-                  class="w-full px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-sm font-medium focus:outline-none focus:border-frog-500 focus:ring-1 focus:ring-frog-200"
+                  placeholder="或直接鍵盤輸入任意 Emoji / 字母符號"
+                  class="flex-1 px-3 py-2 rounded-xl border border-gray-200 bg-white text-xs font-medium focus:outline-none focus:border-frog-500 focus:ring-1 focus:ring-frog-200"
                 />
               </div>
-            </div>
 
-            <!-- 分類標籤切換列 -->
-            <div class="flex items-center space-x-1.5 overflow-x-auto pb-1 mb-2">
-              <button
-                v-for="cat in avatarCategories"
-                :key="cat.name"
-                type="button"
-                @click="activeAvatarCategory = cat.name"
-                class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center space-x-1 flex-shrink-0 cursor-pointer"
-                :class="activeAvatarCategory === cat.name
-                  ? 'bg-frog-500 text-white shadow-xs'
-                  : 'bg-gray-100 hover:bg-gray-200 text-gray-600'"
-              >
-                <span>{{ cat.icon }}</span>
-                <span>{{ cat.name }}</span>
-              </button>
-            </div>
+              <!-- 分類標籤切換列 -->
+              <div class="flex items-center space-x-1.5 overflow-x-auto pb-1">
+                <button
+                  v-for="cat in avatarCategories"
+                  :key="cat.name"
+                  type="button"
+                  @click="activeAvatarCategory = cat.name"
+                  class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center space-x-1 flex-shrink-0 cursor-pointer"
+                  :class="activeAvatarCategory === cat.name
+                    ? 'bg-frog-500 text-white shadow-xs'
+                    : 'bg-gray-100 hover:bg-gray-200 text-gray-600'"
+                >
+                  <span>{{ cat.icon }}</span>
+                  <span>{{ cat.name }}</span>
+                </button>
+              </div>
 
-            <!-- 圖示方格選擇區 -->
-            <div class="flex flex-wrap gap-2 mb-2 p-3 bg-gray-50 rounded-2xl border border-gray-100 max-h-48 overflow-y-auto">
-              <button
-                v-for="av in displayedAvatars"
-                :key="av"
-                type="button"
-                @click="avatar = av"
-                class="w-10 h-10 rounded-xl flex items-center justify-center text-2xl transition hover:scale-110 cursor-pointer"
-                :class="avatar === av ? 'bg-frog-200 ring-2 ring-frog-500 shadow-inner' : 'hover:bg-white bg-white/70 shadow-xs'"
-              >
-                {{ av }}
-              </button>
+              <!-- Emoji 方格選擇區 -->
+              <div class="flex flex-wrap gap-2 p-3 bg-gray-50 rounded-2xl border border-gray-100 max-h-44 overflow-y-auto">
+                <button
+                  v-for="av in displayedAvatars"
+                  :key="av"
+                  type="button"
+                  @click="avatar = av; selectedFile = null"
+                  class="w-10 h-10 rounded-xl flex items-center justify-center text-2xl transition hover:scale-110 cursor-pointer"
+                  :class="avatar === av ? 'bg-frog-200 ring-2 ring-frog-500 shadow-inner' : 'hover:bg-white bg-white/70 shadow-xs'"
+                >
+                  {{ av }}
+                </button>
+              </div>
             </div>
           </div>
 

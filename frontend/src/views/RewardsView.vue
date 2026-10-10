@@ -3,6 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import MemberPinModal from '@/components/MemberPinModal.vue'
+import MemberAvatar from '@/components/MemberAvatar.vue'
 
 const authStore = useAuthStore()
 
@@ -313,7 +314,7 @@ async function handlePermanentDeleteItem(item) {
                 : 'bg-gray-100 hover:bg-gray-200 text-gray-700 cursor-pointer')
           ]"
         >
-          <span>{{ m.avatar }}</span>
+          <MemberAvatar :avatar="m.avatar" :name="m.name" size="xs" />
           <span>{{ m.name }}</span>
         </button>
       </div>

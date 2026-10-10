@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { api } from '@/services/api'
+import MemberAvatar from '@/components/MemberAvatar.vue'
 
 const props = defineProps({
   show: Boolean,
@@ -102,9 +103,7 @@ function handleKeydown(e) {
     >
       <!-- 頭像與圖示 -->
       <div class="relative w-16 h-16 mx-auto mb-3">
-        <div class="w-16 h-16 bg-frog-100 rounded-full flex items-center justify-center text-3xl shadow-inner">
-          {{ member?.avatar || '🐸' }}
-        </div>
+        <MemberAvatar :avatar="member?.avatar" :name="member?.name" size="xl" class="mx-auto shadow-inner" />
         <div class="absolute -bottom-1 -right-1 w-6 h-6 bg-white rounded-full shadow-sm flex items-center justify-center text-xs border border-gray-100">
           🔑
         </div>

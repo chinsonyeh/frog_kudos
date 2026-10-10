@@ -1,6 +1,11 @@
 import uuid
+import os
+import time
+import io
+from pathlib import Path
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from PIL import Image, ImageOps
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from app.core.database import get_db
@@ -123,6 +128,78 @@ async def update_member_avatar(
     if not member:
         raise HTTPException(status_code=404, detail="成員不存在")
     member.avatar = avatar_in.avatar
+    await db.commit()
+    await db.refresh(member)
+    return member
+
+@router.post("/{member_id}/avatar-upload", response_model=MemberOut)
+async def upload_member_avatar(
+    member_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    上傳自訂頭像照片 (支援相簿圖片、大頭貼)
+    - 檢查檔案大小與圖片格式 (jpg, png, webp, heic 等)
+    - 使用 Pillow 自動正方形裁切並縮小至 256x256 WebP
+    - 自動清除該成員過去上傳的舊圖檔
+    - 更新 member.avatar 為 /uploads/avatars/{member_id}_{timestamp}.webp
+    """
+    member = await db.get(Member, member_id)
+    if not member or not member.is_active:
+        raise HTTPException(status_code=404, detail="成員不存在或已停用")
+
+    # 1. 檢查檔案格式
+    valid_content_types = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic"]
+    content_type = file.content_type or ""
+    if content_type not in valid_content_types and not any(file.filename.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"]):
+        raise HTTPException(status_code=400, detail="僅支援 JPG、PNG、WebP 等圖片格式")
+
+    # 2. 讀取並檢查檔案大小 (上限 5MB)
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="圖片檔案過大，請選擇 5MB 以內的照片")
+
+    # 3. 使用 Pillow 讀取並處理旋轉與正方形中心裁切
+    try:
+        image = Image.open(io.BytesIO(contents))
+        image = ImageOps.exif_transpose(image)
+        image = image.convert("RGB")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"無法解析圖片檔案：{e}")
+
+    width, height = image.size
+    min_dim = min(width, height)
+    left = (width - min_dim) // 2
+    top = (height - min_dim) // 2
+    right = left + min_dim
+    bottom = top + min_dim
+    cropped = image.crop((left, top, right, bottom))
+    resized = cropped.resize((256, 256), Image.Resampling.LANCZOS)
+
+    # 4. 準備儲存目錄
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    avatars_dir = root_dir / "uploads" / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+
+    # 5. 清理舊頭像檔案 (如果之前上傳過此成員的圖)
+    if member.avatar and member.avatar.startswith("/uploads/avatars/"):
+        old_filename = Path(member.avatar).name
+        old_file = avatars_dir / old_filename
+        if old_file.exists() and old_file.is_file():
+            try:
+                old_file.unlink()
+            except Exception:
+                pass
+
+    # 6. 輸出新檔案
+    timestamp = int(time.time())
+    new_filename = f"{member_id}_{timestamp}.webp"
+    save_path = avatars_dir / new_filename
+    resized.save(save_path, "WEBP", quality=85, optimize=True)
+
+    # 7. 更新資料庫
+    member.avatar = f"/uploads/avatars/{new_filename}"
     await db.commit()
     await db.refresh(member)
     return member

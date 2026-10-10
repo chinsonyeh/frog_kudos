@@ -23,4 +23,8 @@ frontend/dist/
 # Test caches
 .pytest_cache/
 
+# User Uploads
+uploads/*
+!uploads/avatars/.gitkeep
+
 .DS_Store

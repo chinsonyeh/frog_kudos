@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { api } from '@/services/api'
+import MemberAvatar from '@/components/MemberAvatar.vue'
 
 const props = defineProps({
   show: Boolean,
@@ -168,9 +169,7 @@ function handleKeydown(e) {
             class="w-full p-3.5 rounded-2xl border-2 border-gray-100 hover:border-frog-400 bg-gray-50/60 hover:bg-frog-50/40 active:scale-98 transition flex items-center justify-between text-left cursor-pointer group shadow-sm"
           >
             <div class="flex items-center space-x-3">
-              <div class="w-12 h-12 rounded-2xl bg-white border border-gray-100 flex items-center justify-center text-2xl shadow-sm group-hover:scale-110 transition">
-                {{ m.avatar }}
-              </div>
+              <MemberAvatar :avatar="m.avatar" :name="m.name" size="lg" class="shadow-sm group-hover:scale-105 transition flex-shrink-0" />
               <div>
                 <div class="font-bold text-gray-800 text-base leading-tight">{{ m.name }}</div>
                 <div class="text-[11px] font-semibold mt-0.5" :class="m.role === 'parent' ? 'text-amber-600' : 'text-frog-600'">
@@ -208,8 +207,9 @@ function handleKeydown(e) {
           <span>切換角色</span>
         </button>
 
-        <div class="w-16 h-16 bg-frog-100 rounded-full flex items-center justify-center mx-auto mb-3 text-3xl shadow-inner">
-          {{ selectedMember ? selectedMember.avatar : '🔐' }}
+        <div class="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 shadow-inner overflow-hidden" :class="selectedMember ? '' : 'bg-frog-100 text-3xl'">
+          <MemberAvatar v-if="selectedMember" :avatar="selectedMember.avatar" :name="selectedMember.name" size="xl" />
+          <span v-else>🔐</span>
         </div>
         <h3 class="text-xl font-bold text-gray-800 mb-0.5">
           {{ selectedMember ? `「${selectedMember.name}」身分解鎖` : '家長安全管理鎖' }}

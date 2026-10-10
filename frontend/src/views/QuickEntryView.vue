@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { triggerConfetti } from '@/components/Confetti'
 import BadgeUnlockModal from '@/components/BadgeUnlockModal.vue'
 import MemberPinModal from '@/components/MemberPinModal.vue'
+import MemberAvatar from '@/components/MemberAvatar.vue'
 
 const authStore = useAuthStore()
 
@@ -342,7 +343,9 @@ async function executeKudosSubmit(data) {
                 : 'cursor-pointer border-gray-100 hover:border-gray-200 bg-gray-50/50 hover:bg-gray-50')
           ]"
         >
-          <div class="text-4xl mb-2">{{ m.avatar }}</div>
+          <div class="mb-2">
+            <MemberAvatar :avatar="m.avatar" :name="m.name" size="xl" />
+          </div>
           <span class="font-bold text-gray-800 text-base leading-tight">{{ m.name }}</span>
           <span class="text-xs text-frog-700 font-semibold mt-1">🪙 {{ m.current_points }} 點</span>
 

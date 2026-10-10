@@ -6,20 +6,20 @@ from pydantic import BaseModel, Field
 class MemberCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
     role: str = Field(default="child", pattern="^(parent|child)$")
-    avatar: str = Field(default="🐸", max_length=100)
+    avatar: str = Field(default="🐸", max_length=255)
     pin_code: Optional[str] = Field(default=None, description="成員 4 碼 PIN 碼 (預設 0000)")
     parent_pin: Optional[str] = None
 
 class MemberUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=50)
     role: Optional[str] = Field(default=None, pattern="^(parent|child)$")
-    avatar: Optional[str] = Field(default=None, max_length=100)
+    avatar: Optional[str] = Field(default=None, max_length=255)
     pin_code: Optional[str] = None
     is_active: Optional[bool] = None
     parent_pin: Optional[str] = None
 
 class MemberAvatarUpdate(BaseModel):
-    avatar: str = Field(..., min_length=1, max_length=100)
+    avatar: str = Field(..., min_length=1, max_length=255)
 
 class MemberChangePinIn(BaseModel):
     old_pin: Optional[str] = None

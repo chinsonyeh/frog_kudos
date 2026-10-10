@@ -991,5 +991,59 @@ async def test_custom_pin_security_and_default_pin_invalidation():
             await db.commit()
 
 
+@pytest.mark.asyncio
+async def test_member_avatar_update_and_upload():
+    import io
+    from PIL import Image
+    from app.main import UPLOADS_DIR
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        child = await create_isolated_test_child(client, "AvatarTester")
+        child_id = child["id"]
+        uploaded_filepath = None
+        try:
+            # 1. 測試任意 Emoji 或文字頭像更新
+            patch_res = await client.patch(
+                f"/api/members/{child_id}/avatar",
+                json={"avatar": "🎉"},
+            )
+            assert patch_res.status_code == 200
+            assert patch_res.json()["avatar"] == "🎉"
+
+            # 2. 測試 10 款原創青蛙公仔庫路徑更新
+            gallery_res = await client.patch(
+                f"/api/members/{child_id}/avatar",
+                json={"avatar": "/icons/gallery/icon_4_vector.jpg"},
+            )
+            assert gallery_res.status_code == 200
+            assert gallery_res.json()["avatar"] == "/icons/gallery/icon_4_vector.jpg"
+
+            # 3. 測試本地照片上傳、自動縮放壓製為 WebP
+            img_byte_arr = io.BytesIO()
+            test_img = Image.new("RGB", (300, 200), color="green")
+            test_img.save(img_byte_arr, format="PNG")
+            img_bytes = img_byte_arr.getvalue()
+
+            upload_res = await client.post(
+                f"/api/members/{child_id}/avatar-upload",
+                files={"file": ("avatar.png", img_bytes, "image/png")},
+            )
+            assert upload_res.status_code == 200
+            new_avatar = upload_res.json()["avatar"]
+            assert new_avatar.startswith("/uploads/avatars/")
+            assert new_avatar.endswith(".webp")
+
+            # 驗證實體檔案存在且可讀取
+            filename = new_avatar.replace("/uploads/avatars/", "")
+            uploaded_filepath = UPLOADS_DIR / "avatars" / filename
+            assert uploaded_filepath.exists()
+
+        finally:
+            if uploaded_filepath and uploaded_filepath.exists():
+                uploaded_filepath.unlink(missing_ok=True)
+            await cleanup_test_child(client, child_id)
+
+
+
 
 

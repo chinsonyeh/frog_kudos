@@ -12,7 +12,7 @@ class Member(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="child")  # 'parent' | 'child'
-    avatar: Mapped[str] = mapped_column(String(100), default="🐸")
+    avatar: Mapped[str] = mapped_column(String(255), default="🐸")
     current_points: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_earned_points: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     pin_code: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)

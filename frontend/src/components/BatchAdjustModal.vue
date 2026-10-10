@@ -168,7 +168,7 @@ async function submitBatchAdjust() {
             class="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-frog-500 font-medium text-sm transition"
           >
             <option v-for="m in members" :key="m.id" :value="m.id">
-              {{ m.avatar }} {{ m.name }} (目前餘額: {{ m.current_points }} 點)
+              {{ (m.avatar?.startsWith('/') || m.avatar?.startsWith('http')) ? '👤' : (m.avatar || '👤') }} {{ m.name }} (目前餘額: {{ m.current_points }} 點)
             </option>
           </select>
         </div>

@@ -126,7 +126,11 @@ async def serve_manifest():
         content={"error": "Manifest not found. Frontend dist has not been generated yet."},
     )
 
-# 7. 靜態資源掛載 (如果已編譯 frontend/dist)
+# 7. 靜態資源與自訂上傳檔案掛載
+UPLOADS_DIR = ROOT_DIR / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+
 if (FRONTEND_DIST / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
 

@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(50) NOT NULL UNIQUE,
     role VARCHAR(20) NOT NULL DEFAULT 'child',
-    avatar VARCHAR(100) DEFAULT '🐸',
+    avatar VARCHAR(255) DEFAULT '🐸',
     current_points INTEGER NOT NULL DEFAULT 0 CHECK (current_points >= 0),
     total_earned_points INTEGER NOT NULL DEFAULT 0 CHECK (total_earned_points >= 0),
     pin_code VARCHAR(60),

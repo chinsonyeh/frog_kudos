@@ -57,6 +57,11 @@ export const api = {
     request(`/members/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   updateMemberAvatar: (id, avatar) =>
     request(`/members/${id}/avatar`, { method: 'PATCH', body: JSON.stringify({ avatar }) }),
+  uploadMemberAvatar: (id, file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return request(`/members/${id}/avatar-upload`, { method: 'POST', body: formData })
+  },
   changeMemberPin: (id, data) =>
     request(`/members/${id}/change-pin`, { method: 'POST', body: JSON.stringify(data) }),
   deleteMember: (id, pin) =>
