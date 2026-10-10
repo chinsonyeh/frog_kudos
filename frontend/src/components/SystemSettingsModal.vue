@@ -22,7 +22,7 @@ const backupLoading = ref(false)
 const backupSuccessMsg = ref('')
 
 // Tab 2: 版本與升級
-const versionInfo = ref({ current_version: 'v1.0.1', latest_version: null, has_update: false, release_notes: '', download_url: null })
+const versionInfo = ref({ current_version: 'v1.0.2', latest_version: null, has_update: false, release_notes: '', download_url: null })
 const checkingVersion = ref(false)
 const upgrading = ref(false)
 const upgradeStatus = ref({ status: 'IDLE', progress: 0, current_step: '待命中', logs: [] })
