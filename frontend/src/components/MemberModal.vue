@@ -81,20 +81,21 @@ function handleFileSelect(event) {
 }
 
 async function handleCropped({ blob, dataUrl, file }) {
+  if (!editingMemberId.value) return
   showCropper.value = false
   uploading.value = true
   errorMsg.value = ''
   try {
-    // 立即將裁切壓製後之圖片上傳並保存至歷史相片庫
-    const res = await api.uploadCustomAvatarToGallery(file)
+    // 立即將裁切壓製後之圖片上傳並保存至此成員個人專屬的相片庫
+    const res = await api.uploadCustomAvatarToGallery(editingMemberId.value, file)
     latestUploadedAvatar.value = res
-    // 重新整理歷史相片庫列表，剛上傳之相片立即呈現在列表中第一位
-    await loadCustomAvatars()
+    // 重新整理此成員的個人相片庫列表
+    await loadCustomAvatars(editingMemberId.value)
     // 注意：尚不要套用，維持 avatar.value 不變！
-    successMsg.value = '✅ 相片已裁切並加入自訂相片庫！點選相片或點擊「立即套用」即可生效。'
+    successMsg.value = '✅ 相片已裁切並加入個人相片庫！點選相片或點擊「立即套用」即可生效。'
     setTimeout(() => { successMsg.value = '' }, 4000)
   } catch (err) {
-    errorMsg.value = err.message || '相片處理並加入相片庫失敗'
+    errorMsg.value = err.message || '相片處理並加入個人相片庫失敗'
   } finally {
     uploading.value = false
   }
@@ -103,7 +104,7 @@ async function handleCropped({ blob, dataUrl, file }) {
 async function applyAvatar(targetUrl) {
   avatar.value = targetUrl
   // 若處於編輯既有成員模式，立即儲存更新至資料庫
-  if (editingMemberId.value) {
+  if (editingMemberId.value && formMode.value !== 'create') {
     loading.value = true
     errorMsg.value = ''
     try {
@@ -128,30 +129,36 @@ async function applyAvatar(targetUrl) {
   }
 }
 
-// 自訂頭像相片庫狀態 (上限 100 個)
+// 個人自訂頭像相片庫狀態 (每人上限 100 個)
 const customAvatars = ref([])
 const customAvatarsCount = ref(0)
 const customAvatarsMax = ref(100)
 const loadingGallery = ref(false)
 
-async function loadCustomAvatars() {
+async function loadCustomAvatars(targetMemberId = null) {
+  const mId = targetMemberId || editingMemberId.value
+  if (!mId) {
+    customAvatars.value = []
+    customAvatarsCount.value = 0
+    return
+  }
   loadingGallery.value = true
   try {
-    const res = await api.getCustomAvatarsGallery()
+    const res = await api.getCustomAvatarsGallery(mId)
     customAvatars.value = res.avatars || []
     customAvatarsCount.value = res.total || 0
     customAvatarsMax.value = res.max_allowed || 100
   } catch (err) {
-    console.error('載入歷史頭像庫失敗:', err)
+    console.error('載入個人歷史頭像庫失敗:', err)
   } finally {
     loadingGallery.value = false
   }
 }
 
 async function handleDeleteCustomAvatar(item) {
-  if (!confirm(`確定要從自訂頭像庫刪除這張相片嗎？`)) return
+  if (!confirm(`確定要從個人自訂頭像庫刪除這張相片嗎？`)) return
   try {
-    await api.deleteCustomAvatar(item.filename)
+    await api.deleteCustomAvatar(editingMemberId.value, item.filename)
     if (avatar.value === item.url) {
       avatar.value = '🐸'
     }
@@ -161,7 +168,7 @@ async function handleDeleteCustomAvatar(item) {
     if (latestUploadedAvatar.value && latestUploadedAvatar.value.filename === item.filename) {
       latestUploadedAvatar.value = null
     }
-    await loadCustomAvatars()
+    await loadCustomAvatars(editingMemberId.value)
     await loadMembers()
     emit('memberUpdated')
   } catch (err) {
@@ -171,8 +178,8 @@ async function handleDeleteCustomAvatar(item) {
 
 // 監聽分頁切換，若切換至相片上傳則載入相片庫
 watch(avatarTab, (newTab) => {
-  if (newTab === 'upload') {
-    loadCustomAvatars()
+  if (newTab === 'upload' && editingMemberId.value) {
+    loadCustomAvatars(editingMemberId.value)
   }
 })
 
@@ -306,7 +313,9 @@ async function loadMembers() {
 function openCreateForm() {
   if (!authStore.isParent) return // 未解鎖時禁止新增成員
   formMode.value = 'create'
-  editingMemberId.value = null
+  editingMemberId.value = crypto.randomUUID()
+  customAvatars.value = []
+  customAvatarsCount.value = 0
   name.value = ''
   role.value = 'child'
   avatar.value = '🐸'
@@ -356,6 +365,7 @@ function openEditForm(member) {
   pinCode.value = ''
   isActive.value = member.is_active
   errorMsg.value = ''
+  loadCustomAvatars(member.id)
   viewMode.value = 'form'
 }
 
@@ -456,6 +466,7 @@ async function handleSave() {
   try {
     if (formMode.value === 'create') {
       const created = await api.createMember({
+        id: editingMemberId.value,
         name: name.value.trim(),
         role: role.value,
         avatar: avatar.value,
@@ -903,7 +914,7 @@ async function handleDelete(member) {
                 <div class="flex items-center justify-between text-xs font-bold text-gray-700">
                   <span class="flex items-center space-x-1.5">
                     <span>🖼️</span>
-                    <span>已儲存的自訂相片庫</span>
+                    <span>「{{ name || '此成員' }}」的個人相片庫</span>
                   </span>
                   <span class="font-mono text-[11px]" :class="customAvatarsCount >= 100 ? 'text-red-600 font-black' : 'text-gray-400'">
                     {{ customAvatarsCount }} / {{ customAvatarsMax }} 張
@@ -912,7 +923,7 @@ async function handleDelete(member) {
 
                 <!-- 達到 100 個上限警告 -->
                 <div v-if="customAvatarsCount >= 100" class="p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-semibold text-left">
-                  ⚠️ 已達 100 個儲存上限！請點選右上角 ✕ 刪除不需要的舊頭像以釋出空間。
+                  ⚠️ 此成員專屬相片庫已達 100 個上限！請點選右上角 ✕ 刪除不需要的舊頭像以釋出空間。
                 </div>
 
                 <!-- 頭像清單 (縮圖網格) -->
@@ -944,7 +955,7 @@ async function handleDelete(member) {
                   </div>
                 </div>
                 <div v-else class="text-center py-4 text-xs text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
-                  尚無儲存的自訂頭像，每次上傳裁切後皆會自動保存於此（上限 100 張）
+                  尚無儲存的個人自訂頭像，每次上傳裁切後皆會保存於此成員專屬庫中（每人上限 100 張）
                 </div>
               </div>
             </div>

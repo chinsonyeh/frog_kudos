@@ -1033,12 +1033,12 @@ async def test_member_avatar_update_and_upload():
             assert new_avatar.startswith("/uploads/avatars/")
             assert new_avatar.endswith(".webp")
 
-            filename = new_avatar.replace("/uploads/avatars/", "")
-            uploaded_filepath = UPLOADS_DIR / "avatars" / filename
+            filename = new_avatar.split("/")[-1]
+            uploaded_filepath = UPLOADS_DIR / "avatars" / child_id / filename
             assert uploaded_filepath.exists()
 
-            # 4. 測試頭像庫列表 API (GET /api/members/avatars/gallery)
-            gallery_list_res = await client.get("/api/members/avatars/gallery")
+            # 4. 測試頭像庫列表 API (GET /api/members/{child_id}/avatars/gallery)
+            gallery_list_res = await client.get(f"/api/members/{child_id}/avatars/gallery")
             assert gallery_list_res.status_code == 200
             gallery_data = gallery_list_res.json()
             assert "total" in gallery_data
@@ -1058,14 +1058,14 @@ async def test_member_avatar_update_and_upload():
             new_avatar2 = upload_res2.json()["avatar"]
             assert new_avatar2 != new_avatar
 
-            filename2 = new_avatar2.replace("/uploads/avatars/", "")
-            uploaded_filepath2 = UPLOADS_DIR / "avatars" / filename2
+            filename2 = new_avatar2.split("/")[-1]
+            uploaded_filepath2 = UPLOADS_DIR / "avatars" / child_id / filename2
             assert uploaded_filepath.exists()  # 舊圖依然存在
             assert uploaded_filepath2.exists()  # 新圖亦被保存
 
-            # 6. 測試刪除頭像 (DELETE /api/members/avatars/gallery/{filename})
+            # 6. 測試刪除頭像 (DELETE /api/members/{child_id}/avatars/gallery/{filename2})
             # 刪除 new_avatar2，該成員的 avatar 應自動復原為 '🐸'
-            del_res = await client.delete(f"/api/members/avatars/gallery/{filename2}")
+            del_res = await client.delete(f"/api/members/{child_id}/avatars/gallery/{filename2}")
             assert del_res.status_code == 200
             assert not uploaded_filepath2.exists()
 
@@ -1075,20 +1075,20 @@ async def test_member_avatar_update_and_upload():
             assert target_child is not None
             assert target_child["avatar"] == "🐸"
 
-            # 7. 測試相片上傳至相片庫但不立即套用 (POST /api/members/avatars/gallery/upload)
+            # 7. 測試相片上傳至相片庫但不立即套用 (POST /api/members/{child_id}/avatars/gallery/upload)
             img_byte_arr3 = io.BytesIO()
             test_img3 = Image.new("RGB", (250, 250), color="orange")
             test_img3.save(img_byte_arr3, format="PNG")
             upload_gallery_res = await client.post(
-                "/api/members/avatars/gallery/upload",
+                f"/api/members/{child_id}/avatars/gallery/upload",
                 files={"file": ("gallery_avatar.png", img_byte_arr3.getvalue(), "image/png")},
             )
             assert upload_gallery_res.status_code == 200
             gallery_avatar_data = upload_gallery_res.json()
             assert "url" in gallery_avatar_data
             assert "filename" in gallery_avatar_data
-            assert gallery_avatar_data["url"].startswith("/uploads/avatars/custom_")
-            uploaded_filepath3 = UPLOADS_DIR / "avatars" / gallery_avatar_data["filename"]
+            assert gallery_avatar_data["url"].startswith(f"/uploads/avatars/{child_id}/")
+            uploaded_filepath3 = UPLOADS_DIR / "avatars" / child_id / gallery_avatar_data["filename"]
             assert uploaded_filepath3.exists()
 
             # 驗證成員當前頭像「尚未被套用」，依然保持為 🐸
@@ -1097,7 +1097,7 @@ async def test_member_avatar_update_and_upload():
             assert target_child2["avatar"] == "🐸"
 
             # 驗證相片已出現在相片庫清單中
-            gallery_list_res2 = await client.get("/api/members/avatars/gallery")
+            gallery_list_res2 = await client.get(f"/api/members/{child_id}/avatars/gallery")
             assert gallery_list_res2.status_code == 200
             urls2 = [item["url"] for item in gallery_list_res2.json()["avatars"]]
             assert gallery_avatar_data["url"] in urls2
@@ -1116,7 +1116,7 @@ async def test_member_avatar_update_and_upload():
             assert target_child3["avatar"] == gallery_avatar_data["url"]
 
             # 刪除測試相片
-            del_gallery_res = await client.delete(f"/api/members/avatars/gallery/{gallery_avatar_data['filename']}")
+            del_gallery_res = await client.delete(f"/api/members/{child_id}/avatars/gallery/{gallery_avatar_data['filename']}")
             assert del_gallery_res.status_code == 200
             assert not uploaded_filepath3.exists()
 
@@ -1127,7 +1127,140 @@ async def test_member_avatar_update_and_upload():
                 uploaded_filepath2.unlink(missing_ok=True)
             if 'uploaded_filepath3' in locals() and uploaded_filepath3 and uploaded_filepath3.exists():
                 uploaded_filepath3.unlink(missing_ok=True)
+            (UPLOADS_DIR / "avatars" / child_id).rmdir() if (UPLOADS_DIR / "avatars" / child_id).exists() else None
             await cleanup_test_child(client, child_id)
+
+
+@pytest.mark.asyncio
+async def test_per_member_isolated_custom_avatar_gallery_flow():
+    """驗證每位成員擁有專屬獨立的自訂頭像相片庫 (不跨成員共用，各成員上限 100 張)"""
+    import io
+    import uuid
+    from PIL import Image
+    from app.main import UPLOADS_DIR
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        alice = await create_isolated_test_child(client, "AliceGallery")
+        bob = await create_isolated_test_child(client, "BobGallery")
+        alice_id = alice["id"]
+        bob_id = bob["id"]
+
+        alice_files = []
+        bob_files = []
+
+        try:
+            # 1. 初始狀態：Alice 與 Bob 的相片庫皆應為空
+            alice_gal_res = await client.get(f"/api/members/{alice_id}/avatars/gallery")
+            assert alice_gal_res.status_code == 200
+            assert alice_gal_res.json()["total"] == 0
+            assert alice_gal_res.json()["member_id"] == alice_id
+
+            bob_gal_res = await client.get(f"/api/members/{bob_id}/avatars/gallery")
+            assert bob_gal_res.status_code == 200
+            assert bob_gal_res.json()["total"] == 0
+            assert bob_gal_res.json()["member_id"] == bob_id
+
+            # 2. Alice 上傳照片至其個人相片庫
+            buf_a = io.BytesIO()
+            img_a = Image.new("RGB", (180, 180), color="pink")
+            img_a.save(buf_a, format="PNG")
+            upload_a_res = await client.post(
+                f"/api/members/{alice_id}/avatars/gallery/upload",
+                files={"file": ("alice_pic.png", buf_a.getvalue(), "image/png")},
+            )
+            assert upload_a_res.status_code == 200
+            data_a = upload_a_res.json()
+            assert data_a["member_id"] == alice_id
+            assert f"/uploads/avatars/{alice_id}/" in data_a["url"]
+            alice_files.append(data_a["filename"])
+
+            # 3. 隔離驗證：Alice 的相片庫有 1 張，Bob 的相片庫依然為 0 張
+            alice_gal2 = await client.get(f"/api/members/{alice_id}/avatars/gallery")
+            assert alice_gal2.json()["total"] == 1
+            assert alice_gal2.json()["avatars"][0]["filename"] == data_a["filename"]
+
+            bob_gal2 = await client.get(f"/api/members/{bob_id}/avatars/gallery")
+            assert bob_gal2.json()["total"] == 0
+            assert len(bob_gal2.json()["avatars"]) == 0
+
+            # 4. Bob 上傳照片至其個人相片庫
+            buf_b = io.BytesIO()
+            img_b = Image.new("RGB", (180, 180), color="purple")
+            img_b.save(buf_b, format="PNG")
+            upload_b_res = await client.post(
+                f"/api/members/{bob_id}/avatars/gallery/upload",
+                files={"file": ("bob_pic.png", buf_b.getvalue(), "image/png")},
+            )
+            assert upload_b_res.status_code == 200
+            data_b = upload_b_res.json()
+            assert data_b["member_id"] == bob_id
+            assert f"/uploads/avatars/{bob_id}/" in data_b["url"]
+            bob_files.append(data_b["filename"])
+
+            # 5. 隔離驗證：Bob 僅看到自己的照片，看不到 Alice 的照片
+            bob_gal3 = await client.get(f"/api/members/{bob_id}/avatars/gallery")
+            assert bob_gal3.json()["total"] == 1
+            bob_urls = [it["url"] for it in bob_gal3.json()["avatars"]]
+            assert data_b["url"] in bob_urls
+            assert data_a["url"] not in bob_urls
+
+            # 6. Alice 套用照片為頭像
+            apply_a = await client.patch(f"/api/members/{alice_id}/avatar", json={"avatar": data_a["url"]})
+            assert apply_a.status_code == 200
+            assert apply_a.json()["avatar"] == data_a["url"]
+
+            # 7. Alice 刪除個人相片庫中的相片
+            del_a = await client.delete(f"/api/members/{alice_id}/avatars/gallery/{data_a['filename']}")
+            assert del_a.status_code == 200
+
+            # Alice 的頭像自動復原為 🐸，Alice 的相片庫變為 0
+            m_res = await client.get("/api/members")
+            alice_after = next(m for m in m_res.json() if m["id"] == alice_id)
+            assert alice_after["avatar"] == "🐸"
+
+            alice_gal4 = await client.get(f"/api/members/{alice_id}/avatars/gallery")
+            assert alice_gal4.json()["total"] == 0
+
+            # 8. 隔離驗證：Bob 的相片庫與檔案毫髮無傷
+            bob_gal4 = await client.get(f"/api/members/{bob_id}/avatars/gallery")
+            assert bob_gal4.json()["total"] == 1
+            bob_file_path = UPLOADS_DIR / "avatars" / bob_id / data_b["filename"]
+            assert bob_file_path.exists()
+
+            # 9. 測試新增成員時預先配置 UUID (MemberCreate with explicit id)
+            preassigned_id = str(uuid.uuid4())
+            new_member_res = await client.post(
+                "/api/members",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "id": preassigned_id,
+                    "name": "PreassignedChild",
+                    "role": "child",
+                    "avatar": "🐸",
+                    "pin_code": "0000",
+                },
+            )
+            assert new_member_res.status_code == 200
+            created_data = new_member_res.json()
+            assert created_data["id"] == preassigned_id
+
+            # 清理預先配置成員
+            await cleanup_test_child(client, preassigned_id)
+
+        finally:
+            for fn in alice_files:
+                f_path = UPLOADS_DIR / "avatars" / alice_id / fn
+                f_path.unlink(missing_ok=True)
+            for fn in bob_files:
+                f_path = UPLOADS_DIR / "avatars" / bob_id / fn
+                f_path.unlink(missing_ok=True)
+            # 移除成員目錄 (若為空)
+            (UPLOADS_DIR / "avatars" / alice_id).rmdir() if (UPLOADS_DIR / "avatars" / alice_id).exists() else None
+            (UPLOADS_DIR / "avatars" / bob_id).rmdir() if (UPLOADS_DIR / "avatars" / bob_id).exists() else None
+
+            await cleanup_test_child(client, alice_id)
+            await cleanup_test_child(client, bob_id)
+
 
 
 

@@ -22,92 +22,16 @@ router = APIRouter(prefix="/members", tags=["Members"])
 
 MAX_CUSTOM_AVATARS = 100
 
-@router.get("/avatars/gallery")
-async def list_custom_avatars():
-    """列出所有已儲存的自訂頭像列表 (上限 100 個)，按時間由新到舊排序"""
-    root_dir = Path(__file__).resolve().parent.parent.parent
-    avatars_dir = root_dir / "uploads" / "avatars"
-    avatars_dir.mkdir(parents=True, exist_ok=True)
-
-    files = [f for f in avatars_dir.glob("*.webp") if f.is_file()]
-    files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-
-    items = []
-    for f in files:
-        stat = f.stat()
-        items.append({
-            "url": f"/uploads/avatars/{f.name}",
-            "filename": f.name,
-            "size_kb": round(stat.st_size / 1024, 1),
-            "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-        })
-
-    return {
-        "total": len(items),
-        "max_allowed": MAX_CUSTOM_AVATARS,
-        "avatars": items,
-    }
-
-@router.delete("/avatars/gallery/{filename}")
-async def delete_custom_avatar(
-    filename: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """刪除指定之自訂頭像，若有成員正在使用該圖檔，則將其頭像自動重設為預設青蛙"""
-    if not filename.endswith(".webp") or "/" in filename or "\\" in filename or ".." in filename:
-        raise HTTPException(status_code=400, detail="無效的頭像檔案名稱")
-
-    root_dir = Path(__file__).resolve().parent.parent.parent
-    avatars_dir = root_dir / "uploads" / "avatars"
-    target_file = avatars_dir / filename
-
-    if not target_file.exists() or not target_file.is_file():
-        raise HTTPException(status_code=404, detail="找不到欲刪除的頭像檔案")
-
-    try:
-        target_file.unlink()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"無法刪除檔案：{e}")
-
-    # 同步更新正在使用此頭像的成員，改為預設 🐸
-    avatar_url = f"/uploads/avatars/{filename}"
-    res = await db.execute(select(Member).where(Member.avatar == avatar_url))
-    affected_members = res.scalars().all()
-    for m in affected_members:
-        m.avatar = "🐸"
-    if affected_members:
-        await db.commit()
-
-    return {
-        "success": True,
-        "message": f"已成功刪除頭像 {filename}",
-        "affected_members": len(affected_members),
-    }
-
-@router.post("/avatars/gallery/upload")
-async def upload_gallery_avatar(
-    file: UploadFile = File(...),
-):
-    """
-    上傳自訂頭像照片至歷史相片庫 (不立即套用至成員):
-    - 檢查檔案大小與圖片格式 (jpg, png, webp, gif, heic 等)
-    - 使用 Pillow 正方形置中裁切並壓縮為 256x256 WebP
-    - 檢查上限 (最多 100 個)
-    - 儲存至 uploads/avatars/，回傳相片 URL 與詳細資訊
-    """
-    # 1. 檢查檔案格式
+def _validate_image_file(file: UploadFile, contents: bytes):
     valid_content_types = ["image/jpeg", "image/png", "image/webp", "image/gif"]
     content_type = file.content_type or ""
     filename = (file.filename or "").lower()
     if content_type not in valid_content_types and not any(filename.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]):
         raise HTTPException(status_code=400, detail="僅支援 JPG、PNG、WebP、GIF 等圖片格式")
-
-    # 2. 讀取並檢查檔案大小 (上限 5MB)
-    contents = await file.read()
     if len(contents) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="圖片檔案過大，請選擇 5MB 以內的照片")
 
-    # 3. 使用 Pillow 讀取並處理旋轉與正方形中心裁切
+def _process_avatar_image(contents: bytes) -> Image.Image:
     try:
         image = Image.open(io.BytesIO(contents))
         image = ImageOps.exif_transpose(image)
@@ -122,26 +46,167 @@ async def upload_gallery_avatar(
     right = left + min_dim
     bottom = top + min_dim
     cropped = image.crop((left, top, right, bottom))
-    resized = cropped.resize((256, 256), Image.Resampling.LANCZOS)
+    return cropped.resize((256, 256), Image.Resampling.LANCZOS)
 
-    # 4. 準備儲存目錄並檢查上限 (最多 100 個)
+@router.get("/avatars/gallery")
+async def list_custom_avatars(
+    member_id: Optional[uuid.UUID] = Query(None, description="特定成員 ID；若指定則僅列出該成員個人頭像庫"),
+):
+    """列出已儲存的自訂頭像列表 (若指定 member_id 則列出該成員專屬庫，否則列出全部)"""
     root_dir = Path(__file__).resolve().parent.parent.parent
     avatars_dir = root_dir / "uploads" / "avatars"
     avatars_dir.mkdir(parents=True, exist_ok=True)
 
-    existing_files = [f for f in avatars_dir.glob("*.webp") if f.is_file()]
+    items = []
+    if member_id:
+        member_dir = avatars_dir / str(member_id)
+        if member_dir.exists():
+            for f in member_dir.glob("*.webp"):
+                if f.is_file():
+                    stat = f.stat()
+                    items.append({
+                        "url": f"/uploads/avatars/{member_id}/{f.name}",
+                        "filename": f.name,
+                        "size_kb": round(stat.st_size / 1024, 1),
+                        "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                        "mtime": stat.st_mtime,
+                    })
+        # 兼容搜尋 legacy 檔案 ({member_id}_*.webp)
+        for f in avatars_dir.glob(f"{member_id}_*.webp"):
+            if f.is_file():
+                stat = f.stat()
+                items.append({
+                    "url": f"/uploads/avatars/{f.name}",
+                    "filename": f.name,
+                    "size_kb": round(stat.st_size / 1024, 1),
+                    "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                    "mtime": stat.st_mtime,
+                })
+    else:
+        # 全域掃描所有頭像檔案 (含各成員目錄與根目錄)
+        for f in avatars_dir.glob("*.webp"):
+            if f.is_file():
+                stat = f.stat()
+                items.append({
+                    "url": f"/uploads/avatars/{f.name}",
+                    "filename": f.name,
+                    "size_kb": round(stat.st_size / 1024, 1),
+                    "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                    "mtime": stat.st_mtime,
+                })
+        for sub in avatars_dir.iterdir():
+            if sub.is_dir():
+                for f in sub.glob("*.webp"):
+                    if f.is_file():
+                        stat = f.stat()
+                        items.append({
+                            "url": f"/uploads/avatars/{sub.name}/{f.name}",
+                            "filename": f.name,
+                            "size_kb": round(stat.st_size / 1024, 1),
+                            "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                            "mtime": stat.st_mtime,
+                        })
+
+    items.sort(key=lambda x: x["mtime"], reverse=True)
+    for it in items:
+        del it["mtime"]
+
+    return {
+        "member_id": str(member_id) if member_id else None,
+        "total": len(items),
+        "max_allowed": MAX_CUSTOM_AVATARS,
+        "avatars": items,
+    }
+
+@router.delete("/avatars/gallery/{filename}")
+async def delete_custom_avatar(
+    filename: str,
+    member_id: Optional[uuid.UUID] = Query(None, description="指定成員 ID"),
+    db: AsyncSession = Depends(get_db),
+):
+    """刪除指定之自訂頭像，若有成員正在使用該圖檔，則將其頭像自動重設為預設青蛙"""
+    if not filename.endswith(".webp") or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="無效的頭像檔案名稱")
+
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    avatars_dir = root_dir / "uploads" / "avatars"
+
+    target_file = None
+    if member_id:
+        cand = avatars_dir / str(member_id) / filename
+        if cand.exists() and cand.is_file():
+            target_file = cand
+    if not target_file:
+        cand = avatars_dir / filename
+        if cand.exists() and cand.is_file():
+            target_file = cand
+
+    # 若尚未找到，搜尋各成員子目錄
+    if not target_file:
+        for sub in avatars_dir.iterdir():
+            if sub.is_dir():
+                cand = sub / filename
+                if cand.exists() and cand.is_file():
+                    target_file = cand
+                    break
+
+    if not target_file or not target_file.is_file():
+        raise HTTPException(status_code=404, detail="找不到欲刪除的頭像檔案")
+
+    try:
+        target_file.unlink()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"無法刪除檔案：{e}")
+
+    # 同步更新正在使用此頭像的成員，改為預設 🐸
+    res = await db.execute(select(Member))
+    all_members = res.scalars().all()
+    affected_count = 0
+    for m in all_members:
+        if m.avatar and filename in m.avatar:
+            m.avatar = "🐸"
+            affected_count += 1
+    if affected_count > 0:
+        await db.commit()
+
+    return {
+        "success": True,
+        "message": f"已成功刪除頭像 {filename}",
+        "affected_members": affected_count,
+    }
+
+@router.post("/avatars/gallery/upload")
+async def upload_gallery_avatar(
+    file: UploadFile = File(...),
+    member_id: Optional[uuid.UUID] = Query(None, description="指定成員 ID"),
+):
+    """上傳自訂頭像相片 (若指定 member_id 則保存至該成員專屬庫，上限 100 個)"""
+    contents = await file.read()
+    _validate_image_file(file, contents)
+    resized = _process_avatar_image(contents)
+
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    if member_id:
+        target_dir = root_dir / "uploads" / "avatars" / str(member_id)
+        url_prefix = f"/uploads/avatars/{member_id}"
+    else:
+        target_dir = root_dir / "uploads" / "avatars"
+        url_prefix = "/uploads/avatars"
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    existing_files = [f for f in target_dir.glob("*.webp") if f.is_file()]
     if len(existing_files) >= MAX_CUSTOM_AVATARS:
         raise HTTPException(status_code=400, detail="自訂頭像庫已達上限 (最多 100 個)，請先刪除不再使用的舊頭像！")
 
-    # 5. 輸出新檔案 (儲存裁切縮放後之 256x256 WebP)
     timestamp = int(time.time() * 1000)
-    new_filename = f"custom_{timestamp}_{uuid.uuid4().hex[:6]}.webp"
-    save_path = avatars_dir / new_filename
+    new_filename = f"{timestamp}_{uuid.uuid4().hex[:6]}.webp"
+    save_path = target_dir / new_filename
     resized.save(save_path, "WEBP", quality=88, optimize=True)
 
     stat = save_path.stat()
     return {
-        "url": f"/uploads/avatars/{new_filename}",
+        "member_id": str(member_id) if member_id else None,
+        "url": f"{url_prefix}/{new_filename}",
         "filename": new_filename,
         "size_kb": round(stat.st_size / 1024, 1),
         "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
@@ -182,6 +247,7 @@ async def create_member(
     hashed_pin = hash_pin(pin_val)
 
     new_member = Member(
+        id=member_in.id or uuid.uuid4(),
         name=member_in.name.strip(),
         role=member_in.role,
         avatar=member_in.avatar,
@@ -306,26 +372,151 @@ async def upload_member_avatar(
     cropped = image.crop((left, top, right, bottom))
     resized = cropped.resize((256, 256), Image.Resampling.LANCZOS)
 
-    # 4. 準備儲存目錄並檢查上限 (最多 100 個)
+    # 4. 準備儲存目錄並檢查上限 (每人最多 100 個)
     root_dir = Path(__file__).resolve().parent.parent.parent
-    avatars_dir = root_dir / "uploads" / "avatars"
-    avatars_dir.mkdir(parents=True, exist_ok=True)
+    member_dir = root_dir / "uploads" / "avatars" / str(member_id)
+    member_dir.mkdir(parents=True, exist_ok=True)
 
-    existing_files = [f for f in avatars_dir.glob("*.webp") if f.is_file()]
+    existing_files = [f for f in member_dir.glob("*.webp") if f.is_file()]
     if len(existing_files) >= MAX_CUSTOM_AVATARS:
-        raise HTTPException(status_code=400, detail="自訂頭像庫已達上限 (最多 100 個)，請先刪除不再使用的舊頭像！")
+        raise HTTPException(status_code=400, detail="此成員專屬自訂頭像庫已達上限 (最多 100 個)，請先刪除不再使用的舊頭像！")
 
-    # 5. 輸出新檔案 (每次上傳皆保存，不自動刪除舊頭像，僅儲存裁切縮放後之 256x256 WebP)
+    # 5. 輸出新檔案 (儲存裁切縮放後之 256x256 WebP)
     timestamp = int(time.time() * 1000)
-    new_filename = f"{member_id}_{timestamp}_{uuid.uuid4().hex[:4]}.webp"
-    save_path = avatars_dir / new_filename
+    new_filename = f"{timestamp}_{uuid.uuid4().hex[:6]}.webp"
+    save_path = member_dir / new_filename
     resized.save(save_path, "WEBP", quality=88, optimize=True)
 
     # 6. 更新資料庫
-    member.avatar = f"/uploads/avatars/{new_filename}"
+    member.avatar = f"/uploads/avatars/{member_id}/{new_filename}"
     await db.commit()
     await db.refresh(member)
     return member
+
+@router.get("/{member_id}/avatars/gallery")
+async def list_member_custom_avatars(
+    member_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """查詢特定成員個人專屬的自訂頭像庫列表 (每人上限 100 個)，按時間由新到舊排序"""
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    member_dir = root_dir / "uploads" / "avatars" / str(member_id)
+    member_dir.mkdir(parents=True, exist_ok=True)
+
+    files = [f for f in member_dir.glob("*.webp") if f.is_file()]
+
+    # 同時相容檢查根目錄下屬於該成員的 legacy 檔案 ({member_id}_*.webp)
+    root_avatars_dir = root_dir / "uploads" / "avatars"
+    legacy_files = [f for f in root_avatars_dir.glob(f"{member_id}_*.webp") if f.is_file()]
+
+    items = []
+    for f in files:
+        stat = f.stat()
+        items.append({
+            "url": f"/uploads/avatars/{member_id}/{f.name}",
+            "filename": f.name,
+            "size_kb": round(stat.st_size / 1024, 1),
+            "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            "mtime": stat.st_mtime,
+        })
+    for f in legacy_files:
+        stat = f.stat()
+        items.append({
+            "url": f"/uploads/avatars/{f.name}",
+            "filename": f.name,
+            "size_kb": round(stat.st_size / 1024, 1),
+            "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            "mtime": stat.st_mtime,
+        })
+
+    items.sort(key=lambda x: x["mtime"], reverse=True)
+    for it in items:
+        del it["mtime"]
+
+    return {
+        "member_id": str(member_id),
+        "total": len(items),
+        "max_allowed": MAX_CUSTOM_AVATARS,
+        "avatars": items,
+    }
+
+@router.post("/{member_id}/avatars/gallery/upload")
+async def upload_member_gallery_avatar(
+    member_id: uuid.UUID,
+    file: UploadFile = File(...),
+):
+    """
+    上傳相片至該成員專屬的頭像庫 (不立即套用至成員頭像):
+    - 檢查檔案大小與圖片格式
+    - 使用 Pillow 正方形置中裁切並壓縮為 256x256 WebP
+    - 檢查該成員頭像庫上限 (每人最多 100 個)
+    - 保存至 uploads/avatars/{member_id}/，回傳相片 URL
+    """
+    contents = await file.read()
+    _validate_image_file(file, contents)
+    resized = _process_avatar_image(contents)
+
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    member_dir = root_dir / "uploads" / "avatars" / str(member_id)
+    member_dir.mkdir(parents=True, exist_ok=True)
+
+    existing_files = [f for f in member_dir.glob("*.webp") if f.is_file()]
+    if len(existing_files) >= MAX_CUSTOM_AVATARS:
+        raise HTTPException(status_code=400, detail="此成員專屬自訂頭像庫已達上限 (最多 100 個)，請先刪除不再使用的舊頭像！")
+
+    timestamp = int(time.time() * 1000)
+    new_filename = f"{timestamp}_{uuid.uuid4().hex[:6]}.webp"
+    save_path = member_dir / new_filename
+    resized.save(save_path, "WEBP", quality=88, optimize=True)
+
+    stat = save_path.stat()
+    return {
+        "member_id": str(member_id),
+        "url": f"/uploads/avatars/{member_id}/{new_filename}",
+        "filename": new_filename,
+        "size_kb": round(stat.st_size / 1024, 1),
+        "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+    }
+
+@router.delete("/{member_id}/avatars/gallery/{filename}")
+async def delete_member_gallery_avatar(
+    member_id: uuid.UUID,
+    filename: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """刪除該成員指定之自訂頭像，若該成員目前正使用該圖檔，則自動將其代表頭像重設為預設青蛙"""
+    if not filename.endswith(".webp") or "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="無效的頭像檔案名稱")
+
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    member_dir = root_dir / "uploads" / "avatars" / str(member_id)
+    target_file = member_dir / filename
+
+    legacy_file = root_dir / "uploads" / "avatars" / filename
+    if not target_file.exists() and legacy_file.exists() and filename.startswith(f"{member_id}_"):
+        target_file = legacy_file
+
+    if not target_file.exists() or not target_file.is_file():
+        raise HTTPException(status_code=404, detail="找不到欲刪除的頭像檔案")
+
+    try:
+        target_file.unlink()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"無法刪除檔案：{e}")
+
+    # 若該成員正在使用此圖檔，自動復原為 🐸
+    member = await db.get(Member, member_id)
+    avatar_url_1 = f"/uploads/avatars/{member_id}/{filename}"
+    avatar_url_2 = f"/uploads/avatars/{filename}"
+    if member and (member.avatar == avatar_url_1 or member.avatar == avatar_url_2):
+        member.avatar = "🐸"
+        await db.commit()
+
+    return {
+        "success": True,
+        "message": f"已成功刪除頭像 {filename}",
+        "member_id": str(member_id),
+    }
 
 @router.post("/{member_id}/change-pin")
 async def change_member_pin(

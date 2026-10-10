@@ -62,15 +62,22 @@ export const api = {
     formData.append('file', file)
     return request(`/members/${id}/avatar-upload`, { method: 'POST', body: formData })
   },
-  uploadCustomAvatarToGallery: (file) => {
+  uploadCustomAvatarToGallery: (memberId, file) => {
     const formData = new FormData()
     formData.append('file', file)
-    return request('/members/avatars/gallery/upload', { method: 'POST', body: formData })
+    const endpoint = memberId ? `/members/${memberId}/avatars/gallery/upload` : '/members/avatars/gallery/upload'
+    return request(endpoint, { method: 'POST', body: formData })
   },
-  getCustomAvatarsGallery: () =>
-    request('/members/avatars/gallery'),
-  deleteCustomAvatar: (filename) =>
-    request(`/members/avatars/gallery/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
+  getCustomAvatarsGallery: (memberId = null) => {
+    const endpoint = memberId ? `/members/${memberId}/avatars/gallery` : '/members/avatars/gallery'
+    return request(endpoint)
+  },
+  deleteCustomAvatar: (memberId, filename) => {
+    const endpoint = memberId
+      ? `/members/${memberId}/avatars/gallery/${encodeURIComponent(filename)}`
+      : `/members/avatars/gallery/${encodeURIComponent(filename)}`
+    return request(endpoint, { method: 'DELETE' })
+  },
   changeMemberPin: (id, data) =>
     request(`/members/${id}/change-pin`, { method: 'POST', body: JSON.stringify(data) }),
   deleteMember: (id, pin) =>
