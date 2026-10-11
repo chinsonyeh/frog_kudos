@@ -127,6 +127,13 @@ export const api = {
     request('/kudos/batch-preview', { method: 'POST', body: JSON.stringify(data) }),
   executeBatchAdjust: (data) =>
     request('/kudos/batch-adjust', { method: 'POST', body: JSON.stringify(data) }),
+  getPendingKudos: (memberId = null) => {
+    const params = new URLSearchParams()
+    if (memberId) params.append('member_id', memberId)
+    return request(`/kudos/pending?${params.toString()}`)
+  },
+  reviewKudos: (id, data) =>
+    request(`/kudos/${id}/review`, { method: 'POST', body: JSON.stringify(data) }),
 
   // 獎品商城與兌換
   getItems: (all = false) =>

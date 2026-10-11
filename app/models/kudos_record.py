@@ -27,6 +27,9 @@ class KudosRecord(Base):
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     adjustment_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     recorded_by: Mapped[str] = mapped_column(String(50), nullable=False, default="Parent")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="APPROVED")  # 'PENDING', 'APPROVED', 'REJECTED'
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

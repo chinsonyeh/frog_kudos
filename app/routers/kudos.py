@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
 from typing import Optional, List
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Response, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import require_parent_pin_dep, require_any_pin_dep
@@ -10,6 +10,7 @@ from app.schemas.kudos import (
     PreviewOut,
     KudosRecordCreate,
     KudosRecordOut,
+    KudosReviewIn,
     LedgerItemOut,
     BatchPreviewIn,
     BatchPreviewOut,
@@ -19,6 +20,8 @@ from app.schemas.kudos import (
 from app.services.rule_engine import match_rule
 from app.services.kudos_service import (
     record_kudos,
+    list_pending_kudos,
+    review_kudos,
     get_ledger_history,
     export_ledger_csv,
     preview_batch_adjustment,
@@ -43,14 +46,47 @@ async def preview_kudos_rule(
 @router.post("/record", response_model=KudosRecordOut)
 async def create_kudos_record(
     record_in: KudosRecordCreate,
+    background_tasks: BackgroundTasks,
     x_pin: Optional[str] = Depends(require_any_pin_dep),
     db: AsyncSession = Depends(get_db),
 ):
-    """正式發放點數或自訂臨時獎懲 (FR-3, FR-4, FR-14)"""
+    """
+    正式發放點數或小孩發起加點申請 (FR-3, FR-4, FR-14)
+    - 小孩登記：狀態為 PENDING，排程發送 LINE 通知提醒家長審核
+    - 家長登記：狀態為 APPROVED，立即生效入帳
+    """
     return await record_kudos(
         db=db,
         record_in=record_in,
+        background_tasks=background_tasks,
         parent_pin_header=x_pin,
+    )
+
+@router.get("/pending", response_model=List[KudosRecordOut])
+async def get_pending_kudos(
+    member_id: Optional[uuid.UUID] = Query(None, description="過濾特定成員"),
+    db: AsyncSession = Depends(get_db),
+):
+    """查詢待家長審核的點數申請紀錄 (status=PENDING)"""
+    return await list_pending_kudos(db=db, member_id=member_id)
+
+@router.post("/{kudos_id}/review", response_model=KudosRecordOut)
+async def review_kudos_endpoint(
+    kudos_id: uuid.UUID,
+    review_in: KudosReviewIn,
+    x_parent_pin: Optional[str] = Depends(require_parent_pin_dep),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    家長審核小孩加點申請
+    - APPROVE: 核准並正式增加入帳
+    - REJECT: 退回並註記退回原因
+    """
+    return await review_kudos(
+        db=db,
+        kudos_id=kudos_id,
+        req=review_in,
+        parent_pin_header=x_parent_pin,
     )
 
 @router.get("/history", response_model=List[LedgerItemOut])

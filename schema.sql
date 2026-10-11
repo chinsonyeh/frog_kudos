@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS reward_rules (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 5. 點數獲得快照紀錄表 (核心快照，不可溯及修改，支援家長批次統一調整)
+-- 5. 點數獲得快照紀錄表 (核心快照，不可溯及修改，支援家長批次統一調整與小孩登記審核)
 CREATE TABLE IF NOT EXISTS kudos_records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     member_id UUID NOT NULL REFERENCES members(id) ON DELETE RESTRICT,
@@ -51,12 +51,20 @@ CREATE TABLE IF NOT EXISTS kudos_records (
     condition_snapshot VARCHAR(100) NOT NULL DEFAULT '自訂',
     points_awarded INTEGER NOT NULL,
     rule_detail_snapshot JSONB,
+    status VARCHAR(20) NOT NULL DEFAULT 'APPROVED', -- 'PENDING', 'APPROVED', 'REJECTED'
     note TEXT,
     adjustment_note TEXT,
+    reviewed_at TIMESTAMPTZ,
+    review_note TEXT,
     recorded_by VARCHAR(50) NOT NULL DEFAULT 'Parent',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 資料庫結構平滑遷移相容 (Idempotent Migration)
+ALTER TABLE kudos_records ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'APPROVED';
+ALTER TABLE kudos_records ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+ALTER TABLE kudos_records ADD COLUMN IF NOT EXISTS review_note TEXT;
 
 -- 6. 兌換商城品項表
 CREATE TABLE IF NOT EXISTS reward_items (

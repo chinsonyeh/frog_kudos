@@ -36,14 +36,23 @@ class KudosRecordOut(BaseModel):
     condition_snapshot: str
     points_awarded: int
     rule_detail_snapshot: Optional[Any] = None
+    status: str = "APPROVED"  # 'PENDING', 'APPROVED', 'REJECTED'
     note: Optional[str] = None
     adjustment_note: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    review_note: Optional[str] = None
     recorded_by: str
     created_at: datetime
     updated_at: datetime
     newly_unlocked_badges: List[MemberBadgeOut] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
+
+# 家長審核加點申請
+class KudosReviewIn(BaseModel):
+    action: str = Field(..., pattern="^(APPROVE|REJECT)$")
+    review_note: Optional[str] = None
+    parent_pin: Optional[str] = None
 
 # 綜合存摺流水帳
 class LedgerItemOut(BaseModel):
@@ -52,6 +61,7 @@ class LedgerItemOut(BaseModel):
     title: str
     points: int
     condition_or_status: str
+    status: Optional[str] = None  # 'PENDING' | 'APPROVED' | 'COMPLETED' | 'REJECTED'
     note: Optional[str] = None
     actor: str
     created_at: datetime

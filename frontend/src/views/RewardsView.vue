@@ -1,16 +1,19 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import MemberPinModal from '@/components/MemberPinModal.vue'
 import MemberAvatar from '@/components/MemberAvatar.vue'
 
+const route = useRoute()
 const authStore = useAuthStore()
 
 const showMemberPinModal = ref(false)
 const pendingRedeemItem = ref(null)
 
 const activeTab = ref('items') // 'items' | 'review'
+const reviewSubTab = ref('kudos') // 'kudos' | 'redemptions'
 const members = ref([])
 const selectedMemberId = ref(null)
 const currentMember = computed(() => members.value.find(m => m.id === selectedMemberId.value) || null)
@@ -20,7 +23,9 @@ const activeItems = computed(() => items.value.filter(item => item.is_active))
 const inactiveItems = computed(() => items.value.filter(item => !item.is_active))
 const showInactiveSection = ref(false)
 
+const pendingKudos = ref([])
 const pendingRedemptions = ref([])
+const totalPendingCount = computed(() => pendingKudos.value.length + pendingRedemptions.value.length)
 const loading = ref(false)
 const toastMsg = ref('')
 const errorMsg = ref('')
@@ -30,12 +35,16 @@ const showItemModal = ref(false)
 const editingItem = ref(null)
 const itemForm = ref({ title: '', description: '', cost_points: 50, icon: '🎁' })
 
-// 審核備註彈窗
+// 審核退回備註彈窗
 const showRejectModal = ref(false)
-const rejectingRedemptionId = ref(null)
+const rejectTargetType = ref('redemption') // 'redemption' | 'kudos'
+const rejectingTargetId = ref(null)
 const rejectReason = ref('')
 
 onMounted(async () => {
+  if (route.query.tab === 'review') {
+    activeTab.value = 'review'
+  }
   await loadInitialData()
 })
 
@@ -76,7 +85,21 @@ async function loadItems() {
 }
 
 async function loadPendingReviews() {
-  pendingRedemptions.value = await api.getRedemptions(null, 'PENDING')
+  try {
+    const [kList, rList] = await Promise.all([
+      api.getPendingKudos(),
+      api.getRedemptions(null, 'PENDING'),
+    ])
+    pendingKudos.value = kList
+    pendingRedemptions.value = rList
+    if (pendingKudos.value.length === 0 && pendingRedemptions.value.length > 0) {
+      reviewSubTab.value = 'redemptions'
+    } else if (pendingKudos.value.length > 0 && pendingRedemptions.value.length === 0) {
+      reviewSubTab.value = 'kudos'
+    }
+  } catch (err) {
+    console.error('載入待審核清單失敗', err)
+  }
 }
 
 watch(() => authStore.unlockedMemberId, (newId) => {
@@ -148,6 +171,30 @@ async function executeRedemption(item, pin) {
   }
 }
 
+async function handleApproveKudos(kudos) {
+  errorMsg.value = ''
+  try {
+    await api.reviewKudos(kudos.id, {
+      action: 'APPROVE',
+      review_note: '家長已核准',
+      parent_pin: authStore.parentPin,
+    })
+    toastMsg.value = `✅ 已核准「${kudos.member_name || ''}」的點數申請 (+${kudos.points_awarded} 點)！`
+    setTimeout(() => { toastMsg.value = '' }, 3000)
+    await loadPendingReviews()
+    members.value = await api.getMembers(false)
+  } catch (err) {
+    errorMsg.value = err.message || '審核加點失敗'
+  }
+}
+
+function openRejectKudosModal(kudos) {
+  rejectTargetType.value = 'kudos'
+  rejectingTargetId.value = kudos.id
+  rejectReason.value = '未完全達成要求'
+  showRejectModal.value = true
+}
+
 async function handleApproveRedemption(id) {
   errorMsg.value = ''
   try {
@@ -166,21 +213,31 @@ async function handleApproveRedemption(id) {
 }
 
 function openRejectModal(id) {
-  rejectingRedemptionId.value = id
+  rejectTargetType.value = 'redemption'
+  rejectingTargetId.value = id
   rejectReason.value = '作業未完成'
   showRejectModal.value = true
 }
 
 async function handleConfirmReject() {
-  if (!rejectingRedemptionId.value) return
+  if (!rejectingTargetId.value) return
   errorMsg.value = ''
   try {
-    await api.reviewRedemption(rejectingRedemptionId.value, {
-      action: 'REJECT',
-      review_note: rejectReason.value.trim() || '家長退回申請',
-      parent_pin: authStore.parentPin,
-    })
-    toastMsg.value = '🛑 已退回兌換申請，點數已全額退還給成員錢包！'
+    if (rejectTargetType.value === 'kudos') {
+      await api.reviewKudos(rejectingTargetId.value, {
+        action: 'REJECT',
+        review_note: rejectReason.value.trim() || '家長退回申請',
+        parent_pin: authStore.parentPin,
+      })
+      toastMsg.value = '🛑 已退回點數申請！'
+    } else {
+      await api.reviewRedemption(rejectingTargetId.value, {
+        action: 'REJECT',
+        review_note: rejectReason.value.trim() || '家長退回申請',
+        parent_pin: authStore.parentPin,
+      })
+      toastMsg.value = '🛑 已退回兌換申請，點數已全額退還給成員錢包！'
+    }
     setTimeout(() => { toastMsg.value = '' }, 4000)
     showRejectModal.value = false
     await loadPendingReviews()
@@ -347,10 +404,10 @@ async function handlePermanentDeleteItem(item) {
           <span>📋</span>
           <span>待審核申請</span>
           <span
-            v-if="pendingRedemptions.length > 0"
+            v-if="totalPendingCount > 0"
             class="px-2 py-0.5 rounded-full text-xs bg-red-500 text-white font-mono"
           >
-            {{ pendingRedemptions.length }}
+            {{ totalPendingCount }}
           </span>
         </button>
       </div>
@@ -471,52 +528,146 @@ async function handlePermanentDeleteItem(item) {
       </div>
     </div>
 
-    <!-- 【分頁 2: 待審核兌換申請 (家長專區)】 -->
-    <div v-if="activeTab === 'review'" class="space-y-4">
-      <div v-if="pendingRedemptions.length === 0" class="bg-white rounded-3xl p-12 text-center text-gray-400 text-sm">
-        🎉 目前沒有待審核的兌換申請！
+    <!-- 【分頁 2: 待審核申請 (家長專區)】 -->
+    <div v-if="activeTab === 'review'" class="space-y-6">
+      <!-- 審核子頁籤切換 -->
+      <div class="flex bg-gray-100 p-1 rounded-2xl w-fit text-xs font-bold">
+        <button
+          @click="reviewSubTab = 'kudos'"
+          class="py-2 px-4 rounded-xl transition flex items-center space-x-1.5 cursor-pointer"
+          :class="reviewSubTab === 'kudos' ? 'bg-white text-frog-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'"
+        >
+          <span>🪙 點數加點待審核</span>
+          <span
+            v-if="pendingKudos.length > 0"
+            class="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-500 text-white font-mono"
+          >
+            {{ pendingKudos.length }}
+          </span>
+        </button>
+
+        <button
+          @click="reviewSubTab = 'redemptions'"
+          class="py-2 px-4 rounded-xl transition flex items-center space-x-1.5 cursor-pointer"
+          :class="reviewSubTab === 'redemptions' ? 'bg-white text-frog-700 shadow-sm' : 'text-gray-500 hover:text-gray-800'"
+        >
+          <span>🎁 心願兌換待審核</span>
+          <span
+            v-if="pendingRedemptions.length > 0"
+            class="px-1.5 py-0.5 rounded-full text-[10px] bg-red-500 text-white font-mono"
+          >
+            {{ pendingRedemptions.length }}
+          </span>
+        </button>
       </div>
 
-      <div
-        v-for="r in pendingRedemptions"
-        :key="r.id"
-        class="bg-white rounded-3xl p-6 border border-amber-200 shadow-sm space-y-4"
-      >
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
-          <div class="flex items-center space-x-3">
-            <span class="text-3xl">🎮</span>
-            <div>
-              <h4 class="font-bold text-gray-900 text-base">{{ r.item_title_snapshot }}</h4>
-              <span class="text-xs text-gray-500">申請時間: {{ r.created_at.slice(0, 16).replace('T', ' ') }}</span>
+      <!-- 子頁籤 A：點數加點審核 -->
+      <div v-if="reviewSubTab === 'kudos'" class="space-y-4">
+        <div v-if="pendingKudos.length === 0" class="bg-white rounded-3xl p-12 text-center text-gray-400 text-sm border border-gray-100">
+          🎉 目前沒有待審核的點數加點申請！孩子登記的事項都已處理完畢。
+        </div>
+
+        <div
+          v-for="k in pendingKudos"
+          :key="k.id"
+          class="bg-white rounded-3xl p-6 border border-amber-200 shadow-sm space-y-4"
+        >
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
+            <div class="flex items-center space-x-3">
+              <span class="text-3xl">🪙</span>
+              <div>
+                <div class="flex items-center space-x-2">
+                  <h4 class="font-bold text-gray-900 text-base">{{ k.target_name }}</h4>
+                  <span class="text-xs px-2.5 py-0.5 rounded-full bg-frog-100 text-frog-800 font-bold">
+                    {{ k.member_name }}
+                  </span>
+                </div>
+                <div class="text-xs text-gray-500 mt-1 flex flex-wrap items-center gap-x-2">
+                  <span>達成條件: {{ k.condition_value || '自訂' }}</span>
+                  <span>•</span>
+                  <span>申請時間: {{ k.created_at.slice(0, 16).replace('T', ' ') }}</span>
+                  <span v-if="k.recorded_by">• 登記人: {{ k.recorded_by }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
+                ⏳ 待核准 (尚未入帳)
+              </span>
+              <span class="font-mono font-bold text-frog-600 text-lg">+{{ k.points_awarded }} 點</span>
             </div>
           </div>
 
-          <div class="flex items-center space-x-2">
-            <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
-              ⏳ 待審核 (點數已先扣除)
-            </span>
-            <span class="font-mono font-bold text-red-600 text-sm">-{{ r.points_spent }} 點</span>
+          <div v-if="k.note" class="text-xs text-gray-600 bg-gray-50 p-3 rounded-xl">
+            💬 申請備註：{{ k.note }}
+          </div>
+
+          <!-- 審核操作按鈕 -->
+          <div class="flex space-x-3 pt-1">
+            <button
+              @click="handleApproveKudos(k)"
+              class="flex-1 py-2.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-md shadow-frog-200 transition cursor-pointer"
+            >
+              ✅ 核准加點 (入帳 +{{ k.points_awarded }} 點)
+            </button>
+            <button
+              @click="openRejectKudosModal(k)"
+              class="flex-1 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs transition cursor-pointer"
+            >
+              🔴 退回申請 (不予加點)
+            </button>
           </div>
         </div>
+      </div>
 
-        <div v-if="r.review_note" class="text-xs text-gray-600 bg-gray-50 p-3 rounded-xl">
-          💬 小孩備註：{{ r.review_note }}
+      <!-- 子頁籤 B：心願兌換審核 -->
+      <div v-else-if="reviewSubTab === 'redemptions'" class="space-y-4">
+        <div v-if="pendingRedemptions.length === 0" class="bg-white rounded-3xl p-12 text-center text-gray-400 text-sm border border-gray-100">
+          🎉 目前沒有待審核的兌換申請！
         </div>
 
-        <!-- 審核操作按鈕 -->
-        <div class="flex space-x-3 pt-1">
-          <button
-            @click="handleApproveRedemption(r.id)"
-            class="flex-1 py-2.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-md shadow-frog-200 transition"
-          >
-            ✅ 核准兌現 (COMPLETED)
-          </button>
-          <button
-            @click="openRejectModal(r.id)"
-            class="flex-1 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs transition"
-          >
-            🔴 退回申請並退點 (REJECTED)
-          </button>
+        <div
+          v-for="r in pendingRedemptions"
+          :key="r.id"
+          class="bg-white rounded-3xl p-6 border border-amber-200 shadow-sm space-y-4"
+        >
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
+            <div class="flex items-center space-x-3">
+              <span class="text-3xl">🎮</span>
+              <div>
+                <h4 class="font-bold text-gray-900 text-base">{{ r.item_title_snapshot }}</h4>
+                <span class="text-xs text-gray-500">申請時間: {{ r.created_at.slice(0, 16).replace('T', ' ') }}</span>
+              </div>
+            </div>
+
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">
+                ⏳ 待審核 (點數已先扣除)
+              </span>
+              <span class="font-mono font-bold text-red-600 text-sm">-{{ r.points_spent }} 點</span>
+            </div>
+          </div>
+
+          <div v-if="r.review_note" class="text-xs text-gray-600 bg-gray-50 p-3 rounded-xl">
+            💬 小孩備註：{{ r.review_note }}
+          </div>
+
+          <!-- 審核操作按鈕 -->
+          <div class="flex space-x-3 pt-1">
+            <button
+              @click="handleApproveRedemption(r.id)"
+              class="flex-1 py-2.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-md shadow-frog-200 transition cursor-pointer"
+            >
+              ✅ 核准兌現 (COMPLETED)
+            </button>
+            <button
+              @click="openRejectModal(r.id)"
+              class="flex-1 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs transition cursor-pointer"
+            >
+              🔴 退回申請並退點 (REJECTED)
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -524,17 +675,21 @@ async function handlePermanentDeleteItem(item) {
     <!-- 退回原因彈窗 -->
     <div v-if="showRejectModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div class="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
-        <h4 class="font-bold text-gray-900 text-base">退回申請與全額退點說明</h4>
-        <p class="text-xs text-gray-500">退回後，系統會在同一資料庫交易中自動全額將點數退回給成員錢包。</p>
+        <h4 class="font-bold text-gray-900 text-base">
+          {{ rejectTargetType === 'kudos' ? '退回加點申請說明' : '退回兌換申請與全額退點說明' }}
+        </h4>
+        <p class="text-xs text-gray-500">
+          {{ rejectTargetType === 'kudos' ? '退回後，此筆加點申請將標記為已退回，不計入成員錢包與累計總榮譽。' : '退回後，系統會在同一資料庫交易中自動全額將點數退回給成員錢包。' }}
+        </p>
         <input
           v-model="rejectReason"
           type="text"
-          placeholder="請輸入退回原因 (如: 作業未寫完)"
+          placeholder="請輸入退回原因 (如: 未完全達成要求 / 作業未完成)"
           class="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 text-sm font-medium"
         />
         <div class="flex space-x-3">
-          <button @click="showRejectModal = false" class="flex-1 py-2 rounded-xl border text-xs font-semibold text-gray-600">取消</button>
-          <button @click="handleConfirmReject" class="flex-1 py-2 rounded-xl bg-red-600 text-white text-xs font-bold shadow-md">確認退回</button>
+          <button @click="showRejectModal = false" class="flex-1 py-2 rounded-xl border text-xs font-semibold text-gray-600 cursor-pointer">取消</button>
+          <button @click="handleConfirmReject" class="flex-1 py-2 rounded-xl bg-red-600 text-white text-xs font-bold shadow-md cursor-pointer">確認退回</button>
         </div>
       </div>
     </div>

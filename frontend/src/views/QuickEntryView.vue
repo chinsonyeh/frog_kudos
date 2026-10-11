@@ -48,12 +48,35 @@ const toastMsg = ref('')
 const errorMsg = ref('')
 const unlockedBadges = ref([])
 const showBadgeModal = ref(false)
+const pendingKudosCount = ref(0)
 
 let debounceTimer = null
 
 onMounted(async () => {
   await loadMembers()
+  if (authStore.isParent) {
+    await loadPendingKudosCount()
+  }
 })
+
+watch(() => authStore.isParent, async (isParent) => {
+  if (isParent) {
+    await loadPendingKudosCount()
+  }
+})
+
+async function loadPendingKudosCount() {
+  if (!authStore.isParent) {
+    pendingKudosCount.value = 0
+    return
+  }
+  try {
+    const list = await api.getPendingKudos()
+    pendingKudosCount.value = list.length
+  } catch (err) {
+    console.error('載入待審核點數失敗', err)
+  }
+}
 
 async function loadMembers() {
   try {
@@ -260,12 +283,15 @@ async function executeKudosSubmit(data) {
   try {
     const res = await api.recordKudos(data)
 
-    // 成功慶祝動效
-    if (data.points_awarded > 0) {
-      triggerConfetti()
+    if (res.status === 'PENDING') {
+      toastMsg.value = `📝 已送出 ${selectedMember.value.name} 的點數申請（+${data.points_awarded} 點）！已排程通知家長審核，審核通過後即入帳 😊`
+    } else {
+      // 成功慶祝動效 (家長發放或直接 APPROVED)
+      if (data.points_awarded > 0) {
+        triggerConfetti()
+      }
+      toastMsg.value = `🎉 已成功為 ${selectedMember.value.name} ${data.points_awarded >= 0 ? `增加 ${data.points_awarded}` : `扣除 ${-data.points_awarded}`} 點！`
     }
-
-    toastMsg.value = `🎉 已成功為 ${selectedMember.value.name} ${data.points_awarded >= 0 ? `增加 ${data.points_awarded}` : `扣除 ${-data.points_awarded}`} 點！`
     setTimeout(() => { toastMsg.value = '' }, 4000)
 
     // 清理輸入
@@ -283,6 +309,9 @@ async function executeKudosSubmit(data) {
 
     // 重新載入成員餘額
     await loadMembers()
+    if (authStore.isParent) {
+      await loadPendingKudosCount()
+    }
   } catch (err) {
     errorMsg.value = err.message || '登記點數失敗'
   } finally {
@@ -298,7 +327,7 @@ async function executeKudosSubmit(data) {
       :show="showMemberPinModal"
       :member="selectedMember"
       action-title="點數申請確認"
-      :description="`請輸入「${selectedMember?.name}」的 4 位數 PIN 碼以核准點數申請`"
+      :description="`請輸入「${selectedMember?.name}」的 4 位數 PIN 碼以確認送出點數申請`"
       @close="showMemberPinModal = false"
       @confirmed="onMemberPinConfirmed"
     />
@@ -308,6 +337,26 @@ async function executeKudosSubmit(data) {
       :badges="unlockedBadges"
       @close="showBadgeModal = false"
     />
+
+    <!-- 家長專屬：待審核提示橫幅 -->
+    <div
+      v-if="authStore.isParent && pendingKudosCount > 0"
+      class="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between text-amber-800 shadow-sm"
+    >
+      <div class="flex items-center space-x-3">
+        <span class="text-2xl">⏳</span>
+        <div>
+          <p class="font-bold text-sm">目前有 {{ pendingKudosCount }} 筆點數加點申請等待審核！</p>
+          <p class="text-xs text-amber-600 mt-0.5">孩子已登記完成事項，請前往商城與審核進行核准或退回。</p>
+        </div>
+      </div>
+      <router-link
+        to="/rewards?tab=review"
+        class="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition shadow-sm whitespace-nowrap ml-3"
+      >
+        前往審核 ➔
+      </router-link>
+    </div>
 
     <!-- Toast 成功通知 -->
     <div
@@ -571,7 +620,7 @@ async function executeKudosSubmit(data) {
         type="button"
         class="w-full py-4 rounded-2xl bg-gradient-to-r from-frog-500 to-frog-600 hover:from-frog-600 hover:to-frog-700 text-white font-bold text-base shadow-lg shadow-frog-200 transition transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 flex items-center justify-center space-x-2"
       >
-        <span>{{ submitting ? '處理中...' : (authStore.isParent ? '🎉 確認發放點數 / 登記獎懲' : (authStore.isChild ? `📝 確認申請點數 (${authStore.unlockedMember?.name} 專屬)` : '📝 確認申請點數 (需輸入個人 PIN 碼)')) }}</span>
+        <span>{{ submitting ? '處理中...' : (authStore.isParent ? '🎉 確認發放點數 / 登記獎懲' : (authStore.isChild ? `📝 送出加點申請（待家長審核）` : '📝 送出加點申請 (需輸入個人 PIN 碼)')) }}</span>
       </button>
     </div>
   </div>

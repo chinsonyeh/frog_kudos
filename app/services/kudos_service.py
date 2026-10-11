@@ -3,7 +3,7 @@ import csv
 import io
 from datetime import datetime, date, time, timedelta, timezone
 from typing import Optional, List
-from fastapi import HTTPException
+from fastapi import HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 from app.models.member import Member
@@ -13,6 +13,7 @@ from app.models.redemption import Redemption
 from app.schemas.kudos import (
     KudosRecordCreate,
     KudosRecordOut,
+    KudosReviewIn,
     LedgerItemOut,
     BatchPreviewIn,
     BatchPreviewItem,
@@ -22,23 +23,26 @@ from app.schemas.kudos import (
 )
 from app.core.security import verify_parent_pin, verify_member_or_parent_pin
 from app.services.badge_service import evaluate_and_unlock_badges
+from app.services.line_service import send_line_push
 
 async def record_kudos(
     db: AsyncSession,
     record_in: KudosRecordCreate,
+    background_tasks: Optional[BackgroundTasks] = None,
     parent_pin_header: Optional[str] = None,
 ) -> KudosRecordOut:
     """
-    正式發放點數或臨時獎懲 (FR-3, FR-4, FR-14)
-    - 驗證家長安全鎖 PIN 碼
-    - 行級悲觀鎖保護成員餘額
-    - 違規扣點 (負數) 僅扣可用點數 current_points，絕不扣減 total_earned_points
-    - 榮譽點數 (正數) 同步累計 current_points 與 total_earned_points
+    正式發放點數或小孩發起加點申請 (FR-3, FR-4, FR-14)
+    - 驗證 PIN 碼與操作人身分 (小孩僅能登記自身且點數 > 0)
+    - 小孩登記：狀態為 PENDING，暫不加點數與解鎖勳章，排程發送 LINE 通知家長
+    - 家長登記：狀態為 APPROVED，即時增減雙軌點數並評估里程碑勳章
     - 封存規則細節快照與歷史紀錄
-    - 評估並觸發里程碑成就勳章 (FR-18)
     """
-    pin = record_in.pin or record_in.parent_pin or parent_pin_header
-    valid, auth_role = await verify_member_or_parent_pin(db, record_in.member_id, pin)
+    if record_in.parent_pin or parent_pin_header:
+        parent_pin_val = record_in.parent_pin or parent_pin_header
+        valid, auth_role = await verify_member_or_parent_pin(db, record_in.member_id, header_pin=parent_pin_val)
+    else:
+        valid, auth_role = await verify_member_or_parent_pin(db, record_in.member_id, input_pin=record_in.pin)
     if not valid:
         raise HTTPException(status_code=403, detail="PIN 碼錯誤或未授權")
 
@@ -50,30 +54,33 @@ async def record_kudos(
         raise HTTPException(status_code=400, detail="成員不存在或已被停用")
 
     pts = record_in.points_awarded
+    newly_badges = []
 
-    # 小孩操作權限限制：小孩僅能申請增加自身點數 (pts > 0)
+    # 判斷是小孩自主登記 (待審核) 還是家長直接操作 (即時生效)
     if auth_role != "parent":
+        # 小孩操作權限限制：小孩僅能申請增加自身點數 (pts > 0)
         if pts <= 0:
             raise HTTPException(status_code=403, detail="小孩僅能申請增加自身點數，不可自訂扣點")
         actor_name = member.name
+        record_status = "PENDING"
+        # 注意：小孩登記待審核時，不先調增 current_points 與 total_earned_points
     else:
         actor_name = record_in.recorded_by or "Parent"
+        record_status = "APPROVED"
 
-    # 2. 點數雙軌約束邏輯
-    if pts < 0:
-        # 違規扣點防負數檢查
-        if member.current_points + pts < 0:
-            raise HTTPException(
-                status_code=400,
-                detail=f"點數不足以扣抵！目前可用點數為 {member.current_points} 點，欲扣除 {-pts} 點",
-            )
-        member.current_points += pts
-        # 違規扣點絕不扣除 total_earned_points，保全歷史榮譽與避免負數報錯 (Design 2.2 #6)
-    else:
-        member.current_points += pts
-        member.total_earned_points += pts
+        # 家長直接發放/扣點：點數雙軌約束邏輯
+        if pts < 0:
+            if member.current_points + pts < 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"點數不足以扣抵！目前可用點數為 {member.current_points} 點，欲扣除 {-pts} 點",
+                )
+            member.current_points += pts
+        else:
+            member.current_points += pts
+            member.total_earned_points += pts
 
-    # 3. 快照規則資訊
+    # 2. 快照規則資訊
     rule_snapshot = None
     if record_in.rule_id:
         rule = await db.get(RewardRule, record_in.rule_id)
@@ -87,7 +94,8 @@ async def record_kudos(
                 "description": rule.description,
             }
 
-    # 4. 新增流水帳
+    # 3. 新增紀錄
+    now = datetime.now(timezone.utc)
     kudos = KudosRecord(
         member_id=record_in.member_id,
         rule_id=record_in.rule_id,
@@ -95,16 +103,108 @@ async def record_kudos(
         condition_snapshot=(record_in.condition_value or "自訂").strip(),
         points_awarded=pts,
         rule_detail_snapshot=rule_snapshot,
+        status=record_status,
         note=record_in.note,
+        reviewed_at=now if record_status == "APPROVED" else None,
+        review_note="家長直接登記發放" if record_status == "APPROVED" and auth_role == "parent" else None,
         recorded_by=actor_name,
     )
     db.add(kudos)
     await db.flush()
 
-    # 5. 評估里程碑勳章
-    newly_badges = []
-    if pts > 0:
+    # 4. 家長發放時若 pts > 0 評估里程碑勳章
+    if record_status == "APPROVED" and pts > 0:
         newly_badges = await evaluate_and_unlock_badges(db, record_in.member_id)
+
+    # 5. 小孩發起申請時，非同步推播 LINE 提醒家長審核
+    if record_status == "PENDING" and background_tasks:
+        time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        push_msg = (
+            f"🐸 [Frog Kudos 點數申請通知]\n"
+            f"成員: {member.name}\n"
+            f"目標項目: {kudos.target_name_snapshot}\n"
+            f"達成條件: {kudos.condition_snapshot}\n"
+            f"申請點數: +{pts} 點\n"
+            f"備註: {kudos.note or '無'}\n"
+            f"時間: {time_str}\n"
+            f"請家長至系統審核。"
+        )
+        background_tasks.add_task(send_line_push, push_msg)
+
+    await db.commit()
+    await db.refresh(kudos)
+
+    out = KudosRecordOut.model_validate(kudos)
+    out.newly_unlocked_badges = newly_badges
+    return out
+
+async def list_pending_kudos(
+    db: AsyncSession,
+    member_id: Optional[uuid.UUID] = None,
+) -> List[KudosRecordOut]:
+    """查詢所有待家長審核之加點申請 (status='PENDING')"""
+    stmt = select(KudosRecord).where(KudosRecord.status == "PENDING")
+    if member_id:
+        stmt = stmt.where(KudosRecord.member_id == member_id)
+    stmt = stmt.order_by(KudosRecord.created_at.desc())
+    res = await db.execute(stmt)
+    return [KudosRecordOut.model_validate(k) for k in res.scalars().all()]
+
+async def review_kudos(
+    db: AsyncSession,
+    kudos_id: uuid.UUID,
+    req: KudosReviewIn,
+    parent_pin_header: Optional[str] = None,
+) -> KudosRecordOut:
+    """
+    家長審核小孩加點申請
+    - 驗證家長安全鎖 PIN 碼
+    - 悲觀鎖查詢 kudos 與 member
+    - APPROVE: status="APPROVED", 正式發放點數並評估勳章
+    - REJECT: status="REJECTED", 註記退回原因
+    """
+    pin = req.parent_pin or parent_pin_header
+    if not await verify_parent_pin(db, pin):
+        raise HTTPException(status_code=403, detail="家長安全鎖 PIN 碼錯誤或未授權")
+
+    kudos_stmt = select(KudosRecord).where(KudosRecord.id == kudos_id).with_for_update()
+    res = await db.execute(kudos_stmt)
+    kudos = res.scalar_one_or_none()
+    if not kudos:
+        raise HTTPException(status_code=404, detail="查無此點數申請紀錄")
+
+    if kudos.status != "PENDING":
+        raise HTTPException(status_code=400, detail="此申請已審核完成，不可重複操作")
+
+    now = datetime.now(timezone.utc)
+    newly_badges = []
+
+    if req.action == "APPROVE":
+        kudos.status = "APPROVED"
+        kudos.reviewed_at = now
+        kudos.review_note = req.review_note or "家長已核准發放"
+
+        # 真正加點入成員錢包
+        member_stmt = select(Member).where(Member.id == kudos.member_id).with_for_update()
+        res_m = await db.execute(member_stmt)
+        member = res_m.scalar_one_or_none()
+        if not member or not member.is_active:
+            raise HTTPException(status_code=400, detail="成員不存在或已被停用")
+
+        pts = kudos.points_awarded
+        member.current_points += pts
+        member.total_earned_points += pts
+
+        # 評估里程碑勳章
+        if pts > 0:
+            newly_badges = await evaluate_and_unlock_badges(db, kudos.member_id)
+
+    elif req.action == "REJECT":
+        kudos.status = "REJECTED"
+        kudos.reviewed_at = now
+        kudos.review_note = req.review_note or "家長退回申請"
+    else:
+        raise HTTPException(status_code=400, detail=f"不支援的審核動作: {req.action}")
 
     await db.commit()
     await db.refresh(kudos)
@@ -142,14 +242,25 @@ async def get_ledger_history(
     items: List[LedgerItemOut] = []
 
     for k in kudos_list:
+        if k.status == "PENDING":
+            pts = k.points_awarded
+            status_text = f"{k.condition_snapshot} (待家長審核)"
+        elif k.status == "REJECTED":
+            pts = 0
+            status_text = f"已退回 ({k.review_note or '退回'})"
+        else:
+            pts = k.points_awarded
+            status_text = k.condition_snapshot
+
         items.append(
             LedgerItemOut(
                 id=k.id,
                 record_type="KUDOS",
                 title=k.target_name_snapshot,
-                points=k.points_awarded,
-                condition_or_status=k.condition_snapshot,
-                note=k.note or k.adjustment_note,
+                points=pts,
+                condition_or_status=status_text,
+                status=k.status,
+                note=k.note or k.adjustment_note or k.review_note,
                 actor=k.recorded_by,
                 created_at=k.created_at,
             )
@@ -173,6 +284,7 @@ async def get_ledger_history(
                 title=f"兌換: {r.item_title_snapshot}",
                 points=pts,
                 condition_or_status=status_text,
+                status=r.status,
                 note=r.review_note,
                 actor="Parent" if r.reviewed_at else "系統",
                 created_at=r.created_at,
@@ -205,8 +317,8 @@ async def export_ledger_csv(
     members_res = await db.execute(select(Member))
     member_map = {m.id: m.name for m in members_res.scalars().all()}
 
-    # 查詢 kudos_records
-    kudos_stmt = select(KudosRecord)
+    # 查詢 kudos_records (僅匯出已核准 APPROVED 紀錄)
+    kudos_stmt = select(KudosRecord).where(KudosRecord.status == "APPROVED")
     if member_id:
         kudos_stmt = kudos_stmt.where(KudosRecord.member_id == member_id)
     if start_dt:
@@ -290,6 +402,7 @@ async def preview_batch_adjustment(
     stmt = select(KudosRecord).where(
         KudosRecord.member_id == preview_in.member_id,
         KudosRecord.target_name_snapshot == preview_in.target_name.strip(),
+        KudosRecord.status == "APPROVED",
         KudosRecord.created_at >= start_dt,
         KudosRecord.created_at < end_dt,
     ).order_by(KudosRecord.created_at.asc())
@@ -366,6 +479,7 @@ async def execute_batch_adjustment(
     stmt = select(KudosRecord).where(
         KudosRecord.member_id == adjust_in.member_id,
         KudosRecord.target_name_snapshot == adjust_in.target_name.strip(),
+        KudosRecord.status == "APPROVED",
         KudosRecord.created_at >= start_dt,
         KudosRecord.created_at < end_dt,
     )

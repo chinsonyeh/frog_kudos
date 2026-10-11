@@ -148,9 +148,9 @@ function triggerUnlock() {
         <div class="flex items-start space-x-3 p-3.5 rounded-2xl bg-gray-50 border border-gray-100">
           <span class="text-xl">🚀</span>
           <div>
-            <h4 class="font-bold text-gray-800 text-sm">3. 一鍵確認送出</h4>
+            <h4 class="font-bold text-gray-800 text-sm">3. 送出申請與家長審核</h4>
             <p class="text-xs text-gray-500 mt-0.5">
-              可依需求填寫備註（例如：「今天小考 100 分」），點擊下方「<strong>📝 確認申請點數</strong>」。由於您已事先解鎖登入，<strong>無需重複輸入密碼</strong>，點數將直接計入個人存摺與累計總點數！
+              可依需求填寫備註（例如：「今天小考 100 分」）。<strong>小孩登記送出後為「待審核 (PENDING)」狀態</strong>，系統會自動排程通知爸爸媽媽。待爸爸媽媽審核核准後，點數才會正式計入存摺與成就勳章！若由<strong>家長身分登記</strong>，則為直接核准 (APPROVED) 即時入帳。
             </p>
           </div>
         </div>
@@ -159,10 +159,10 @@ function triggerUnlock() {
       <div class="p-4 bg-amber-50/60 rounded-2xl border border-amber-100 text-xs text-amber-900 space-y-1">
         <div class="font-bold flex items-center gap-1.5">
           <span>⚠️</span>
-          <span>小孩帳號權限安全規則：</span>
+          <span>小孩帳號權限與審核安全規則：</span>
         </div>
         <p class="leading-relaxed text-amber-800">
-          小孩帳戶<strong>僅能申請增加自身點數（點數必須為正數）</strong>，嚴禁自訂扣點；扣點處罰為家長專屬權限。同時後端設有防偽檢核，小孩無法跨帳號幫其他手足登記。
+          小孩帳戶<strong>僅能申請增加自身點數（點數必須為正數）</strong>，嚴禁自訂扣點；送出後需經家長核准才入帳。同時後端設有防偽檢核，小孩無法跨帳號幫其他手足登記。
         </p>
       </div>
     </div>
@@ -244,6 +244,13 @@ function triggerUnlock() {
           <h4 class="font-bold text-gray-900 text-xs sm:text-sm">Q: 如何更換個人代表頭像或管理家庭成員？</h4>
           <p class="text-xs text-gray-600 leading-relaxed">
             點選導航列「<strong>家庭成員</strong>」按鈕，在成員清單中點擊「<strong>⚙️ 編輯</strong>」即可進入完整的成員編輯頁面，自由挑選代表頭像、上傳個人照片或調整設定。
+          </p>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-gray-50 border border-gray-100 space-y-1">
+          <h4 class="font-bold text-gray-900 text-xs sm:text-sm">Q: 小孩登記點數後，家長該如何審核？</h4>
+          <p class="text-xs text-gray-600 leading-relaxed">
+            爸爸媽媽以<strong>家長身分解鎖</strong>後，若有待審核點數，系統會在「點數登記」頂部顯示醒目提示橫幅；家長也可進入「<strong>商城與審核</strong>」頁面點選「<strong>待審核申請</strong>」，即可查看孩子登記的事項並進行【核准加點】或【退回申請】。
           </p>
         </div>
 

@@ -155,9 +155,10 @@ async def toggle_member_badge(
 
 async def calculate_badge_progress(db: AsyncSession, member: Member, badges: List[Badge]) -> Dict[str, Dict[str, Any]]:
     """計算指定成員當前所有勳章的進度數值與解鎖判定"""
-    # 1. 滿分次數統計
+    # 1. 滿分次數統計 (僅採計已核准 APPROVED 紀錄)
     perfect_stmt = select(func.count(KudosRecord.id)).where(
         KudosRecord.member_id == member.id,
+        KudosRecord.status == "APPROVED",
         or_(
             KudosRecord.condition_snapshot == "100",
             KudosRecord.condition_snapshot == "100分",
@@ -166,13 +167,14 @@ async def calculate_badge_progress(db: AsyncSession, member: Member, badges: Lis
     )
     perfect_count = (await db.execute(perfect_stmt)).scalar() or 0
 
-    # 2. 家事/生活常規點數累計
+    # 2. 家事/生活常規點數累計 (僅採計已核准 APPROVED 紀錄)
     chore_stmt = (
         select(func.coalesce(func.sum(KudosRecord.points_awarded), 0))
         .outerjoin(RewardRule, KudosRecord.rule_id == RewardRule.id)
         .outerjoin(Category, RewardRule.category_id == Category.id)
         .where(
             KudosRecord.member_id == member.id,
+            KudosRecord.status == "APPROVED",
             KudosRecord.points_awarded > 0,
             or_(
                 Category.name.in_(["生活常規", "家事協助"]),

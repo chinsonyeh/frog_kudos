@@ -581,7 +581,7 @@ async def test_child_pin_and_self_points_restrictions():
             )
             assert v_bad.status_code == 403
 
-            # 3. 小孩為自己申請增加點數 (points_awarded > 0) -> 成功，recorded_by 為小孩姓名
+            # 3. 小孩為自己申請增加點數 (points_awarded > 0) -> 成功，狀態為 PENDING 待家長審核
             add_self = await client.post(
                 "/api/kudos/record",
                 json={
@@ -594,6 +594,16 @@ async def test_child_pin_and_self_points_restrictions():
             )
             assert add_self.status_code == 200
             assert add_self.json()["recorded_by"] == child_a["name"]
+            assert add_self.json()["status"] == "PENDING"
+
+            # 家長審核通過小孩加點申請，點數正式入帳 (30 點)
+            appr_res = await client.post(
+                f"/api/kudos/{add_self.json()['id']}/review",
+                headers={"X-Parent-PIN": "0000"},
+                json={"action": "APPROVE", "review_note": "自主學習優秀，核准加點", "parent_pin": "0000"},
+            )
+            assert appr_res.status_code == 200
+            assert appr_res.json()["status"] == "APPROVED"
 
             # 4. 小孩不可為自己登記違規扣點 (points_awarded <= 0) -> 403 Forbidden
             neg_self = await client.post(
@@ -784,7 +794,7 @@ async def test_role_based_unlock_and_permissions():
             assert a_token and a_token.startswith("fks_")
 
             # 4. ChildA 專屬功能驗證：
-            # A. 申請增加 ChildA 自己的點數 (+5) -> 允許
+            # A. 申請增加 ChildA 自己的點數 (+5) -> 允許 (狀態為 PENDING)
             a_kudos_ok = await client.post(
                 "/api/kudos/record",
                 headers={"X-Session-Token": a_token},
@@ -797,6 +807,17 @@ async def test_role_based_unlock_and_permissions():
                 }
             )
             assert a_kudos_ok.status_code == 200
+            assert a_kudos_ok.json()["status"] == "PENDING"
+
+            # 家長審核通過 ChildA 之加點申請，正式給予 5 點以供後續兌換測試
+            k_id = a_kudos_ok.json()["id"]
+            k_appr = await client.post(
+                f"/api/kudos/{k_id}/review",
+                headers={"X-Parent-PIN": "0000"},
+                json={"action": "APPROVE", "parent_pin": "0000"}
+            )
+            assert k_appr.status_code == 200
+            assert k_appr.json()["status"] == "APPROVED"
 
             # B. 嘗試幫手足 ChildB 登記點數 -> 嚴格阻擋 (403 Forbidden)
             cross_kudos_fail = await client.post(
@@ -951,6 +972,9 @@ async def test_custom_pin_security_and_default_pin_invalidation():
         lily_res = await db.execute(select(Member).where(Member.name == "Lily"))
         lily = lily_res.scalars().first()
         if lily:
+            lily.pin_code = hash_pin("1234")
+            await db.commit()
+            await db.refresh(lily)
             assert lily.pin_code is not None
             # Lily 輸入 0000 必須失敗 (False, "none")，絕不能再被預設 0000 解鎖！
             valid, role = await verify_member_or_parent_pin(db, lily.id, input_pin="0000")
@@ -1260,6 +1284,133 @@ async def test_per_member_isolated_custom_avatar_gallery_flow():
 
             await cleanup_test_child(client, alice_id)
             await cleanup_test_child(client, bob_id)
+
+@pytest.mark.asyncio
+async def test_child_kudos_review_and_approval_flow():
+    """
+    測試小孩登記加點需家長同意完整生命週期：
+    1. 小孩自主申請加點 -> 狀態 PENDING，點數不立即入帳
+    2. 家長查詢待審核清單 (/api/kudos/pending)
+    3. 非家長權限不可審核加點 (403)
+    4. 家長退回申請 (REJECT) -> 狀態 REJECTED，點數不增加
+    5. 家長核准申請 (APPROVE) -> 狀態 APPROVED，點數正式入帳
+    6. 家長直接發放點數 -> 狀態立即為 APPROVED
+    7. 存摺流水帳標記待審核與退回狀態
+    """
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        test_bot = await create_isolated_test_child(client, "BotReview")
+        bot_id = test_bot["id"]
+
+        try:
+            # 1. 小孩自主申請加點 (+40 點)
+            apply_res = await client.post(
+                "/api/kudos/record",
+                json={
+                    "member_id": bot_id,
+                    "target_name": "國語聽寫測驗",
+                    "condition_value": "95分",
+                    "points_awarded": 40,
+                    "note": "自主複習成果",
+                    "pin": "0000",
+                },
+            )
+            assert apply_res.status_code == 200
+            kudos_data = apply_res.json()
+            kudos_id_1 = kudos_data["id"]
+            assert kudos_data["status"] == "PENDING"
+            assert kudos_data["recorded_by"] == test_bot["name"]
+
+            # 驗證錢包點數尚未增加 (仍為 0)
+            m_res = await client.get("/api/members")
+            bot_curr = next(m for m in m_res.json() if m["id"] == bot_id)
+            assert bot_curr["current_points"] == 0
+            assert bot_curr["total_earned_points"] == 0
+
+            # 2. 家長查詢待審核清單 (/api/kudos/pending)
+            pending_res = await client.get(f"/api/kudos/pending?member_id={bot_id}")
+            assert pending_res.status_code == 200
+            pending_list = pending_res.json()
+            assert any(k["id"] == kudos_id_1 for k in pending_list)
+
+            # 3. 未持家長 PIN 嘗試審核 -> 403 Forbidden
+            unauth_review = await client.post(
+                f"/api/kudos/{kudos_id_1}/review",
+                json={"action": "APPROVE", "parent_pin": "wrong"},
+            )
+            assert unauth_review.status_code == 403
+
+            # 4. 小孩再申請第二筆 (+20 點)，測試退回流程
+            apply_res_2 = await client.post(
+                "/api/kudos/record",
+                json={
+                    "member_id": bot_id,
+                    "target_name": "整理書桌",
+                    "condition_value": "完成",
+                    "points_awarded": 20,
+                    "note": "自行整理",
+                    "pin": "0000",
+                },
+            )
+            assert apply_res_2.status_code == 200
+            kudos_id_2 = apply_res_2.json()["id"]
+
+            # 家長退回第二筆
+            reject_res = await client.post(
+                f"/api/kudos/{kudos_id_2}/review",
+                headers={"X-Parent-PIN": "0000"},
+                json={"action": "REJECT", "review_note": "書桌仍凌亂未確實整理", "parent_pin": "0000"},
+            )
+            assert reject_res.status_code == 200
+            assert reject_res.json()["status"] == "REJECTED"
+            assert reject_res.json()["review_note"] == "書桌仍凌亂未確實整理"
+
+            # 5. 家長核准第一筆 (+40 點)
+            approve_res = await client.post(
+                f"/api/kudos/{kudos_id_1}/review",
+                headers={"X-Parent-PIN": "0000"},
+                json={"action": "APPROVE", "review_note": "表現優良核准", "parent_pin": "0000"},
+            )
+            assert approve_res.status_code == 200
+            assert approve_res.json()["status"] == "APPROVED"
+
+            # 驗證錢包點數正式入帳 40 點
+            m_res_2 = await client.get("/api/members")
+            bot_after_appr = next(m for m in m_res_2.json() if m["id"] == bot_id)
+            assert bot_after_appr["current_points"] == 40
+            assert bot_after_appr["total_earned_points"] == 40
+
+            # 6. 家長直接發放點數 (+10 點) -> 狀態直接為 APPROVED
+            parent_direct = await client.post(
+                "/api/kudos/record",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "家長鼓勵加分",
+                    "condition_value": "獎勵",
+                    "points_awarded": 10,
+                    "parent_pin": "0000",
+                },
+            )
+            assert parent_direct.status_code == 200
+            assert parent_direct.json()["status"] == "APPROVED"
+
+            # 驗證總點數為 40 + 10 = 50
+            m_res_3 = await client.get("/api/members")
+            bot_final = next(m for m in m_res_3.json() if m["id"] == bot_id)
+            assert bot_final["current_points"] == 50
+            assert bot_final["total_earned_points"] == 50
+
+            # 7. 查詢存摺流水帳
+            hist_res = await client.get(f"/api/kudos/history?member_id={bot_id}")
+            assert hist_res.status_code == 200
+            history_items = hist_res.json()
+            # 找到第二筆 (REJECTED)
+            rejected_item = next(it for it in history_items if it["id"] == kudos_id_2)
+            assert rejected_item["points"] == 0
+            assert "已退回" in rejected_item["condition_or_status"]
+
+        finally:
+            await cleanup_test_child(client, bot_id)
 
 
 

@@ -402,15 +402,34 @@ function onUnlockedBadges(bList) {
         <div
           v-for="item in ledgerItems"
           :key="item.id"
-          class="p-4 rounded-2xl border border-gray-100 hover:border-gray-200 transition bg-gray-50/40 hover:bg-gray-50 flex items-center justify-between"
+          class="p-4 rounded-2xl border transition flex items-center justify-between"
+          :class="[
+            item.status === 'PENDING'
+              ? 'border-amber-200 bg-amber-50/30'
+              : (item.status === 'REJECTED'
+                ? 'border-gray-200 bg-gray-50/30 opacity-80'
+                : 'border-gray-100 hover:border-gray-200 bg-gray-50/40 hover:bg-gray-50')
+          ]"
         >
           <div class="space-y-1">
-            <div class="flex items-center space-x-2">
+            <div class="flex items-center flex-wrap gap-2">
               <span class="font-bold text-gray-800 text-sm sm:text-base">{{ item.title }}</span>
               <span class="text-xs px-2 py-0.5 rounded-lg font-semibold"
                 :class="item.record_type === 'KUDOS' ? 'bg-frog-100 text-frog-800' : 'bg-purple-100 text-purple-800'"
               >
                 {{ item.record_type === 'KUDOS' ? '成就' : '兌換' }}
+              </span>
+              <span
+                v-if="item.status === 'PENDING'"
+                class="text-xs px-2 py-0.5 rounded-lg font-bold bg-amber-100 text-amber-800"
+              >
+                ⏳ 待審核
+              </span>
+              <span
+                v-else-if="item.status === 'REJECTED'"
+                class="text-xs px-2 py-0.5 rounded-lg font-bold bg-rose-100 text-rose-800"
+              >
+                🛑 已退回
               </span>
               <span class="text-xs text-gray-500 font-medium">({{ item.condition_or_status }})</span>
             </div>
@@ -424,12 +443,24 @@ function onUnlockedBadges(bList) {
 
           <!-- 點數增減顯示 -->
           <div class="text-right flex-shrink-0 ml-3">
-            <span
-              class="text-base sm:text-lg font-black font-mono"
-              :class="item.points > 0 ? 'text-frog-600' : (item.points < 0 ? 'text-red-500' : 'text-gray-400')"
-            >
-              {{ item.points > 0 ? `+${item.points}` : item.points }} 點
-            </span>
+            <template v-if="item.status === 'PENDING'">
+              <span class="text-xs sm:text-sm font-bold text-amber-700 bg-amber-100/70 px-2.5 py-1 rounded-xl border border-amber-200">
+                ⏳ 審核中
+              </span>
+            </template>
+            <template v-else-if="item.status === 'REJECTED'">
+              <span class="text-xs sm:text-sm font-bold text-rose-600 bg-rose-50 px-2.5 py-1 rounded-xl border border-rose-200">
+                🛑 0 點 (已退回)
+              </span>
+            </template>
+            <template v-else>
+              <span
+                class="text-base sm:text-lg font-black font-mono"
+                :class="item.points > 0 ? 'text-frog-600' : (item.points < 0 ? 'text-red-500' : 'text-gray-400')"
+              >
+                {{ item.points > 0 ? `+${item.points}` : item.points }} 點
+              </span>
+            </template>
           </div>
         </div>
       </div>
