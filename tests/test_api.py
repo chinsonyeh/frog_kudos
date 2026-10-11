@@ -678,8 +678,8 @@ async def test_kudos_photo_upload_and_audit_flow():
         uploaded_file_path = None
 
         try:
-            # 1. 建立測試圖片 bytes
-            img = Image.new("RGB", (200, 200), color=(100, 200, 100))
+            # 1. 建立測試圖片 bytes (尺寸 1280x720，超過 640 限制)
+            img = Image.new("RGB", (1280, 720), color=(100, 200, 100))
             buf = io.BytesIO()
             img.save(buf, format="JPEG")
             img_bytes = buf.getvalue()
@@ -694,11 +694,16 @@ async def test_kudos_photo_upload_and_audit_flow():
             assert "url" in upload_data
             assert upload_data["url"].startswith("/uploads/proofs/")
             assert upload_data["size_kb"] > 0
+            assert upload_data["width"] <= 640 and upload_data["height"] <= 640
+            assert upload_data["width"] == 640 and upload_data["height"] == 360
             photo_url = upload_data["url"]
 
             root_dir = Path(__file__).resolve().parent.parent
             uploaded_file_path = root_dir / photo_url.lstrip("/")
             assert uploaded_file_path.exists()
+            with Image.open(uploaded_file_path) as saved_img:
+                assert saved_img.size == (640, 360)
+                assert saved_img.format == "WEBP"
 
             # 3. 小孩發起加點申請並附帶查驗照片 (狀態為 PENDING)
             apply_res = await client.post(
@@ -749,6 +754,48 @@ async def test_kudos_photo_upload_and_audit_flow():
             if uploaded_file_path and uploaded_file_path.exists():
                 uploaded_file_path.unlink()
             await cleanup_test_child(client, bot_id)
+
+@pytest.mark.asyncio
+async def test_proof_photo_resizing_boundary_rules():
+    """驗證查驗照片寬高上限 640px 邊界條件：任一邊超過 640 等比縮小至 640，未超過則維持原尺寸"""
+    from PIL import Image
+    import io
+    from pathlib import Path
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        test_cases = [
+            # (原始寬, 原始高, 預期寬, 預期高)
+            (720, 1280, 360, 640),   # 直式 (高 > 640)
+            (500, 300, 500, 300),    # 皆小於 640 (不縮放)
+            (1000, 1000, 640, 640),  # 正方形 (皆 > 640)
+        ]
+        cleanup_paths = []
+        root_dir = Path(__file__).resolve().parent.parent
+
+        try:
+            for orig_w, orig_h, exp_w, exp_h in test_cases:
+                im = Image.new("RGB", (orig_w, orig_h), color=(150, 100, 50))
+                buf = io.BytesIO()
+                im.save(buf, format="JPEG")
+                res = await client.post(
+                    "/api/kudos/proof-upload",
+                    files={"file": (f"test_{orig_w}x{orig_h}.jpg", buf.getvalue(), "image/jpeg")},
+                )
+                assert res.status_code == 200
+                data = res.json()
+                assert data["width"] == exp_w
+                assert data["height"] == exp_h
+                assert data["width"] <= 640 and data["height"] <= 640
+
+                file_path = root_dir / data["url"].lstrip("/")
+                cleanup_paths.append(file_path)
+                assert file_path.exists()
+                with Image.open(file_path) as saved_im:
+                    assert saved_im.size == (exp_w, exp_h)
+        finally:
+            for p in cleanup_paths:
+                if p.exists():
+                    p.unlink()
 
 @pytest.mark.asyncio
 async def test_child_pin_and_self_points_restrictions():

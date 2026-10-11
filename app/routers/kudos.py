@@ -42,7 +42,7 @@ async def upload_kudos_proof(
     """
     上傳點數登記/申請查驗照片 (JPG, PNG, WebP, GIF, 支援手機相機拍照與相簿選取)
     - 自動依據 EXIF Orientation 轉正
-    - 等比例壓縮至最適尺寸 (最大邊 1600px, WebP quality=85)
+    - 等比例壓縮至最適尺寸 (寬/高任一超過 640px 則等比縮小至最大邊 640px, WebP quality=85)
     - 保存至 uploads/proofs/
     - 回傳圖片靜態 URL
     """
@@ -64,7 +64,7 @@ async def upload_kudos_proof(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"無法解析圖片檔案：{e}")
 
-    max_dim = 1600
+    max_dim = 640
     if image.width > max_dim or image.height > max_dim:
         image.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
 
@@ -82,6 +82,8 @@ async def upload_kudos_proof(
         "url": f"/uploads/proofs/{new_filename}",
         "filename": new_filename,
         "size_kb": round(stat.st_size / 1024, 1),
+        "width": image.width,
+        "height": image.height,
     }
 
 @router.post("/preview", response_model=PreviewOut)
