@@ -268,7 +268,7 @@ function onUnlockedBadges(bList) {
               <div class="flex items-center space-x-2">
                 <h3 class="text-2xl font-black tracking-tight">{{ currentMember.name }} 的點數存摺</h3>
                 <button
-                  @click="openMemberAvatarModal(currentMember.id)"
+                  @click="authStore.isParent ? (targetMemberIdForModal = null, showMemberModal = true) : openMemberAvatarModal(currentMember.id)"
                   type="button"
                   class="text-[11px] bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded-lg font-bold transition cursor-pointer"
                   :title="authStore.isParent ? '管理成員' : '更換代表頭像'"
