@@ -297,14 +297,28 @@ async def update_member(
             raise HTTPException(status_code=400, detail="成員姓名已被使用")
         member.name = member_in.name.strip()
 
-    if member_in.role is not None:
+    if member_in.role is not None and member_in.role != member.role:
+        if member.role == "parent" and member_in.role == "child":
+            parent_count = await db.scalar(
+                select(func.count(Member.id)).where(Member.role == "parent", Member.is_active == True)
+            )
+            if (parent_count or 0) <= 1:
+                raise HTTPException(status_code=400, detail="系統必須至少保留一位有效家長帳號，無法將唯一家長變更為小孩")
         member.role = member_in.role
+
     if member_in.avatar is not None:
         member.avatar = member_in.avatar
     if member_in.pin_code is not None:
         if member_in.pin_code.strip():
             member.pin_code = hash_pin(member_in.pin_code.strip())
-    if member_in.is_active is not None:
+
+    if member_in.is_active is not None and member_in.is_active != member.is_active:
+        if member.role == "parent" and member_in.is_active is False:
+            parent_count = await db.scalar(
+                select(func.count(Member.id)).where(Member.role == "parent", Member.is_active == True)
+            )
+            if (parent_count or 0) <= 1:
+                raise HTTPException(status_code=400, detail="系統必須至少保留一位有效家長帳號，無法停用唯一家長")
         member.is_active = member_in.is_active
 
     await db.commit()
@@ -564,6 +578,13 @@ async def delete_or_deactivate_member(
     member = await db.get(Member, member_id)
     if not member:
         raise HTTPException(status_code=404, detail="成員不存在")
+
+    if member.role == "parent":
+        parent_count = await db.scalar(
+            select(func.count(Member.id)).where(Member.role == "parent", Member.is_active == True)
+        )
+        if (parent_count or 0) <= 1:
+            raise HTTPException(status_code=400, detail="系統必須至少保留一位有效家長帳號，無法刪除或停用唯一家長")
 
     # 檢查是否有歷史紀錄
     kudos_count_res = await db.execute(

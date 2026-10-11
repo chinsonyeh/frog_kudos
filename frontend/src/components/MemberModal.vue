@@ -44,9 +44,29 @@ const pinCode = ref('')
 const isActive = ref(true)
 const originalIsActive = ref(true)
 
-// 小孩帳號角色類型設為無法使用 (編輯既有小孩成員或小孩身分操作時鎖定)
-const isRoleDisabled = computed(() => {
-  return (formMode.value === 'edit' && originalRole.value === 'child') || authStore.isChild
+// 計算目前有效家長總數 (僅計 is_active !== false)
+const activeParentCount = computed(() => {
+  return membersList.value.filter(m => m.role === 'parent' && m.is_active !== false).length
+})
+
+// 當編輯現有家長，且系統中僅存 1 位有效家長時，不可降級為小孩
+const isOnlyParent = computed(() => {
+  return formMode.value === 'edit' && originalRole.value === 'parent' && activeParentCount.value <= 1
+})
+
+// 使用小孩帳戶登入時：停用所有角色切換 radio
+const isChildLogin = computed(() => authStore.isChild)
+
+// 小孩選項 (👦 小孩) 是否無法使用：
+// 1. 小孩帳戶登入時停用
+// 2. 系統僅存一位家長且正在編輯該家長時停用 (不能變更為小孩)
+const isChildRoleDisabled = computed(() => {
+  return isChildLogin.value || isOnlyParent.value
+})
+
+// 家長選項 (👨 家長) 是否無法使用：小孩帳戶登入時停用
+const isParentRoleDisabled = computed(() => {
+  return isChildLogin.value
 })
 
 // 自訂頭像三合一選擇器狀態
@@ -465,9 +485,23 @@ async function handleSave() {
     return
   }
 
-  // 若為小孩帳號，角色固定鎖定為 child 不允許修改
-  if (isRoleDisabled.value) {
-    role.value = 'child'
+  // 安全檢核：小孩帳號登入時不可自訂變更角色
+  if (isChildLogin.value) {
+    role.value = originalRole.value
+  }
+
+  // 安全檢核：若僅存一位家長，不可將唯一家長變更為小孩
+  if (isOnlyParent.value && role.value === 'child') {
+    errorMsg.value = '系統必須至少保留一位有效家長帳號，無法將唯一家長變更為小孩'
+    role.value = 'parent'
+    return
+  }
+
+  // 安全檢核：若僅存一位家長，不可將唯一家長停用
+  if (isOnlyParent.value && isActive.value === false) {
+    errorMsg.value = '系統必須至少保留一位有效家長帳號，無法停用唯一家長'
+    isActive.value = true
+    return
   }
 
   // 判斷是否修改需要家長授權之敏感屬性 (建立成員、姓名、角色、PIN 碼、啟用狀態變更)
@@ -703,24 +737,27 @@ async function handleDelete(member) {
         <div>
           <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
             <span>角色類型</span>
-            <span v-if="isRoleDisabled" class="text-[11px] text-amber-600 font-normal flex items-center gap-1">
-              <span>🔒</span><span>小孩帳號角色無法變更</span>
+            <span v-if="isChildLogin" class="text-[11px] text-amber-600 font-normal flex items-center gap-1">
+              <span>🔒</span><span>小孩帳號無法變更角色權限</span>
+            </span>
+            <span v-else-if="isOnlyParent" class="text-[11px] text-amber-600 font-normal flex items-center gap-1">
+              <span>🔒</span><span>系統僅存 1 位家長帳號，不可變更為小孩</span>
             </span>
           </label>
           <div class="grid grid-cols-2 gap-3">
             <label
               class="flex items-center space-x-2 p-3 rounded-xl border transition text-xs font-medium select-none"
               :class="[
-                isRoleDisabled ? 'opacity-60 cursor-not-allowed bg-gray-50' : 'cursor-pointer',
+                isChildRoleDisabled ? 'opacity-60 cursor-not-allowed bg-gray-50' : 'cursor-pointer',
                 role === 'child' ? 'border-frog-500 bg-frog-50/50 text-frog-800 font-bold' : 'border-gray-200 text-gray-600'
               ]"
-              @click="isRoleDisabled ? $event.preventDefault() : null"
+              @click="isChildRoleDisabled ? $event.preventDefault() : null"
             >
               <input
                 type="radio"
                 v-model="role"
                 value="child"
-                :disabled="isRoleDisabled"
+                :disabled="isChildRoleDisabled"
                 class="text-frog-600 disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <span>👦 小孩 (自主申請增加/兌換)</span>
@@ -728,16 +765,16 @@ async function handleDelete(member) {
             <label
               class="flex items-center space-x-2 p-3 rounded-xl border transition text-xs font-medium select-none"
               :class="[
-                isRoleDisabled ? 'opacity-60 cursor-not-allowed bg-gray-50' : 'cursor-pointer',
+                isParentRoleDisabled ? 'opacity-60 cursor-not-allowed bg-gray-50' : 'cursor-pointer',
                 role === 'parent' ? 'border-blue-500 bg-blue-50/50 text-blue-800 font-bold' : 'border-gray-200 text-gray-600'
               ]"
-              @click="isRoleDisabled ? $event.preventDefault() : null"
+              @click="isParentRoleDisabled ? $event.preventDefault() : null"
             >
               <input
                 type="radio"
                 v-model="role"
                 value="parent"
-                :disabled="isRoleDisabled"
+                :disabled="isParentRoleDisabled"
                 class="text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <span>👨 家長 (管理員/需 4 碼 PIN)</span>
@@ -1040,8 +1077,17 @@ async function handleDelete(member) {
             <span class="text-xs font-bold text-gray-700 block">帳號啟用狀態</span>
             <span class="text-[11px] text-gray-400">停用後無法登入或累積點數，但已存在之歷史帳本將永久保全</span>
           </div>
-          <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
-            <input type="checkbox" v-model="isActive" class="sr-only peer" />
+          <label
+            class="relative inline-flex items-center flex-shrink-0"
+            :class="isOnlyParent ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'"
+            :title="isOnlyParent ? '系統僅存 1 位家長帳號，無法停用' : ''"
+          >
+            <input
+              type="checkbox"
+              v-model="isActive"
+              :disabled="isOnlyParent"
+              class="sr-only peer disabled:cursor-not-allowed"
+            />
             <div class="w-10 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-frog-500"></div>
           </label>
         </div>

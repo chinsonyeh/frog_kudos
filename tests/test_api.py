@@ -798,6 +798,100 @@ async def test_proof_photo_resizing_boundary_rules():
                     p.unlink()
 
 @pytest.mark.asyncio
+async def test_parent_role_demotion_and_lone_parent_protection():
+    """驗證家長角色變更與唯一家長帳號保護規則：
+    1. 當僅存 1 位家長時，不可將該家長角色變更為小孩 (400 Bad Request)
+    2. 當僅存 1 位家長時，不可將該家長停用或刪除 (400 Bad Request)
+    3. 新增第 2 位家長後，允許將其中一位家長變更為小孩
+    4. 支援將小孩角色變更為家長
+    """
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # 取得所有成員，找出 __TestParentRunner__ 與其他家長
+        m_res = await client.get("/api/members")
+        assert m_res.status_code == 200
+        members = m_res.json()
+        runner_parent = next(m for m in members if m["name"] == "__TestParentRunner__")
+        other_parents = [m for m in members if m["role"] == "parent" and m["id"] != runner_parent["id"] and m.get("is_active", True)]
+
+        demoted_others = []
+        try:
+            # 暫時將其他家長轉為小孩，使 __TestParentRunner__ 成為系統中唯一有效家長
+            for p in other_parents:
+                dem_res = await client.put(
+                    f"/api/members/{p['id']}",
+                    headers={"X-Parent-PIN": "0000"},
+                    json={"role": "child"},
+                )
+                assert dem_res.status_code == 200
+                demoted_others.append(p)
+
+            parent_id = runner_parent["id"]
+
+            # 1. 當僅剩 1 位家長時，嘗試將唯一家長角色變更為小孩 -> 應被拒絕 400
+            demote_res = await client.put(
+                f"/api/members/{parent_id}",
+                headers={"X-Parent-PIN": "0000"},
+                json={"role": "child"},
+            )
+            assert demote_res.status_code == 400
+            assert "系統必須至少保留一位有效家長帳號" in demote_res.json()["detail"]
+
+            # 2. 嘗試停用唯一家長 -> 應被拒絕 400
+            deactivate_res = await client.put(
+                f"/api/members/{parent_id}",
+                headers={"X-Parent-PIN": "0000"},
+                json={"is_active": False},
+            )
+            assert deactivate_res.status_code == 400
+            assert "系統必須至少保留一位有效家長帳號" in deactivate_res.json()["detail"]
+
+            # 3. 嘗試刪除唯一家長 -> 應被拒絕 400
+            del_res = await client.delete(
+                f"/api/members/{parent_id}?parent_pin=0000"
+            )
+            assert del_res.status_code == 400
+            assert "系統必須至少保留一位有效家長帳號" in del_res.json()["detail"]
+
+            # 4. 新增第二位家長
+            p2_name = f"Parent2_{uuid.uuid4().hex[:6]}"
+            p2_res = await client.post(
+                "/api/members",
+                headers={"X-Parent-PIN": "0000"},
+                json={"name": p2_name, "role": "parent", "avatar": "👨", "pin_code": "0000"},
+            )
+            assert p2_res.status_code == 200
+            p2_id = p2_res.json()["id"]
+
+            try:
+                # 5. 現在有兩位家長，允許將 Parent2 變更為小孩
+                demote_ok = await client.put(
+                    f"/api/members/{p2_id}",
+                    headers={"X-Parent-PIN": "0000"},
+                    json={"role": "child"},
+                )
+                assert demote_ok.status_code == 200
+                assert demote_ok.json()["role"] == "child"
+
+                # 6. 將其重新提升為家長
+                promote_ok = await client.put(
+                    f"/api/members/{p2_id}",
+                    headers={"X-Parent-PIN": "0000"},
+                    json={"role": "parent"},
+                )
+                assert promote_ok.status_code == 200
+                assert promote_ok.json()["role"] == "parent"
+            finally:
+                await client.delete(f"/api/members/{p2_id}?parent_pin=0000")
+        finally:
+            # 恢復所有暫時 demote 的家長帳號
+            for p in demoted_others:
+                await client.put(
+                    f"/api/members/{p['id']}",
+                    headers={"X-Parent-PIN": "0000"},
+                    json={"role": "parent"},
+                )
+
+@pytest.mark.asyncio
 async def test_child_pin_and_self_points_restrictions():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # 1. 建立兩個獨立測試小孩：ChildA (PIN 1111) 與 ChildB (PIN 2222)
