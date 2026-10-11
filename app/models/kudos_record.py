@@ -25,6 +25,7 @@ class KudosRecord(Base):
     points_awarded: Mapped[int] = mapped_column(Integer, nullable=False)
     rule_detail_snapshot: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    image_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     adjustment_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     recorded_by: Mapped[str] = mapped_column(String(50), nullable=False, default="Parent")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="APPROVED")  # 'PENDING', 'APPROVED', 'REJECTED'

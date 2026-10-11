@@ -5,12 +5,18 @@ import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import MemberPinModal from '@/components/MemberPinModal.vue'
 import MemberAvatar from '@/components/MemberAvatar.vue'
+import ImageViewModal from '@/components/ImageViewModal.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
 
 const showMemberPinModal = ref(false)
 const pendingRedeemItem = ref(null)
+const previewImageModal = ref({ show: false, url: '', title: '', subtitle: '' })
+
+function openImageModal(url, title = '查驗照片', subtitle = '') {
+  previewImageModal.value = { show: true, url, title, subtitle }
+}
 
 const activeTab = ref('items') // 'items' | 'review'
 const reviewSubTab = ref('kudos') // 'kudos' | 'redemptions'
@@ -336,6 +342,15 @@ async function handlePermanentDeleteItem(item) {
       @close="showMemberPinModal = false"
       @confirmed="onMemberPinConfirmed"
     />
+
+    <!-- 查驗照片全螢幕檢視彈窗 -->
+    <ImageViewModal
+      :show="previewImageModal.show"
+      :image-url="previewImageModal.url"
+      :title="previewImageModal.title"
+      :subtitle="previewImageModal.subtitle"
+      @close="previewImageModal.show = false"
+    />
     <!-- Toast 成功通知 -->
     <div
       v-if="toastMsg"
@@ -601,6 +616,36 @@ async function handlePermanentDeleteItem(item) {
 
           <div v-if="k.note" class="text-xs text-gray-600 bg-gray-50 p-3 rounded-xl">
             💬 申請備註：{{ k.note }}
+          </div>
+
+          <!-- 📸 查驗證明照片 -->
+          <div
+            v-if="k.image_url"
+            class="p-3 bg-amber-50/70 rounded-2xl border border-amber-200/80 flex items-center justify-between"
+          >
+            <div class="flex items-center space-x-3 min-w-0">
+              <img
+                :src="k.image_url"
+                alt="查驗照片"
+                class="w-16 h-16 sm:w-20 sm:h-20 object-cover rounded-xl border border-amber-300 cursor-pointer shadow-sm hover:scale-105 transition flex-shrink-0"
+                @click="openImageModal(k.image_url, `查驗照片 - ${k.target_name || k.target_name_snapshot}`, `申請成員：${k.member_name || ''}`)"
+              />
+              <div class="min-w-0">
+                <span class="text-xs font-bold text-amber-900 flex items-center gap-1">
+                  <span>📸 查驗證明照片</span>
+                </span>
+                <p class="text-[11px] text-gray-500 mt-0.5">
+                  點擊縮圖或按鈕可放大檢視照片細節以供查驗
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              @click="openImageModal(k.image_url, `查驗照片 - ${k.target_name || k.target_name_snapshot}`, `申請成員：${k.member_name || ''}`)"
+              class="px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-xs font-bold text-amber-800 hover:bg-amber-100 transition shadow-sm flex-shrink-0 ml-2"
+            >
+              🔍 放大查看
+            </button>
           </div>
 
           <!-- 審核操作按鈕 -->

@@ -106,6 +106,12 @@ export const api = {
     request(`/rules/${id}`, { method: 'DELETE' }),
 
   // 成就與存摺流水帳
+  uploadProofPhoto: (file, memberId = null) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const endpoint = memberId ? `/kudos/proof-upload?member_id=${encodeURIComponent(memberId)}` : '/kudos/proof-upload'
+    return request(endpoint, { method: 'POST', body: formData })
+  },
   previewKudos: (data) =>
     request('/kudos/preview', { method: 'POST', body: JSON.stringify(data) }),
   recordKudos: (data) =>

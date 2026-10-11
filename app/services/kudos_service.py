@@ -105,6 +105,7 @@ async def record_kudos(
         rule_detail_snapshot=rule_snapshot,
         status=record_status,
         note=record_in.note,
+        image_url=record_in.image_url,
         reviewed_at=now if record_status == "APPROVED" else None,
         review_note="家長直接登記發放" if record_status == "APPROVED" and auth_role == "parent" else None,
         recorded_by=actor_name,
@@ -119,6 +120,7 @@ async def record_kudos(
     # 5. 小孩發起申請時，非同步推播 LINE 提醒家長審核
     if record_status == "PENDING" and background_tasks:
         time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        photo_info = "有附照片 📷" if kudos.image_url else "無"
         push_msg = (
             f"🐸 [Frog Kudos 點數申請通知]\n"
             f"成員: {member.name}\n"
@@ -126,6 +128,7 @@ async def record_kudos(
             f"達成條件: {kudos.condition_snapshot}\n"
             f"申請點數: +{pts} 點\n"
             f"備註: {kudos.note or '無'}\n"
+            f"查驗照片: {photo_info}\n"
             f"時間: {time_str}\n"
             f"請家長至系統審核。"
         )
@@ -143,12 +146,23 @@ async def list_pending_kudos(
     member_id: Optional[uuid.UUID] = None,
 ) -> List[KudosRecordOut]:
     """查詢所有待家長審核之加點申請 (status='PENDING')"""
-    stmt = select(KudosRecord).where(KudosRecord.status == "PENDING")
+    stmt = (
+        select(KudosRecord, Member.name)
+        .join(Member, KudosRecord.member_id == Member.id)
+        .where(KudosRecord.status == "PENDING")
+    )
     if member_id:
         stmt = stmt.where(KudosRecord.member_id == member_id)
     stmt = stmt.order_by(KudosRecord.created_at.desc())
     res = await db.execute(stmt)
-    return [KudosRecordOut.model_validate(k) for k in res.scalars().all()]
+    records = []
+    for k, m_name in res.all():
+        out = KudosRecordOut.model_validate(k)
+        out.member_name = m_name
+        out.target_name = k.target_name_snapshot
+        out.condition_value = k.condition_snapshot
+        records.append(out)
+    return records
 
 async def review_kudos(
     db: AsyncSession,
@@ -260,6 +274,7 @@ async def get_ledger_history(
                 points=pts,
                 condition_or_status=status_text,
                 status=k.status,
+                image_url=k.image_url,
                 note=k.note or k.adjustment_note or k.review_note,
                 actor=k.recorded_by,
                 created_at=k.created_at,

@@ -1,7 +1,11 @@
+import io
+import time
 import uuid
 from datetime import date
+from pathlib import Path
 from typing import Optional, List
-from fastapi import APIRouter, Depends, Query, Response, BackgroundTasks
+from fastapi import APIRouter, Depends, Query, Response, BackgroundTasks, UploadFile, File, HTTPException
+from PIL import Image, ImageOps
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import require_parent_pin_dep, require_any_pin_dep
@@ -29,6 +33,56 @@ from app.services.kudos_service import (
 )
 
 router = APIRouter(prefix="/kudos", tags=["Kudos & Ledger"])
+
+@router.post("/proof-upload")
+async def upload_kudos_proof(
+    file: UploadFile = File(...),
+    member_id: Optional[uuid.UUID] = Query(None, description="指定成員 ID"),
+):
+    """
+    上傳點數登記/申請查驗照片 (JPG, PNG, WebP, GIF, 支援手機相機拍照與相簿選取)
+    - 自動依據 EXIF Orientation 轉正
+    - 等比例壓縮至最適尺寸 (最大邊 1600px, WebP quality=85)
+    - 保存至 uploads/proofs/
+    - 回傳圖片靜態 URL
+    """
+    valid_content_types = ["image/jpeg", "image/png", "image/webp", "image/gif"]
+    content_type = file.content_type or ""
+    filename = (file.filename or "").lower()
+    if content_type not in valid_content_types and not any(filename.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".gif"]):
+        raise HTTPException(status_code=400, detail="僅支援 JPG、PNG、WebP、GIF 等圖片格式")
+
+    contents = await file.read()
+    if len(contents) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="圖片檔案過大，請選擇 15MB 以內之照片")
+
+    try:
+        image = Image.open(io.BytesIO(contents))
+        image = ImageOps.exif_transpose(image)
+        if image.mode in ("RGBA", "P"):
+            image = image.convert("RGB")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"無法解析圖片檔案：{e}")
+
+    max_dim = 1600
+    if image.width > max_dim or image.height > max_dim:
+        image.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    target_dir = root_dir / "uploads" / "proofs"
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = int(time.time() * 1000)
+    new_filename = f"proof_{timestamp}_{uuid.uuid4().hex[:6]}.webp"
+    save_path = target_dir / new_filename
+    image.save(save_path, "WEBP", quality=85, optimize=True)
+
+    stat = save_path.stat()
+    return {
+        "url": f"/uploads/proofs/{new_filename}",
+        "filename": new_filename,
+        "size_kb": round(stat.st_size / 1024, 1),
+    }
 
 @router.post("/preview", response_model=PreviewOut)
 async def preview_kudos_rule(

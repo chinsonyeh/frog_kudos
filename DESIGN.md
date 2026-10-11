@@ -1033,6 +1033,7 @@ CREATE TABLE IF NOT EXISTS kudos_records (
     points_awarded INTEGER NOT NULL,
     rule_detail_snapshot JSONB,
     note TEXT,
+    image_url VARCHAR(255),
     adjustment_note TEXT,
     recorded_by VARCHAR(50) NOT NULL DEFAULT 'Parent',
     status VARCHAR(20) NOT NULL DEFAULT 'APPROVED', -- 'PENDING', 'APPROVED', 'REJECTED'
@@ -1041,6 +1042,9 @@ CREATE TABLE IF NOT EXISTS kudos_records (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 資料庫遷移：確保舊版升級時增加 image_url 欄位
+ALTER TABLE kudos_records ADD COLUMN IF NOT EXISTS image_url VARCHAR(255);
 
 -- 6. 兌換商城品項表
 CREATE TABLE IF NOT EXISTS reward_items (

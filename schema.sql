@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS kudos_records (
     rule_detail_snapshot JSONB,
     status VARCHAR(20) NOT NULL DEFAULT 'APPROVED', -- 'PENDING', 'APPROVED', 'REJECTED'
     note TEXT,
+    image_url VARCHAR(255),
     adjustment_note TEXT,
     reviewed_at TIMESTAMPTZ,
     review_note TEXT,
@@ -65,6 +66,7 @@ CREATE TABLE IF NOT EXISTS kudos_records (
 ALTER TABLE kudos_records ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'APPROVED';
 ALTER TABLE kudos_records ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
 ALTER TABLE kudos_records ADD COLUMN IF NOT EXISTS review_note TEXT;
+ALTER TABLE kudos_records ADD COLUMN IF NOT EXISTS image_url VARCHAR(255);
 
 -- 6. 兌換商城品項表
 CREATE TABLE IF NOT EXISTS reward_items (

@@ -23,6 +23,7 @@ class KudosRecordCreate(BaseModel):
     target_name: str = Field(..., min_length=1, max_length=100)
     condition_value: Optional[str] = Field(default="自訂", max_length=100)
     points_awarded: int
+    image_url: Optional[str] = Field(None, max_length=255, description="查驗照片 URL")
     note: Optional[str] = None
     recorded_by: str = Field(default="Parent", max_length=50)
     parent_pin: Optional[str] = None
@@ -31,12 +32,16 @@ class KudosRecordCreate(BaseModel):
 class KudosRecordOut(BaseModel):
     id: uuid.UUID
     member_id: uuid.UUID
+    member_name: Optional[str] = None
     rule_id: Optional[uuid.UUID] = None
     target_name_snapshot: str
+    target_name: Optional[str] = None
     condition_snapshot: str
+    condition_value: Optional[str] = None
     points_awarded: int
     rule_detail_snapshot: Optional[Any] = None
     status: str = "APPROVED"  # 'PENDING', 'APPROVED', 'REJECTED'
+    image_url: Optional[str] = None
     note: Optional[str] = None
     adjustment_note: Optional[str] = None
     reviewed_at: Optional[datetime] = None
@@ -62,6 +67,7 @@ class LedgerItemOut(BaseModel):
     points: int
     condition_or_status: str
     status: Optional[str] = None  # 'PENDING' | 'APPROVED' | 'COMPLETED' | 'REJECTED'
+    image_url: Optional[str] = None
     note: Optional[str] = None
     actor: str
     created_at: datetime

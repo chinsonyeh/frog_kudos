@@ -7,11 +7,17 @@ import BadgeUnlockModal from '@/components/BadgeUnlockModal.vue'
 import MemberModal from '@/components/MemberModal.vue'
 import BadgeManageModal from '@/components/BadgeManageModal.vue'
 import MemberAvatar from '@/components/MemberAvatar.vue'
+import ImageViewModal from '@/components/ImageViewModal.vue'
 
 const authStore = useAuthStore()
 
 const showMemberModal = ref(false)
 const targetMemberIdForModal = ref(null)
+const previewImageModal = ref({ show: false, url: '', title: '', subtitle: '' })
+
+function openImageModal(url, title = '查驗照片', subtitle = '') {
+  previewImageModal.value = { show: true, url, title, subtitle }
+}
 
 function openMemberAvatarModal(memberId = null) {
   const targetId = memberId || selectedMemberId.value
@@ -184,6 +190,15 @@ function onUnlockedBadges(bList) {
       :current-member="currentMember"
       @close="showBadgeManageModal = false"
       @badges-updated="loadMemberDetails"
+    />
+
+    <!-- 查驗照片全螢幕檢視彈窗 -->
+    <ImageViewModal
+      :show="previewImageModal.show"
+      :image-url="previewImageModal.url"
+      :title="previewImageModal.title"
+      :subtitle="previewImageModal.subtitle"
+      @close="previewImageModal.show = false"
     />
 
     <!-- 訪客模式友善引導橫幅 -->
@@ -447,10 +462,18 @@ function onUnlockedBadges(bList) {
               <span class="text-xs text-gray-500 font-medium">({{ item.condition_or_status }})</span>
             </div>
 
-            <div class="text-xs text-gray-500 flex flex-wrap gap-x-3 gap-y-1">
+            <div class="text-xs text-gray-500 flex flex-wrap items-center gap-x-3 gap-y-1">
               <span>🕒 {{ item.created_at.slice(0, 16).replace('T', ' ') }}</span>
               <span v-if="item.note">📝 備註: {{ item.note }}</span>
               <span>👤 經辦人: {{ item.actor }}</span>
+              <button
+                v-if="item.image_url"
+                @click="openImageModal(item.image_url, `查驗照片 - ${item.title}`, `經辦人：${item.actor}`)"
+                type="button"
+                class="inline-flex items-center space-x-1 text-frog-700 hover:text-frog-900 font-bold bg-frog-50 hover:bg-frog-100 px-2 py-0.5 rounded-lg border border-frog-200 transition cursor-pointer shadow-xs"
+              >
+                <span>📷 查看查驗照片</span>
+              </button>
             </div>
           </div>
 

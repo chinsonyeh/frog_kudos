@@ -491,7 +491,7 @@ async def test_system_endpoints():
 async def test_badge_management_and_milestones():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # 1. 查詢所有勳章定義清單
-        b_res = await client.get("/api/badges")
+        b_res = await client.get("/api/badges?all=true")
         assert b_res.status_code == 200
         badges = b_res.json()
         assert len(badges) >= 15
@@ -663,6 +663,91 @@ async def test_repeatable_badge_unlock_and_reset_flow():
             assert badge_100_3["progress"] == 40
             assert badge_100_3["target"] == 100
         finally:
+            await cleanup_test_child(client, bot_id)
+
+@pytest.mark.asyncio
+async def test_kudos_photo_upload_and_audit_flow():
+    """驗證申請登記點數時拍照上傳與查驗功能 (FR-22)"""
+    from PIL import Image
+    import io
+    from pathlib import Path
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        test_bot = await create_isolated_test_child(client, "BotProof")
+        bot_id = test_bot["id"]
+        uploaded_file_path = None
+
+        try:
+            # 1. 建立測試圖片 bytes
+            img = Image.new("RGB", (200, 200), color=(100, 200, 100))
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG")
+            img_bytes = buf.getvalue()
+
+            # 2. 呼叫拍照/照片上傳端點 POST /api/kudos/proof-upload
+            upload_res = await client.post(
+                f"/api/kudos/proof-upload?member_id={bot_id}",
+                files={"file": ("test_exam.jpg", img_bytes, "image/jpeg")},
+            )
+            assert upload_res.status_code == 200
+            upload_data = upload_res.json()
+            assert "url" in upload_data
+            assert upload_data["url"].startswith("/uploads/proofs/")
+            assert upload_data["size_kb"] > 0
+            photo_url = upload_data["url"]
+
+            root_dir = Path(__file__).resolve().parent.parent
+            uploaded_file_path = root_dir / photo_url.lstrip("/")
+            assert uploaded_file_path.exists()
+
+            # 3. 小孩發起加點申請並附帶查驗照片 (狀態為 PENDING)
+            apply_res = await client.post(
+                "/api/kudos/record",
+                json={
+                    "member_id": bot_id,
+                    "target_name": "國語段考滿分",
+                    "condition_value": "100",
+                    "points_awarded": 50,
+                    "image_url": photo_url,
+                    "note": "附上考卷拍照供查驗",
+                    "pin": "0000",
+                },
+            )
+            assert apply_res.status_code == 200
+            apply_data = apply_res.json()
+            assert apply_data["status"] == "PENDING"
+            assert apply_data["image_url"] == photo_url
+            kudos_id = apply_data["id"]
+
+            # 4. 家長查詢待審核清單 (GET /api/kudos/pending)
+            pending_res = await client.get("/api/kudos/pending")
+            assert pending_res.status_code == 200
+            pending_list = pending_res.json()
+            target_pending = next(k for k in pending_list if k["id"] == kudos_id)
+            assert target_pending["image_url"] == photo_url
+            assert target_pending["member_name"] == test_bot["name"]
+            assert target_pending["target_name"] == "國語段考滿分"
+
+            # 5. 家長查驗照片後核准加點
+            review_res = await client.post(
+                f"/api/kudos/{kudos_id}/review",
+                headers={"X-Parent-PIN": "0000"},
+                json={"action": "APPROVE", "review_note": "考卷查驗屬實，表現優良！"},
+            )
+            assert review_res.status_code == 200
+            assert review_res.json()["status"] == "APPROVED"
+            assert review_res.json()["image_url"] == photo_url
+
+            # 6. 查詢存摺流水帳 (GET /api/kudos/history)，查驗照片連結完整保留
+            hist_res = await client.get(f"/api/kudos/history?member_id={bot_id}")
+            assert hist_res.status_code == 200
+            hist_list = hist_res.json()
+            target_hist = next(item for item in hist_list if item["id"] == kudos_id)
+            assert target_hist["image_url"] == photo_url
+
+        finally:
+            if uploaded_file_path and uploaded_file_path.exists():
+                uploaded_file_path.unlink()
             await cleanup_test_child(client, bot_id)
 
 @pytest.mark.asyncio

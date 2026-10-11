@@ -6,11 +6,19 @@ import { triggerConfetti } from '@/components/Confetti'
 import BadgeUnlockModal from '@/components/BadgeUnlockModal.vue'
 import MemberPinModal from '@/components/MemberPinModal.vue'
 import MemberAvatar from '@/components/MemberAvatar.vue'
+import ImageViewModal from '@/components/ImageViewModal.vue'
 
 const authStore = useAuthStore()
 
 const showMemberPinModal = ref(false)
 const pendingKudosData = ref(null)
+
+const photoInputCamera = ref(null)
+const photoInputFile = ref(null)
+const proofImageUrl = ref('')
+const proofLocalPreview = ref('')
+const uploadingPhoto = ref(false)
+const showImagePreviewModal = ref(false)
 
 const members = ref([])
 const selectedMember = ref(null)
@@ -191,6 +199,45 @@ watch([conditionValue], () => {
   triggerPreviewDebounced()
 })
 
+function triggerCamera() {
+  photoInputCamera.value?.click()
+}
+
+function triggerFilePicker() {
+  photoInputFile.value?.click()
+}
+
+async function handlePhotoSelected(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  event.target.value = ''
+
+  if (file.size > 15 * 1024 * 1024) {
+    errorMsg.value = '照片檔案過大，請選擇 15MB 以內之照片'
+    return
+  }
+
+  proofLocalPreview.value = URL.createObjectURL(file)
+  uploadingPhoto.value = true
+  errorMsg.value = ''
+
+  try {
+    const res = await api.uploadProofPhoto(file, selectedMember.value?.id)
+    proofImageUrl.value = res.url
+  } catch (err) {
+    errorMsg.value = err.message || '照片上傳失敗，請稍後再試'
+    proofLocalPreview.value = ''
+    proofImageUrl.value = ''
+  } finally {
+    uploadingPhoto.value = false
+  }
+}
+
+function removeProofPhoto() {
+  proofImageUrl.value = ''
+  proofLocalPreview.value = ''
+}
+
 async function handleSubmit() {
   if (!selectedMember.value) {
     errorMsg.value = '請選擇登記對象'
@@ -228,6 +275,7 @@ async function handleSubmit() {
     target_name: finalTarget,
     condition_value: finalCondition,
     points_awarded: pointsToAward,
+    image_url: proofImageUrl.value || null,
     note: note.value.trim() || null,
   }
 
@@ -296,6 +344,8 @@ async function executeKudosSubmit(data) {
 
     // 清理輸入
     note.value = ''
+    proofImageUrl.value = ''
+    proofLocalPreview.value = ''
     if (mode.value === 'CUSTOM') {
       customTitle.value = ''
     }
@@ -336,6 +386,15 @@ async function executeKudosSubmit(data) {
       v-if="showBadgeModal"
       :badges="unlockedBadges"
       @close="showBadgeModal = false"
+    />
+
+    <!-- 查驗照片全螢幕檢視彈窗 -->
+    <ImageViewModal
+      :show="showImagePreviewModal"
+      :image-url="proofImageUrl || proofLocalPreview"
+      title="查驗照片預覽"
+      :subtitle="selectedMember ? `成員：${selectedMember.name} • 項目：${mode === 'RULE' ? (targetName || '尚未填寫') : (customTitle || '自訂獎懲')}` : ''"
+      @close="showImagePreviewModal = false"
     />
 
     <!-- 家長專屬：待審核提示橫幅 -->
@@ -606,6 +665,105 @@ async function executeKudosSubmit(data) {
           placeholder="例如: 第一次段考滿分表現優良！"
           class="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-frog-500 font-medium text-sm transition"
         />
+      </div>
+
+      <!-- 📸 查驗照片拍照與上傳 (供家長查驗) -->
+      <div>
+        <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+          <span class="flex items-center gap-1">
+            <span>📸 查驗照片拍照 / 上傳 (選填)</span>
+          </span>
+          <span class="text-[11px] text-gray-400 font-normal">考試卷、作業完成或家事照片</span>
+        </label>
+
+        <!-- 隱藏原生 File Inputs -->
+        <input
+          ref="photoInputCamera"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          class="hidden"
+          @change="handlePhotoSelected"
+        />
+        <input
+          ref="photoInputFile"
+          type="file"
+          accept="image/*"
+          class="hidden"
+          @change="handlePhotoSelected"
+        />
+
+        <!-- 未選擇照片時的拍照 / 上傳按鈕群組 -->
+        <div v-if="!proofLocalPreview && !proofImageUrl" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            @click="triggerCamera"
+            class="p-3.5 rounded-2xl border-2 border-dashed border-frog-300 hover:border-frog-500 bg-frog-50/50 hover:bg-frog-50 text-frog-800 transition flex items-center justify-center space-x-2 shadow-sm cursor-pointer group"
+          >
+            <span class="text-xl group-hover:scale-110 transition">📷</span>
+            <span class="text-xs font-bold">開啟相機拍照</span>
+          </button>
+
+          <button
+            type="button"
+            @click="triggerFilePicker"
+            class="p-3.5 rounded-2xl border-2 border-dashed border-gray-200 hover:border-frog-300 bg-gray-50/60 hover:bg-gray-50 text-gray-700 transition flex items-center justify-center space-x-2 shadow-sm cursor-pointer group"
+          >
+            <span class="text-xl group-hover:scale-110 transition">🖼️</span>
+            <span class="text-xs font-bold">從相簿 / 檔案選取</span>
+          </button>
+        </div>
+
+        <!-- 已選擇照片的預覽卡片 -->
+        <div
+          v-else
+          class="p-3 bg-gradient-to-r from-frog-50 to-emerald-50 rounded-2xl border border-frog-200 flex items-center justify-between shadow-sm"
+        >
+          <div class="flex items-center space-x-3 min-w-0">
+            <div class="relative flex-shrink-0">
+              <img
+                :src="proofImageUrl || proofLocalPreview"
+                alt="查驗照片"
+                class="w-14 h-14 sm:w-16 sm:h-16 object-cover rounded-xl border border-frog-300 shadow-sm cursor-pointer hover:opacity-90 transition"
+                @click="showImagePreviewModal = true"
+              />
+              <div
+                v-if="uploadingPhoto"
+                class="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center"
+              >
+                <span class="text-white text-xs animate-spin">⏳</span>
+              </div>
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center space-x-1.5">
+                <span class="text-xs font-bold text-frog-900 truncate">
+                  {{ uploadingPhoto ? '照片上傳中...' : '✅ 查驗照片已附加' }}
+                </span>
+              </div>
+              <p class="text-[11px] text-gray-500 mt-0.5 truncate">
+                點擊縮圖可檢視大圖，家長審核時可直接查驗
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center space-x-1.5 flex-shrink-0 ml-2">
+            <button
+              type="button"
+              @click="showImagePreviewModal = true"
+              class="px-2.5 py-1.5 rounded-xl bg-white border border-frog-200 text-frog-700 hover:bg-frog-50 text-xs font-bold transition shadow-sm"
+            >
+              🔍 查看
+            </button>
+            <button
+              type="button"
+              @click="removeProofPhoto"
+              class="px-2.5 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold transition"
+              title="移除照片"
+            >
+              ✕ 移除
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- 錯誤提示 -->
