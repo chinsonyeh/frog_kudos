@@ -298,7 +298,7 @@ watch(() => props.show, async (newVal) => {
     await loadMembers()
     if (props.initialMemberId) {
       const target = membersList.value.find(m => m.id === props.initialMemberId)
-      if (target) {
+      if (target && canEditMember(target)) {
         openEditForm(target)
         return
       } else {
@@ -336,9 +336,18 @@ async function loadMembers() {
   }
 }
 
+// 權限檢查：僅家長可管理全部成員；小孩僅能檢視與編輯自身帳號
+function canEditMember(m) {
+  if (!m) return false
+  if (authStore.isParent) return true
+  if (authStore.isChild) return m.id === authStore.unlockedMemberId
+  return false
+}
+
 const pendingAction = ref(null) // null | 'save'
 
 function openCreateForm() {
+  if (!authStore.isParent) return
   formMode.value = 'create'
   editingMemberId.value = crypto.randomUUID()
   customAvatars.value = []
@@ -363,10 +372,12 @@ function openCreateForm() {
 }
 
 function handleCardClick(member) {
+  if (!canEditMember(member)) return
   openEditForm(member)
 }
 
 function handleEditClick(member) {
+  if (!canEditMember(member)) return
   openEditForm(member)
 }
 
@@ -400,6 +411,7 @@ async function verifyAndProceedToEdit() {
 }
 
 function openEditForm(member) {
+  if (!canEditMember(member)) return
   formMode.value = 'edit'
   editingMemberId.value = member.id
   name.value = member.name
@@ -429,6 +441,15 @@ function openEditForm(member) {
 }
 
 async function handleSave() {
+  if (formMode.value === 'create' && !authStore.isParent) {
+    errorMsg.value = '僅家長權限可新增家庭成員'
+    return
+  }
+  if (formMode.value !== 'create' && !canEditMember({ id: editingMemberId.value })) {
+    errorMsg.value = '您沒有權限編輯此成員'
+    return
+  }
+
   if (!name.value.trim()) {
     errorMsg.value = '請輸入成員姓名'
     return
@@ -572,8 +593,9 @@ async function handleDelete(member) {
           <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">
             目前家庭成員清單 ({{ membersList.length }})
           </span>
-          <!-- 新增成員按鈕 -->
+          <!-- 新增成員按鈕 (僅家長權限可見) -->
           <button
+            v-if="authStore.isParent"
             @click="openCreateForm"
             class="px-3.5 py-1.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-sm transition flex items-center space-x-1 cursor-pointer"
           >
@@ -585,18 +607,22 @@ async function handleDelete(member) {
           <div
             v-for="m in membersList"
             :key="m.id"
-            @click="handleCardClick(m)"
-            class="p-4 rounded-2xl border transition flex items-center justify-between cursor-pointer hover:bg-frog-50/50 hover:border-frog-300"
-            :class="m.is_active ? 'bg-gray-50 border-gray-100 hover:border-gray-200' : 'bg-gray-100/60 border-gray-200 opacity-60'"
+            @click="canEditMember(m) ? handleCardClick(m) : null"
+            class="p-4 rounded-2xl border transition flex items-center justify-between"
+            :class="[
+              m.is_active ? 'bg-gray-50 border-gray-100' : 'bg-gray-100/60 border-gray-200 opacity-60',
+              canEditMember(m) ? 'cursor-pointer hover:bg-frog-50/50 hover:border-frog-300' : 'cursor-default'
+            ]"
           >
             <div class="flex items-center space-x-3">
               <MemberAvatar
                 :avatar="m.avatar"
                 size="lg"
                 :alt="m.name"
-                class="transition hover:scale-110 flex-shrink-0 cursor-pointer"
-                title="點擊編輯成員資料與設定"
-                @click.stop="openEditForm(m)"
+                class="transition flex-shrink-0"
+                :class="canEditMember(m) ? 'hover:scale-110 cursor-pointer' : 'cursor-default'"
+                :title="canEditMember(m) ? '點擊編輯成員資料與設定' : ''"
+                @click.stop="canEditMember(m) ? openEditForm(m) : null"
               />
               <div>
                 <div class="flex items-center space-x-2">
@@ -623,8 +649,9 @@ async function handleDelete(member) {
 
             <!-- 操作按鈕 -->
             <div class="flex items-center space-x-2">
-              <!-- 編輯基本設定按鈕 (進入管理員使用的編輯頁面) -->
+              <!-- 編輯基本設定按鈕 (僅家長或該成員本人可見) -->
               <button
+                v-if="canEditMember(m)"
                 @click.stop="openEditForm(m)"
                 type="button"
                 class="px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-white hover:border-frog-400 transition cursor-pointer flex items-center space-x-1"

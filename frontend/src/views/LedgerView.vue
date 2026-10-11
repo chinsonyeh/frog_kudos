@@ -14,7 +14,13 @@ const showMemberModal = ref(false)
 const targetMemberIdForModal = ref(null)
 
 function openMemberAvatarModal(memberId = null) {
-  targetMemberIdForModal.value = memberId || selectedMemberId.value
+  const targetId = memberId || selectedMemberId.value
+  if (!authStore.isParent) {
+    if (!authStore.isChild || targetId !== authStore.unlockedMemberId) {
+      return
+    }
+  }
+  targetMemberIdForModal.value = targetId
   showMemberModal.value = true
 }
 
@@ -22,6 +28,14 @@ const showBadgeManageModal = ref(false)
 const members = ref([])
 const selectedMemberId = ref(null)
 const currentMember = computed(() => members.value.find(m => m.id === selectedMemberId.value) || null)
+
+// 僅家長或目前選中成員本人（小孩）才可編輯成員設定
+const canEditCurrentMember = computed(() => {
+  if (!currentMember.value) return false
+  if (authStore.isParent) return true
+  if (authStore.isChild) return currentMember.value.id === authStore.unlockedMemberId
+  return false
+})
 
 const badges = ref([])
 const ledgerItems = ref([])
@@ -207,8 +221,9 @@ function onUnlockedBadges(bList) {
           <span>{{ m.name }}</span>
         </button>
 
-        <!-- 家庭成員管理按鈕 -->
+        <!-- 家庭成員管理按鈕 (僅家長權限可見) -->
         <button
+          v-if="authStore.isParent"
           @click="targetMemberIdForModal = null; showMemberModal = true"
           class="flex items-center space-x-1 px-3 py-2 rounded-2xl text-xs font-bold border border-dashed border-gray-300 hover:border-frog-500 hover:bg-frog-50/50 text-gray-500 hover:text-frog-700 transition flex-shrink-0 cursor-pointer"
           title="檢視或維護家庭成員"
@@ -249,9 +264,10 @@ function onUnlockedBadges(bList) {
         <div>
           <div class="flex items-center space-x-3 mb-2">
             <div
-              @click="openMemberAvatarModal(currentMember.id)"
-              class="transition flex-shrink-0 cursor-pointer hover:scale-105 active:scale-95"
-              title="點擊編輯成員資料與代表頭像"
+              @click="canEditCurrentMember ? openMemberAvatarModal(currentMember.id) : null"
+              class="transition flex-shrink-0"
+              :class="canEditCurrentMember ? 'cursor-pointer hover:scale-105 active:scale-95' : ''"
+              :title="canEditCurrentMember ? '點擊編輯成員資料與代表頭像' : ''"
             >
               <MemberAvatar :avatar="currentMember.avatar" :name="currentMember.name" size="2xl" class="shadow-md ring-2 ring-white/30" />
             </div>
@@ -259,6 +275,7 @@ function onUnlockedBadges(bList) {
               <div class="flex items-center space-x-2">
                 <h3 class="text-2xl font-black tracking-tight">{{ currentMember.name }} 的點數存摺</h3>
                 <button
+                  v-if="canEditCurrentMember"
                   @click="openMemberAvatarModal(currentMember.id)"
                   type="button"
                   class="text-[11px] bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded-lg font-bold transition cursor-pointer"
