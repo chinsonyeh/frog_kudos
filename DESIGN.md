@@ -303,8 +303,10 @@ erDiagram
 | `POST` | `/api/members/{id}/change-pin` | `{ current_pin, new_pin, parent_pin }` | `{ success: true, message: str }` | **成員自主變更個人 PIN 碼（需驗證目前舊 PIN）或家長持家長鎖直接重設 (FR-20)** |
 | `DELETE` | `/api/members/{id}` | `{ parent_pin }` | `{ success: true, action: "DEACTIVATED"\|"DELETED" }` | **安全刪除或停用成員（若已有歷史積分或兌換紀錄則自動轉為軟停用 is_active=FALSE 以保全審計鏈，無歷史紀錄之全新成員則執行實體刪除；需家長安全鎖）** |
 | `GET` | `/api/members/{id}/badges` | - | `MemberBadgeOut[]` | **查詢成員里程碑成就勳章清單與達成進度 (FR-18)** |
+| `GET` | `/api/members/{id}/pending-badges` | - | `MemberBadgeOut[]` | **查詢該成員尚未通知慶祝過之成就勳章清單（小孩登入時彈窗提醒，FR-18）** |
+| `POST` | `/api/members/{id}/ack-badges` | - | `{ success: true, acknowledged_count: int }` | **將該成員所有待通知成就勳章標記為已通知（last_notified_count = unlocked_count，FR-18）** |
 | `GET` | `/api/badges` | `?all=false` | `BadgeOut[]` | **查詢所有里程碑成就勳章定義清單 (FR-18)** |
-| `POST` | `/api/badges` | `{ badge_key, title, description, icon, condition_type, target_value, reward_points, sort_order, parent_pin }` | `BadgeOut` | **新增自訂成就勳章或里程碑（支援額外獎勵點數，需家長安全鎖）** |
+| `POST` | `/api/badges` | `{ badge_key, title, description, icon, condition_type, target_value, reward_points, sort_order, parent_pin }` | `BadgeOut` | **新增自訂成就勳章或里程碑（支援額外獎勵點數，預設 25% 門檻值，需家長安全鎖）** |
 | `PUT` | `/api/badges/{id}` | `{ title, description, icon, condition_type, target_value, reward_points, sort_order, is_active, parent_pin }` | `BadgeOut` | **編輯成就勳章資訊、條件門檻、獎勵點數或啟用狀態（需家長安全鎖）** |
 | `DELETE` | `/api/badges/{id}` | `?parent_pin=...` | `{ success: true, action: "DEACTIVATED"\|"DELETED" }` | **刪除或安全停用成就勳章（需家長安全鎖）** |
 | `POST` | `/api/badges/{key}/toggle/{member_id}` | `{ unlock, parent_pin }` | `{ success: true, unlocked: bool }` | **手動為特定成員頒發或收回特定榮譽勳章（需家長安全鎖）** |
@@ -315,7 +317,8 @@ erDiagram
 | `PUT` | `/api/rules/{id}` | `{ member_id, category_id, target_name, match_type, condition_value, reward_points, description, is_active, parent_pin }` | `RuleOut` | **修改規則（明示不溯及歷史點數，需家長安全鎖）** |
 | `DELETE` | `/api/rules/{id}` | `{ parent_pin }` | `{ success: true }` | **停用或刪除規則（需家長安全鎖）** |
 | `POST` | `/api/kudos/preview` | `{ member_id, target_name, condition_value }` | `{ matched, suggested_points, rule_id, rule_name }` | **智慧即時試算預覽（支援輸入文字防呆降級）** |
-| `POST` | `/api/kudos/record` | `{ member_id, rule_id, target_name, condition_value, points_awarded, note, recorded_by, parent_pin }` | `KudosRecordOut` | **正式登記成就點數或自訂獎懲（支援 Header `X-Session-Token`；小孩登記自動設為 PENDING 狀態，排程發送 LINE 即時推播提醒家長，不立即入帳；家長登記直接為 APPROVED 即時入帳；回傳 newly_unlocked_badges 與 status）** |
+| `POST` | `/api/kudos/record` | `{ member_id, rule_id, target_name, condition_value, points_awarded, note, image_url, recorded_by, parent_pin }` | `KudosRecordOut` | **正式登記成就點數或自訂獎懲（支援 Header `X-Session-Token`；小孩登記自動設為 PENDING 狀態，排程發送 LINE 即時推播提醒家長，不立即入帳；家長登記直接為 APPROVED 即時入帳；回傳 newly_unlocked_badges 與 status）** |
+| `POST` | `/api/kudos/proof-upload` | `?member_id=... multipart: file` | `{ url, filename, size_kb, width, height, created_at }` | **申請登記點數拍照/相片查驗上傳（寬高限制不超過 640px 等比例縮小並轉為 WebP 存儲，FR-22）** |
 | `GET` | `/api/kudos/pending` | - | `KudosRecordOut[]` | **查詢所有待家長審核之點數申請清單（需家長安全鎖或家長會話）** |
 | `POST` | `/api/kudos/{id}/review` | `{ action: "APPROVE"\|"REJECT", review_note, parent_pin }` | `KudosRecordOut` | **家長審核點數申請（APPROVE: 更新狀態為 APPROVED，將點數計入可用錢包與累計總額，觸發勳章評估引擎並回傳 newly_unlocked_badges；REJECT: 更新狀態為 REJECTED，點數不變；需家長安全鎖）** |
 | `GET` | `/api/kudos/history` | `?member_id=...&limit=50` | `LedgerItemOut[]` | **查詢家庭綜合存摺流水帳（UNION kudos_records 與已核銷 redemptions；PENDING 標記待審核且點數為 0，REJECTED 記為 0 點並標註退回原因，APPROVED 顯示實發點數，COMPLETED 記為負數支出）** |
@@ -1099,13 +1102,15 @@ CREATE TABLE IF NOT EXISTS member_badges (
     unlocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_unlocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_target_baseline INTEGER NOT NULL DEFAULT 0,
+    last_notified_count INTEGER NOT NULL DEFAULT 0,
     UNIQUE (member_id, badge_key)
 );
 
--- 資料庫遷移：member_badges 可重複達成次數與重設基準線
+-- 資料庫遷移：member_badges 可重複達成次數、重設基準線與已通知次數
 ALTER TABLE member_badges ADD COLUMN IF NOT EXISTS unlocked_count INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE member_badges ADD COLUMN IF NOT EXISTS last_unlocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE member_badges ADD COLUMN IF NOT EXISTS last_target_baseline INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE member_badges ADD COLUMN IF NOT EXISTS last_notified_count INTEGER NOT NULL DEFAULT 0;
 
 -- 9. 效能索引
 CREATE INDEX IF NOT EXISTS idx_rules_member_active ON reward_rules(member_id, is_active);
@@ -1669,13 +1674,13 @@ echo "👉 若以背景服務運行，請執行重啟命令完成切換。"
 | **FR-15**| 兌換商城審核與退回退點閉環 | `redemptions` (`PENDING` 狀態) | `POST /api/redemptions/{id}/review` | 畫面 3：分頁 2 家長審核卡片 (核銷/自動退點) | ✅ 100% 符合 |
 | **FR-16**| 定期自動備份排程與保留輪替 | `scripts/backup.sh`, `.env` | 後端定時任務 + 備份上限輪替清理 | 畫面 6：分頁 1 自動排程與保留上限設定 | ✅ 100% 符合 |
 | **FR-17**| 學期成就紀錄與存摺 CSV 匯出 | `kudos_records` | `GET /api/kudos/export` | 畫面 2：【📥 匯出存摺 (CSV)】按鈕 | ✅ 100% 符合 |
-| **FR-18**| 里程碑成就勳章系統與勳章牆管理 | `badges` 表、`member_badges` 表 | `GET /api/badges`, `POST/PUT/DELETE /api/badges`<br>`GET /api/members/{id}/badges`<br>5,000~100,000 多階里程碑與動態評定邏輯 | 畫面 2：榮譽榜成就勳章牆、勳章管理與編輯彈窗、解鎖彈窗與灑花 | ✅ 100% 符合 |
+| **FR-18**| 里程碑成就勳章系統與勳章牆管理 | `badges` 表、`member_badges` 表 | `GET /api/badges`, `POST/PUT/DELETE /api/badges`<br>`GET /api/members/{id}/badges`<br>`GET /api/members/{id}/pending-badges`<br>`POST /api/members/{id}/ack-badges`<br>5,000~100,000 多階里程碑與循環達成重設評定邏輯 | 畫面 2：榮譽榜成就勳章牆 (累積點數/成就門檻/達成次數)、成就獎勵點數 (預設門檻25%)、循環累積達成自動重設、成就達成待通知隔離 (家長操作不彈窗、小孩登入延後慶祝) | ✅ 100% 符合 |
 | **FR-19**| LINE 兌換申請即時推播通知 | 後端 `BackgroundTasks` + LINE Messaging API | `POST /api/redemptions`<br>`POST /api/system/line/test` | 畫面 6：分頁 3 LINE 推播設定與連線測試 | ✅ 100% 符合 |
 | **FR-20**| 全成員個人 PIN 碼授權與小孩自主點數邊界 | `members` (`pin_code`) | `POST/PUT /api/members/{id}`<br>`POST /api/kudos/record` (校驗 Session 與正數點數)<br>`POST /api/redemptions` (校驗 Session) | `MemberModal.vue` 小孩自主修改 PIN、點數登記自動綁定本人帳號、商城自主兌換 | ✅ 100% 符合 |
 | **FR-21**| 訪客模式與公開使用說明指南 | 前端 Vue Router 全域守衛 | `/guide` (三大操作流程與 FAQ、成員描述不綁定固定 Emoji)<br>未解鎖強制攔截重定向回 `/ledger` | 畫面 7：使用說明頁面（`/guide`）、存摺引導橫幅、訪客導航列精簡保護 | ✅ 100% 符合 |
-| **FR-22**| 小孩點數登記審核與家長核准流程 | `kudos_records` (`status`, `reviewed_at`, `review_note`) | `POST /api/kudos/record` (小孩設為 PENDING)<br>`GET /api/kudos/pending`<br>`POST /api/kudos/{id}/review` | 畫面 1 小孩送出加點申請提示、畫面 3 待審核中心加點審核子頁籤、畫面 2 存摺狀態視覺標籤 | ✅ 100% 符合 |
+| **FR-22**| 小孩點數登記審核與拍照查驗流程 | `kudos_records` (`status`, `image_url`, `reviewed_at`, `review_note`) | `POST /api/kudos/record` (小孩設為 PENDING)<br>`POST /api/kudos/proof-upload` (寬高<=640px WebP)<br>`GET /api/kudos/pending`<br>`POST /api/kudos/{id}/review` | 畫面 1 小孩送出加點申請拍照查驗、畫面 3 待審核中心加點審核查驗照片卡片與大圖燈箱預覽、畫面 2 存摺狀態視覺標籤與查驗照片回溯 | ✅ 100% 符合 |
 | **FR-23**| 自訂頭像 ROI 互動裁切與獨立相片庫 | `members.avatar`, `/uploads/avatars/` | `POST /api/members/{id}/avatars/gallery/upload`<br>`GET /api/members/{id}/avatars/gallery`<br>`DELETE /api/members/{id}/avatars/gallery/{filename}`<br>`PATCH /api/members/{id}/avatar` | 畫面 9 成員編輯彈窗、圓形互動裁切器、10款原創公仔選單、獨立歷史相片庫 (上限100張) | ✅ 100% 符合 |
-| **FR-24**| 家庭成員編輯整合與小孩權限邊界 | `members` 表 | `PUT /api/members/{id}`<br>(嚴格權限檢驗，禁止跨成員越權) | 畫面 2 存摺整合「⚙️ 編輯成員」按鈕，小孩僅能檢視與編輯自身帳號 | ✅ 100% 符合 |
+| **FR-24**| 家庭成員編輯整合與小孩權限邊界 | `members` 表 | `PUT /api/members/{id}`<br>(嚴格權限檢驗，禁止跨成員越權，小孩停用角色Radio，唯一家長保護) | 畫面 2 存摺整合「⚙️ 編輯成員」按鈕，小孩僅能檢視與編輯自身帳號且停用角色切換，家長登入可選角色，系統唯一家長受保護禁止變更為小孩 | ✅ 100% 符合 |
 | **NFR-1**| 易用性與行動裝置友善 | Vue 3 + TailwindCSS | 自訂 4 碼 PIN 鍵盤採用 `touch-action: manipulation` 消除雙擊放大延遲 | RWD 手機/平板優先、大觸控區塊、灑花慶祝反饋、無延遲數字鍵盤 | ✅ 100% 符合 |
 | **NFR-2**| 資料交易一致性 (ACID) | PostgreSQL DB Transaction | 點數發放/扣抵/批次調整均於單一 Transaction 完成 | - | ✅ 100% 符合 |
 | **NFR-3**| 資料庫與環境相容性 | PostgreSQL `frog_kudos` | SQLAlchemy 2.0 Async + asyncpg | - | ✅ 100% 符合 |
