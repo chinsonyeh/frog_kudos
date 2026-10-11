@@ -84,6 +84,10 @@ export const api = {
     request(`/members/${id}${pin ? `?parent_pin=${encodeURIComponent(pin)}` : ''}`, { method: 'DELETE' }),
   getMemberBadges: (id) =>
     request(`/members/${id}/badges`),
+  getPendingBadges: (id) =>
+    request(`/members/${id}/pending-badges`),
+  ackBadges: (id) =>
+    request(`/members/${id}/ack-badges`, { method: 'POST' }),
 
   // 分類管理
   getCategories: () =>

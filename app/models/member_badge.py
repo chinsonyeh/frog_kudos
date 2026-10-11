@@ -22,6 +22,7 @@ class MemberBadge(Base):
     unlocked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_unlocked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_target_baseline: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_notified_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # 關聯
     member: Mapped["Member"] = relationship("Member", back_populates="badges")

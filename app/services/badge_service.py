@@ -483,3 +483,61 @@ async def evaluate_and_unlock_badges(db: AsyncSession, member_id: uuid.UUID) -> 
             )
 
     return newly_unlocked
+
+async def get_pending_badge_notifications(db: AsyncSession, member_id: uuid.UUID) -> List[MemberBadgeOut]:
+    """
+    查詢該成員尚未在前端通知慶祝過之成就勳章 (unlocked_count > last_notified_count)。
+    用於小孩用戶登入時彈窗提醒。
+    """
+    stmt = (
+        select(MemberBadge, Badge)
+        .join(Badge, MemberBadge.badge_key == Badge.badge_key)
+        .where(
+            MemberBadge.member_id == member_id,
+            MemberBadge.unlocked_count > MemberBadge.last_notified_count,
+            Badge.is_active == True,
+        )
+        .order_by(MemberBadge.last_unlocked_at.asc())
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    pending = []
+    for mb, b in rows:
+        unnotified_times = mb.unlocked_count - mb.last_notified_count
+        bonus_pts = unnotified_times * b.reward_points
+        pending.append(
+            MemberBadgeOut(
+                id=b.id,
+                badge_key=b.badge_key,
+                title=b.title,
+                description=b.description,
+                icon=b.icon,
+                condition_type=b.condition_type,
+                reward_points=bonus_pts,
+                is_repeatable=b.is_repeatable,
+                unlocked=True,
+                unlocked_count=mb.unlocked_count,
+                unlocked_at=mb.unlocked_at,
+                last_unlocked_at=mb.last_unlocked_at,
+                progress=b.target_value,
+                target=b.target_value,
+            )
+        )
+    return pending
+
+async def acknowledge_badge_notifications(db: AsyncSession, member_id: uuid.UUID) -> int:
+    """
+    將該成員所有待通知成就勳章標記為已通知 (last_notified_count = unlocked_count)。
+    """
+    stmt = select(MemberBadge).where(
+        MemberBadge.member_id == member_id,
+        MemberBadge.unlocked_count > MemberBadge.last_notified_count,
+    )
+    result = await db.execute(stmt)
+    records = result.scalars().all()
+    count = len(records)
+    for mb in records:
+        mb.last_notified_count = mb.unlocked_count
+    await db.commit()
+    return count

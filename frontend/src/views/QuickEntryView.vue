@@ -351,10 +351,12 @@ async function executeKudosSubmit(data) {
     }
     pendingKudosData.value = null
 
-    // 檢查是否有新解鎖勳章
+    // 檢查是否有新解鎖勳章：達成時該用戶正好在登入狀況時立即通知（非家長代為登記）
     if (res.newly_unlocked_badges && res.newly_unlocked_badges.length > 0) {
-      unlockedBadges.value = res.newly_unlocked_badges
-      showBadgeModal.value = true
+      if (!authStore.isParent && authStore.unlockedMemberId === selectedMember.value?.id) {
+        unlockedBadges.value = res.newly_unlocked_badges
+        showBadgeModal.value = true
+      }
     }
 
     // 重新載入成員餘額
@@ -367,6 +369,18 @@ async function executeKudosSubmit(data) {
   } finally {
     submitting.value = false
   }
+}
+
+async function handleCloseBadgeModal() {
+  showBadgeModal.value = false
+  if (selectedMember.value?.id) {
+    try {
+      await api.ackBadges(selectedMember.value.id)
+    } catch (err) {
+      console.error('確認成就通知失敗:', err)
+    }
+  }
+  unlockedBadges.value = []
 }
 </script>
 
@@ -381,11 +395,11 @@ async function executeKudosSubmit(data) {
       @close="showMemberPinModal = false"
       @confirmed="onMemberPinConfirmed"
     />
-    <!-- 成就解鎖慶祝彈窗 -->
+    <!-- 成就解鎖慶祝彈窗 (登入狀態立即達成) -->
     <BadgeUnlockModal
       v-if="showBadgeModal"
       :badges="unlockedBadges"
-      @close="showBadgeModal = false"
+      @close="handleCloseBadgeModal"
     />
 
     <!-- 查驗照片全螢幕檢視彈窗 -->

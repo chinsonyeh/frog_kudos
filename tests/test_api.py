@@ -580,6 +580,16 @@ async def test_repeatable_badge_unlock_and_reset_flow():
         bot_id = test_bot["id"]
 
         try:
+            # 確保測試目標 FIRST_100_PTS 為可循環重複達成勳章
+            all_b_res = await client.get("/api/badges?all=true")
+            first_100 = next(b for b in all_b_res.json() if b["badge_key"] == "FIRST_100_PTS")
+            if not first_100.get("is_repeatable"):
+                await client.put(
+                    f"/api/badges/{first_100['id']}",
+                    headers={"X-Parent-PIN": "0000"},
+                    json={"is_repeatable": True},
+                )
+
             # 1. 發放點數 100 點，初次觸發 FIRST_100_PTS
             rec1 = await client.post(
                 "/api/kudos/record",
@@ -1760,6 +1770,85 @@ async def test_child_kudos_review_and_approval_flow():
 
         finally:
             await cleanup_test_child(client, bot_id)
+
+@pytest.mark.asyncio
+async def test_badge_pending_notification_and_ack_flow():
+    """驗證成就通知待辦與確認機制：家長審核或加點後保留待通知，登入獲取後標記為已通知"""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        test_bot = await create_isolated_test_child(client, "BotBadgeNotify")
+        bot_id = test_bot["id"]
+
+        try:
+            # 1. 初始狀態無任何待通知成就
+            p_res0 = await client.get(f"/api/members/{bot_id}/pending-badges")
+            assert p_res0.status_code == 200
+            assert p_res0.json() == []
+
+            # 2. 家長審核通過或直接發放達標 100 點，解鎖 FIRST_100_PTS 成就
+            rec1 = await client.post(
+                "/api/kudos/record",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "累積達標 100 點",
+                    "condition_value": "100",
+                    "points_awarded": 100,
+                    "note": "達成成就門檻",
+                },
+            )
+            assert rec1.status_code == 200
+            newly1 = rec1.json()["newly_unlocked_badges"]
+            assert any(b["badge_key"] == "FIRST_100_PTS" for b in newly1)
+
+            # 3. 查詢該成員待通知成就，應包含 FIRST_100_PTS (達成 1 次)
+            p_res1 = await client.get(f"/api/members/{bot_id}/pending-badges")
+            assert p_res1.status_code == 200
+            pending1 = p_res1.json()
+            assert len(pending1) >= 1
+            badge1 = next(b for b in pending1 if b["badge_key"] == "FIRST_100_PTS")
+            assert badge1["unlocked_count"] == 1
+            assert badge1["reward_points"] == 25
+
+            # 4. 小孩登入並彈窗查看後，前端發送確認已通知 (ack-badges)
+            ack_res1 = await client.post(f"/api/members/{bot_id}/ack-badges")
+            assert ack_res1.status_code == 200
+            assert ack_res1.json()["success"] is True
+            assert ack_res1.json()["acknowledged_count"] >= 1
+
+            # 5. 再次查詢待通知成就，已無待通知成就
+            p_res2 = await client.get(f"/api/members/{bot_id}/pending-badges")
+            assert p_res2.status_code == 200
+            assert p_res2.json() == []
+
+            # 6. 再次累積達標 (循環成就第 2 次達成)
+            rec2 = await client.post(
+                "/api/kudos/record",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "再次累積達標 100 點",
+                    "condition_value": "100",
+                    "points_awarded": 100,
+                    "note": "再次達成成就門檻",
+                },
+            )
+            assert rec2.status_code == 200
+
+            # 7. 再次查詢待通知成就，應精準通知第 2 次達成
+            p_res3 = await client.get(f"/api/members/{bot_id}/pending-badges")
+            assert p_res3.status_code == 200
+            pending3 = p_res3.json()
+            assert any(b["badge_key"] == "FIRST_100_PTS" and b["unlocked_count"] == 2 for b in pending3)
+
+            # 8. 再次確認已通知
+            ack_res2 = await client.post(f"/api/members/{bot_id}/ack-badges")
+            assert ack_res2.status_code == 200
+            p_res4 = await client.get(f"/api/members/{bot_id}/pending-badges")
+            assert p_res4.json() == []
+
+        finally:
+            await cleanup_test_child(client, bot_id)
+
 
 
 

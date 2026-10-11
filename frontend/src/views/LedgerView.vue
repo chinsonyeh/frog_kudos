@@ -3,7 +3,6 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/auth'
 import BatchAdjustModal from '@/components/BatchAdjustModal.vue'
-import BadgeUnlockModal from '@/components/BadgeUnlockModal.vue'
 import MemberModal from '@/components/MemberModal.vue'
 import BadgeManageModal from '@/components/BadgeManageModal.vue'
 import MemberAvatar from '@/components/MemberAvatar.vue'
@@ -49,8 +48,6 @@ const rewardItems = ref([])
 const loading = ref(false)
 
 const showBatchModal = ref(false)
-const showBadgeModal = ref(false)
-const unlockedBadges = ref([])
 
 // 監聽全域成員異動，自動重新載入成員與存摺清單
 watch(() => authStore.memberRefreshKey, async () => {
@@ -150,22 +147,10 @@ function handleDownloadCsv() {
 async function onAdjusted() {
   await loadInitialData()
 }
-
-function onUnlockedBadges(bList) {
-  unlockedBadges.value = bList
-  showBadgeModal.value = true
-}
 </script>
 
 <template>
   <div class="max-w-4xl mx-auto space-y-6">
-    <!-- 成就彈窗 -->
-    <BadgeUnlockModal
-      v-if="showBadgeModal"
-      :badges="unlockedBadges"
-      @close="showBadgeModal = false"
-    />
-
     <!-- 批次調整彈窗 -->
     <BatchAdjustModal
       :show="showBatchModal"
@@ -173,7 +158,6 @@ function onUnlockedBadges(bList) {
       :initial-member-id="selectedMemberId"
       @close="showBatchModal = false"
       @adjusted="onAdjusted"
-      @unlocked-badges="onUnlockedBadges"
     />
 
     <!-- 成員管理彈窗 -->
@@ -398,8 +382,8 @@ function onUnlockedBadges(bList) {
                 🎁 +{{ b.reward_points }} 點
               </span>
             </div>
-            <!-- 進度條：未解鎖時顯示；若可重複達成，即使已解鎖亦顯示重設後目前循環之累積進度 -->
-            <div v-if="!b.unlocked || b.is_repeatable" class="space-y-1 pt-1">
+            <!-- 進度條：顯示累積進度/門檻/達成次數 -->
+            <div class="space-y-1 pt-1">
               <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
                 <div
                   class="bg-frog-500 h-1.5 rounded-full transition-all duration-300"
@@ -408,7 +392,14 @@ function onUnlockedBadges(bList) {
               </div>
               <div class="flex items-center justify-between text-[10px] text-gray-400 font-mono font-semibold">
                 <span v-if="b.unlocked && b.is_repeatable" class="text-[9px] text-purple-600 font-sans">🔄 重設累積</span>
-                <span class="ml-auto">{{ b.progress }}/{{ b.target }}</span>
+                <span v-else-if="b.unlocked" class="text-[9px] text-amber-600 font-sans">✅ 已達成</span>
+                <span v-else class="text-[9px] text-gray-400 font-sans">累積中</span>
+                <span
+                  class="ml-auto"
+                  :title="`累積點數: ${b.progress} / 成就門檻: ${b.target} / 達成次數: ${b.unlocked_count || 0}`"
+                >
+                  {{ b.progress }}/{{ b.target }}/{{ b.unlocked_count || 0 }}
+                </span>
               </div>
             </div>
           </div>

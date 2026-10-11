@@ -1,12 +1,14 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import Navbar from '@/components/Navbar.vue'
 import ParentPinModal from '@/components/ParentPinModal.vue'
 import SystemSettingsModal from '@/components/SystemSettingsModal.vue'
 import MemberModal from '@/components/MemberModal.vue'
 import ThemeModal from '@/components/ThemeModal.vue'
+import BadgeUnlockModal from '@/components/BadgeUnlockModal.vue'
 import { useAuthStore } from '@/stores/auth'
+import { api } from '@/services/api'
 
 const router = useRouter()
 const route = useRoute()
@@ -18,10 +20,77 @@ const showMemberModal = ref(false)
 const showThemeModal = ref(false)
 const themeModalTab = ref('icon')
 
+const showPendingBadgeModal = ref(false)
+const pendingBadges = ref([])
+
 function handleOpenThemeModal(tab = 'icon') {
   themeModalTab.value = tab
   showThemeModal.value = true
 }
+
+async function checkPendingBadges(memberId) {
+  if (!memberId || authStore.isParent) return
+  try {
+    const list = await api.getPendingBadges(memberId)
+    if (list && list.length > 0) {
+      pendingBadges.value = list
+      showPendingBadgeModal.value = true
+    }
+  } catch (err) {
+    console.error('查詢待通知成就失敗:', err)
+  }
+}
+
+async function handleClosePendingBadges() {
+  showPendingBadgeModal.value = false
+  const mId = authStore.unlockedMemberId
+  pendingBadges.value = []
+  if (mId) {
+    try {
+      await api.ackBadges(mId)
+    } catch (err) {
+      console.error('確認成就通知失敗:', err)
+    }
+  }
+}
+
+// 監聽登入/解鎖狀態：當小孩用戶登入時，自動查詢是否有待通知之成就
+watch(
+  () => [authStore.unlockedMemberId, authStore.isChild],
+  ([mId, isChild]) => {
+    if (mId && isChild) {
+      checkPendingBadges(mId)
+    } else {
+      showPendingBadgeModal.value = false
+      pendingBadges.value = []
+    }
+  },
+  { immediate: true }
+)
+
+// 頁面路徑切換時，若小孩處於登入狀態且尚未顯示彈窗，檢查是否有新審核通過之成就
+watch(
+  () => route.path,
+  () => {
+    if (authStore.unlockedMemberId && authStore.isChild && !showPendingBadgeModal.value) {
+      checkPendingBadges(authStore.unlockedMemberId)
+    }
+  }
+)
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible' && authStore.unlockedMemberId && authStore.isChild && !showPendingBadgeModal.value) {
+    checkPendingBadges(authStore.unlockedMemberId)
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 
 // 監聽解鎖與權限狀態變更：閒置逾時鎖定或權限失效時，若當前路由需要權限，自動安全跳轉至存摺頁面
 watch(
@@ -76,6 +145,13 @@ watch(
       :show="showThemeModal"
       :initial-tab="themeModalTab"
       @close="showThemeModal = false"
+    />
+
+    <!-- 成就達成慶祝通知彈窗 (小孩登入時提醒) -->
+    <BadgeUnlockModal
+      v-if="showPendingBadgeModal"
+      :badges="pendingBadges"
+      @close="handleClosePendingBadges"
     />
 
     <!-- 底部版權宣告 -->

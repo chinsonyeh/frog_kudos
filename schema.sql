@@ -121,13 +121,15 @@ CREATE TABLE IF NOT EXISTS member_badges (
     unlocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_unlocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_target_baseline INTEGER NOT NULL DEFAULT 0,
+    last_notified_count INTEGER NOT NULL DEFAULT 0,
     UNIQUE (member_id, badge_key)
 );
 
--- 資料庫遷移：確保舊版升級時增加 member_badges 循環累計次數與基準欄位
+-- 資料庫遷移：確保舊版升級時增加 member_badges 循環累計次數、基準與已通知次數欄位
 ALTER TABLE member_badges ADD COLUMN IF NOT EXISTS unlocked_count INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE member_badges ADD COLUMN IF NOT EXISTS last_unlocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE member_badges ADD COLUMN IF NOT EXISTS last_target_baseline INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE member_badges ADD COLUMN IF NOT EXISTS last_notified_count INTEGER NOT NULL DEFAULT 0;
 
 -- 9. 效能索引
 CREATE INDEX IF NOT EXISTS idx_rules_member_active ON reward_rules(member_id, is_active);

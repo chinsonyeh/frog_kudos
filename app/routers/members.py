@@ -16,7 +16,11 @@ from app.models.kudos_record import KudosRecord
 from app.models.redemption import Redemption
 from app.schemas.member import MemberCreate, MemberUpdate, MemberAvatarUpdate, MemberOut, MemberChangePinIn
 from app.schemas.badge import MemberBadgeOut
-from app.services.badge_service import get_member_badges
+from app.services.badge_service import (
+    get_member_badges,
+    get_pending_badge_notifications,
+    acknowledge_badge_notifications,
+)
 
 router = APIRouter(prefix="/members", tags=["Members"])
 
@@ -613,3 +617,20 @@ async def list_member_badges(
 ):
     """查詢成員里程碑成就勳章清單與達成進度 (FR-18)"""
     return await get_member_badges(db, member_id)
+
+@router.get("/{member_id}/pending-badges", response_model=List[MemberBadgeOut])
+async def list_member_pending_badges(
+    member_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """查詢該成員尚未通知慶祝過之成就勳章 (登入時彈窗提醒)"""
+    return await get_pending_badge_notifications(db, member_id)
+
+@router.post("/{member_id}/ack-badges")
+async def ack_member_badges(
+    member_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """將該成員所有待通知成就勳章標記為已通知"""
+    count = await acknowledge_badge_notifications(db, member_id)
+    return {"success": True, "acknowledged_count": count}
