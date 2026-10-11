@@ -100,22 +100,32 @@ CREATE TABLE IF NOT EXISTS badges (
     condition_type VARCHAR(50) NOT NULL DEFAULT 'TOTAL_POINTS', -- 'TOTAL_POINTS', 'PERFECT_SCORE_COUNT', 'CHORE_POINTS', 'CUSTOM'
     target_value INTEGER NOT NULL DEFAULT 100,
     reward_points INTEGER NOT NULL DEFAULT 0 CHECK (reward_points >= 0),
+    is_repeatable BOOLEAN NOT NULL DEFAULT TRUE,
     sort_order INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 資料庫遷移：確保舊版升級時增加 reward_points 欄位
+-- 資料庫遷移：確保舊版升級時增加 reward_points 與 is_repeatable 欄位
 ALTER TABLE badges ADD COLUMN IF NOT EXISTS reward_points INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE badges ADD COLUMN IF NOT EXISTS is_repeatable BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS member_badges (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     member_id UUID NOT NULL REFERENCES members(id) ON DELETE CASCADE,
     badge_key VARCHAR(50) NOT NULL,
+    unlocked_count INTEGER NOT NULL DEFAULT 1,
     unlocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_unlocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_target_baseline INTEGER NOT NULL DEFAULT 0,
     UNIQUE (member_id, badge_key)
 );
+
+-- 資料庫遷移：確保舊版升級時增加 member_badges 循環累計次數與基準欄位
+ALTER TABLE member_badges ADD COLUMN IF NOT EXISTS unlocked_count INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE member_badges ADD COLUMN IF NOT EXISTS last_unlocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE member_badges ADD COLUMN IF NOT EXISTS last_target_baseline INTEGER NOT NULL DEFAULT 0;
 
 -- 9. 效能索引
 CREATE INDEX IF NOT EXISTS idx_rules_member_active ON reward_rules(member_id, is_active);

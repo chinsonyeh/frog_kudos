@@ -14,21 +14,21 @@ from app.models.category import Category
 from app.schemas.badge import MemberBadgeOut, BadgeCreate, BadgeUpdate, BadgeOut
 
 BADGE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
-    "FIRST_100_PTS": {"title": "初出茅廬蛙", "description": "累計獲得 100 點", "icon": "🌟", "target": 100, "reward_points": 25},
-    "PERFECT_SCORE_5": {"title": "百分學霸蛙", "description": "科目滿分達 5 次", "icon": "🏆", "target": 5, "reward_points": 50},
-    "CHORE_MASTER_200": {"title": "家事小達人", "description": "生活常規或家事協助累計獲得 200 點", "icon": "🧹", "target": 200, "reward_points": 50},
-    "MILLIONAIRE_1000": {"title": "點數千元蛙", "description": "累計獲得 1,000 點", "icon": "👑", "target": 1000, "reward_points": 250},
-    "POINTS_5000": {"title": "五千非凡蛙", "description": "累計獲得 5,000 點", "icon": "💎", "target": 5000, "reward_points": 1250},
-    "POINTS_10000": {"title": "萬點榮耀蛙", "description": "累計獲得 10,000 點", "icon": "🎖️", "target": 10000, "reward_points": 2500},
-    "POINTS_20000": {"title": "兩萬破繭蛙", "description": "累計獲得 20,000 點", "icon": "🚀", "target": 20000, "reward_points": 5000},
-    "POINTS_30000": {"title": "三萬卓越蛙", "description": "累計獲得 30,000 點", "icon": "⚡", "target": 30000, "reward_points": 7500},
-    "POINTS_40000": {"title": "四萬巔峰蛙", "description": "累計獲得 40,000 點", "icon": "🔥", "target": 40000, "reward_points": 10000},
-    "POINTS_50000": {"title": "五萬傳奇蛙", "description": "累計獲得 50,000 點", "icon": "🔮", "target": 50000, "reward_points": 12500},
-    "POINTS_60000": {"title": "六萬超神蛙", "description": "累計獲得 60,000 點", "icon": "🌈", "target": 60000, "reward_points": 15000},
-    "POINTS_70000": {"title": "七萬極限蛙", "description": "累計獲得 70,000 點", "icon": "🌠", "target": 70000, "reward_points": 17500},
-    "POINTS_80000": {"title": "八萬無雙蛙", "description": "累計獲得 80,000 點", "icon": "🛡️", "target": 80000, "reward_points": 20000},
-    "POINTS_90000": {"title": "九萬至尊蛙", "description": "累計獲得 90,000 點", "icon": "🔱", "target": 90000, "reward_points": 22500},
-    "POINTS_100000": {"title": "十萬不朽蛙", "description": "累計獲得 100,000 點", "icon": "🪐", "target": 100000, "reward_points": 25000},
+    "FIRST_100_PTS": {"title": "初出茅廬蛙", "description": "累計獲得 100 點", "icon": "🌟", "target": 100, "reward_points": 25, "is_repeatable": True},
+    "PERFECT_SCORE_5": {"title": "百分學霸蛙", "description": "科目滿分達 5 次", "icon": "🏆", "target": 5, "reward_points": 50, "is_repeatable": True},
+    "CHORE_MASTER_200": {"title": "家事小達人", "description": "生活常規或家事協助累計獲得 200 點", "icon": "🧹", "target": 200, "reward_points": 50, "is_repeatable": True},
+    "MILLIONAIRE_1000": {"title": "點數千元蛙", "description": "累計獲得 1,000 點", "icon": "👑", "target": 1000, "reward_points": 250, "is_repeatable": True},
+    "POINTS_5000": {"title": "五千非凡蛙", "description": "累計獲得 5,000 點", "icon": "💎", "target": 5000, "reward_points": 1250, "is_repeatable": True},
+    "POINTS_10000": {"title": "萬點榮耀蛙", "description": "累計獲得 10,000 點", "icon": "🎖️", "target": 10000, "reward_points": 2500, "is_repeatable": True},
+    "POINTS_20000": {"title": "兩萬破繭蛙", "description": "累計獲得 20,000 點", "icon": "🚀", "target": 20000, "reward_points": 5000, "is_repeatable": True},
+    "POINTS_30000": {"title": "三萬卓越蛙", "description": "累計獲得 30,000 點", "icon": "⚡", "target": 30000, "reward_points": 7500, "is_repeatable": True},
+    "POINTS_40000": {"title": "四萬巔峰蛙", "description": "累計獲得 40,000 點", "icon": "🔥", "target": 40000, "reward_points": 10000, "is_repeatable": True},
+    "POINTS_50000": {"title": "五萬傳奇蛙", "description": "累計獲得 50,000 點", "icon": "🔮", "target": 50000, "reward_points": 12500, "is_repeatable": True},
+    "POINTS_60000": {"title": "六萬超神蛙", "description": "累計獲得 60,000 點", "icon": "🌈", "target": 60000, "reward_points": 15000, "is_repeatable": True},
+    "POINTS_70000": {"title": "七萬極限蛙", "description": "累計獲得 70,000 點", "icon": "🌠", "target": 70000, "reward_points": 17500, "is_repeatable": True},
+    "POINTS_80000": {"title": "八萬無雙蛙", "description": "累計獲得 80,000 點", "icon": "🛡️", "target": 80000, "reward_points": 20000, "is_repeatable": True},
+    "POINTS_90000": {"title": "九萬至尊蛙", "description": "累計獲得 90,000 點", "icon": "🔱", "target": 90000, "reward_points": 22500, "is_repeatable": True},
+    "POINTS_100000": {"title": "十萬不朽蛙", "description": "累計獲得 100,000 點", "icon": "🪐", "target": 100000, "reward_points": 25000, "is_repeatable": True},
 }
 
 async def get_all_badges(db: AsyncSession, active_only: bool = False) -> List[Badge]:
@@ -68,6 +68,7 @@ async def create_badge(db: AsyncSession, badge_in: BadgeCreate) -> Badge:
         condition_type=badge_in.condition_type,
         target_value=badge_in.target_value,
         reward_points=reward_pts,
+        is_repeatable=badge_in.is_repeatable,
         sort_order=badge_in.sort_order,
         is_active=badge_in.is_active,
     )
@@ -94,6 +95,8 @@ async def update_badge(db: AsyncSession, badge_id: uuid.UUID, badge_in: BadgeUpd
         badge.target_value = badge_in.target_value
     if badge_in.reward_points is not None:
         badge.reward_points = badge_in.reward_points
+    if badge_in.is_repeatable is not None:
+        badge.is_repeatable = badge_in.is_repeatable
     if badge_in.sort_order is not None:
         badge.sort_order = badge_in.sort_order
     if badge_in.is_active is not None:
@@ -152,12 +155,44 @@ async def toggle_member_badge(
             await db.delete(existing)
             await db.commit()
             return {"success": True, "unlocked": False, "message": f"已收回 {member.name} 的「{badge.title}」勳章（過往已發放之獎勵點數保留）"}
+        elif unlock is True and badge.is_repeatable:
+            # 家長再次頒發可重複勳章 (+1 次)
+            existing.unlocked_count += 1
+            existing.last_unlocked_at = now
+            existing.last_target_baseline += badge.target_value
+            pts_granted = badge.reward_points
+            if pts_granted > 0:
+                member.current_points += pts_granted
+                reward_kudos = KudosRecord(
+                    member_id=member_id,
+                    rule_id=None,
+                    target_name_snapshot=f"🏅 榮譽勳章手動頒發「{badge.title}」特別獎勵 (第 {existing.unlocked_count} 次)",
+                    condition_snapshot="家長手動頒發",
+                    points_awarded=pts_granted,
+                    rule_detail_snapshot={"badge_key": badge_key, "title": badge.title, "reward_points": pts_granted, "unlocked_count": existing.unlocked_count},
+                    status="APPROVED",
+                    note=f"家長手動頒發榮譽成就勳章「{badge.title}」第 {existing.unlocked_count} 次獲得額外獎勵點數",
+                    reviewed_at=now,
+                    review_note="家長手動頒發榮譽成就獎勵",
+                    recorded_by="家長",
+                )
+                db.add(reward_kudos)
+            await db.commit()
+            bonus_hint = f"（額外獲得 +{pts_granted} 點）" if pts_granted > 0 else ""
+            return {"success": True, "unlocked": True, "points_awarded": pts_granted, "message": f"已為 {member.name} 再次頒發「{badge.title}」勳章（第 {existing.unlocked_count} 次）！{bonus_hint}"}
         else:
             return {"success": True, "unlocked": True, "message": f"{member.name} 已擁有「{badge.title}」勳章"}
     else:
         if unlock is True or unlock is None:
             # 頒發
-            new_mb = MemberBadge(member_id=member_id, badge_key=badge_key, unlocked_at=now)
+            new_mb = MemberBadge(
+                member_id=member_id,
+                badge_key=badge_key,
+                unlocked_count=1,
+                unlocked_at=now,
+                last_unlocked_at=now,
+                last_target_baseline=badge.target_value,
+            )
             db.add(new_mb)
             pts_granted = 0
             if badge.reward_points > 0:
@@ -169,7 +204,7 @@ async def toggle_member_badge(
                     target_name_snapshot=f"🏅 榮譽勳章頒發「{badge.title}」特別獎勵",
                     condition_snapshot="家長手動頒發",
                     points_awarded=pts_granted,
-                    rule_detail_snapshot={"badge_key": badge_key, "title": badge.title, "reward_points": pts_granted},
+                    rule_detail_snapshot={"badge_key": badge_key, "title": badge.title, "reward_points": pts_granted, "unlocked_count": 1},
                     status="APPROVED",
                     note=f"家長手動頒發榮譽成就勳章「{badge.title}」獲得額外獎勵點數",
                     reviewed_at=now,
@@ -217,25 +252,56 @@ async def calculate_badge_progress(db: AsyncSession, member: Member, badges: Lis
     )
     chore_points = (await db.execute(chore_stmt)).scalar() or 0
 
+    # 3. 查詢已存在的 member_badges 記錄
+    mb_stmt = select(MemberBadge).where(MemberBadge.member_id == member.id)
+    mb_result = await db.execute(mb_stmt)
+    mb_map = {mb.badge_key: mb for mb in mb_result.scalars().all()}
+
     results: Dict[str, Dict[str, Any]] = {}
     for b in badges:
         if b.condition_type == "TOTAL_POINTS":
-            prog = member.total_earned_points
-            is_met = prog >= b.target_value
+            raw_val = member.total_earned_points
         elif b.condition_type == "PERFECT_SCORE_COUNT":
-            prog = perfect_count
-            is_met = prog >= b.target_value
+            raw_val = perfect_count
         elif b.condition_type == "CHORE_POINTS":
-            prog = chore_points
-            is_met = prog >= b.target_value
+            raw_val = chore_points
         else: # CUSTOM
-            prog = 0
-            is_met = False
+            raw_val = 0
+
+        mb = mb_map.get(b.badge_key)
+        target = b.target_value if b.target_value > 0 else 1
+
+        if mb is None:
+            # 尚未達成過
+            baseline = 0
+            cycle_progress = max(0, raw_val - baseline)
+            times = cycle_progress // target
+            is_met = times >= 1
+            display_progress = min(cycle_progress, target)
+        else:
+            # 過去曾達成過
+            if b.is_repeatable:
+                baseline = mb.last_target_baseline
+                cycle_progress = max(0, raw_val - baseline)
+                times = cycle_progress // target
+                is_met = times >= 1
+                display_progress = cycle_progress % target if is_met else cycle_progress
+            else:
+                baseline = target
+                cycle_progress = raw_val
+                times = 0
+                is_met = False
+                display_progress = target
 
         results[b.badge_key] = {
-            "progress": prog,
-            "target": b.target_value,
+            "raw_val": raw_val,
+            "baseline": baseline,
+            "cycle_progress": cycle_progress,
+            "times": times,
             "is_met": is_met,
+            "progress": display_progress,
+            "target": target,
+            "mb": mb,
         }
 
     return results
@@ -249,19 +315,20 @@ async def get_member_badges(db: AsyncSession, member_id: uuid.UUID) -> List[Memb
     # 取得資料庫中啟用的勳章清單
     badges = await get_all_badges(db, active_only=True)
 
-    # 查詢已儲存之解鎖紀錄
-    stmt = select(MemberBadge).where(MemberBadge.member_id == member_id)
-    result = await db.execute(stmt)
-    unlocked_map = {b.badge_key: b.unlocked_at for b in result.scalars().all()}
-
-    # 計算當前進度
+    # 計算當前進度與解鎖狀態
     progress_info = await calculate_badge_progress(db, member, badges)
 
     badges_out = []
     for b in badges:
         key = b.badge_key
-        prog = progress_info.get(key, {"progress": 0, "target": b.target_value, "is_met": False})
-        is_unlocked = key in unlocked_map
+        info = progress_info.get(key, {})
+        mb = info.get("mb")
+        is_unlocked = mb is not None
+        unlocked_count = mb.unlocked_count if mb else 0
+        unlocked_at = mb.unlocked_at if mb else None
+        last_unlocked_at = mb.last_unlocked_at if mb else None
+        prog = info.get("progress", 0)
+
         badges_out.append(
             MemberBadgeOut(
                 id=b.id,
@@ -271,9 +338,12 @@ async def get_member_badges(db: AsyncSession, member_id: uuid.UUID) -> List[Memb
                 icon=b.icon,
                 condition_type=b.condition_type,
                 reward_points=b.reward_points,
+                is_repeatable=b.is_repeatable,
                 unlocked=is_unlocked,
-                unlocked_at=unlocked_map.get(key),
-                progress=min(prog["progress"], b.target_value) if is_unlocked else prog["progress"],
+                unlocked_count=unlocked_count,
+                unlocked_at=unlocked_at,
+                last_unlocked_at=last_unlocked_at,
+                progress=prog,
                 target=b.target_value,
             )
         )
@@ -282,9 +352,11 @@ async def get_member_badges(db: AsyncSession, member_id: uuid.UUID) -> List[Memb
 
 async def evaluate_and_unlock_badges(db: AsyncSession, member_id: uuid.UUID) -> List[MemberBadgeOut]:
     """
-    評估成員是否有達成新勳章條件。若有達成且尚未解鎖，寫入 member_badges 表並回傳新解鎖之勳章清單。
-    若該勳章設有額外獎勵點數 (reward_points > 0)，在同一交易中將點數計入成員可用餘額 (current_points)，
-    並建立 APPROVED 之 kudos_records 存摺流水帳。
+    評估成員是否有達成新勳章條件。若有達成：
+    - 若初次達成：寫入 member_badges 表 (unlocked_count=times, baseline=times*target)
+    - 若為可重複達成勳章且再次累積達標：更新 member_badges 表 (unlocked_count+=times, baseline+=times*target)
+    - 若該勳章設有額外獎勵點數 (reward_points > 0)，發入可用錢包 (current_points) 並建立 APPROVED 之 kudos_records 存摺明細。
+    - 回傳本次新達成之 MemberBadgeOut 清單。
     需在交易內部呼叫。
     """
     member = await db.get(Member, member_id)
@@ -296,11 +368,6 @@ async def evaluate_and_unlock_badges(db: AsyncSession, member_id: uuid.UUID) -> 
     if not badges:
         return []
 
-    # 查詢已解鎖紀錄
-    stmt = select(MemberBadge).where(MemberBadge.member_id == member_id)
-    result = await db.execute(stmt)
-    existing_keys = {b.badge_key for b in result.scalars().all()}
-
     # 計算條件判定
     progress_info = await calculate_badge_progress(db, member, badges)
 
@@ -310,28 +377,41 @@ async def evaluate_and_unlock_badges(db: AsyncSession, member_id: uuid.UUID) -> 
     for b in badges:
         key = b.badge_key
         info = progress_info.get(key)
-        if info and info["is_met"] and key not in existing_keys:
-            # 寫入資料庫解鎖紀錄
+        if not info or not info.get("is_met"):
+            continue
+
+        times = info.get("times", 1)
+        if times < 1:
+            continue
+
+        mb = info.get("mb")
+        bonus_pts = times * b.reward_points
+
+        if mb is None:
+            # 初次解鎖
             badge_record = MemberBadge(
                 member_id=member_id,
                 badge_key=key,
+                unlocked_count=times,
                 unlocked_at=now,
+                last_unlocked_at=now,
+                last_target_baseline=times * b.target_value,
             )
             db.add(badge_record)
 
             # 若設有額外獎勵點數，發入可用錢包並留下正式存摺明細
-            if b.reward_points > 0:
-                pts_bonus = b.reward_points
-                member.current_points += pts_bonus
+            if bonus_pts > 0:
+                member.current_points += bonus_pts
+                times_desc = f" (達成 {times} 次)" if times > 1 else ""
                 reward_kudos = KudosRecord(
                     member_id=member_id,
                     rule_id=None,
-                    target_name_snapshot=f"🏅 解鎖成就「{b.title}」特別獎勵",
+                    target_name_snapshot=f"🏅 解鎖成就「{b.title}」特別獎勵{times_desc}",
                     condition_snapshot="成就達成",
-                    points_awarded=pts_bonus,
-                    rule_detail_snapshot={"badge_key": key, "title": b.title, "reward_points": pts_bonus},
+                    points_awarded=bonus_pts,
+                    rule_detail_snapshot={"badge_key": key, "title": b.title, "reward_points": bonus_pts, "unlocked_count": times},
                     status="APPROVED",
-                    note=f"達成榮譽成就勳章「{b.title}」獲得額外獎勵點數",
+                    note=f"達成榮譽成就勳章「{b.title}」{times_desc}獲得額外獎勵點數",
                     reviewed_at=now,
                     review_note="成就系統自動發放",
                     recorded_by="成就系統",
@@ -346,10 +426,58 @@ async def evaluate_and_unlock_badges(db: AsyncSession, member_id: uuid.UUID) -> 
                     description=b.description,
                     icon=b.icon,
                     condition_type=b.condition_type,
-                    reward_points=b.reward_points,
+                    reward_points=bonus_pts,
+                    is_repeatable=b.is_repeatable,
                     unlocked=True,
+                    unlocked_count=times,
                     unlocked_at=now,
-                    progress=b.target_value,
+                    last_unlocked_at=now,
+                    progress=info["cycle_progress"] % b.target_value,
+                    target=b.target_value,
+                )
+            )
+
+        elif b.is_repeatable:
+            # 再次累積達成 (重設後循環累積)
+            prev_count = mb.unlocked_count
+            mb.unlocked_count += times
+            mb.last_unlocked_at = now
+            mb.last_target_baseline += times * b.target_value
+
+            if bonus_pts > 0:
+                member.current_points += bonus_pts
+                new_count = mb.unlocked_count
+                times_desc = f" (第 {new_count} 次)" if times == 1 else f" (第 {prev_count + 1}~{new_count} 次)"
+                reward_kudos = KudosRecord(
+                    member_id=member_id,
+                    rule_id=None,
+                    target_name_snapshot=f"🏅 達成成就「{b.title}」特別獎勵{times_desc}",
+                    condition_snapshot="成就達成",
+                    points_awarded=bonus_pts,
+                    rule_detail_snapshot={"badge_key": key, "title": b.title, "reward_points": bonus_pts, "unlocked_count": new_count},
+                    status="APPROVED",
+                    note=f"達成榮譽成就勳章「{b.title}」{times_desc}獲得額外獎勵點數",
+                    reviewed_at=now,
+                    review_note="成就系統自動發放",
+                    recorded_by="成就系統",
+                )
+                db.add(reward_kudos)
+
+            newly_unlocked.append(
+                MemberBadgeOut(
+                    id=b.id,
+                    badge_key=key,
+                    title=b.title,
+                    description=b.description,
+                    icon=b.icon,
+                    condition_type=b.condition_type,
+                    reward_points=bonus_pts,
+                    is_repeatable=b.is_repeatable,
+                    unlocked=True,
+                    unlocked_count=mb.unlocked_count,
+                    unlocked_at=mb.unlocked_at,
+                    last_unlocked_at=now,
+                    progress=info["cycle_progress"] % b.target_value,
                     target=b.target_value,
                 )
             )

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, ForeignKey, UniqueConstraint, func
+from sqlalchemy import String, Integer, DateTime, ForeignKey, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
@@ -18,7 +18,10 @@ class MemberBadge(Base):
         nullable=False
     )
     badge_key: Mapped[str] = mapped_column(String(50), nullable=False)
+    unlocked_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     unlocked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_unlocked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_target_baseline: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # 關聯
     member: Mapped["Member"] = relationship("Member", back_populates="badges")

@@ -573,6 +573,99 @@ async def test_badge_management_and_milestones():
             await cleanup_test_child(client, bot_id)
 
 @pytest.mark.asyncio
+async def test_repeatable_badge_unlock_and_reset_flow():
+    """驗證成就勳章達成並獲得成就點數後，重設進度並可循環累積再次達成 (FR-18)"""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        test_bot = await create_isolated_test_child(client, "BotRepeat")
+        bot_id = test_bot["id"]
+
+        try:
+            # 1. 發放點數 100 點，初次觸發 FIRST_100_PTS
+            rec1 = await client.post(
+                "/api/kudos/record",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "初次累積 100 點",
+                    "condition_value": "100",
+                    "points_awarded": 100,
+                    "note": "首次達標",
+                },
+            )
+            assert rec1.status_code == 200
+            newly1 = rec1.json()["newly_unlocked_badges"]
+            assert any(b["badge_key"] == "FIRST_100_PTS" and b["reward_points"] == 25 and b["unlocked_count"] == 1 for b in newly1)
+
+            # 驗證成員點數：current_points = 100 + 25 = 125, total_earned_points = 100
+            m_res1 = await client.get("/api/members")
+            m1 = next(m for m in m_res1.json() if m["id"] == bot_id)
+            assert m1["current_points"] == 125
+            assert m1["total_earned_points"] == 100
+
+            # 驗證勳章狀態：已解鎖，達成 1 次，進度已重設為 0 / 100
+            badges_res1 = await client.get(f"/api/members/{bot_id}/badges")
+            b_list1 = badges_res1.json()
+            badge_100_1 = next(b for b in b_list1 if b["badge_key"] == "FIRST_100_PTS")
+            assert badge_100_1["unlocked"] is True
+            assert badge_100_1["unlocked_count"] == 1
+            assert badge_100_1["progress"] == 0
+            assert badge_100_1["target"] == 100
+
+            # 2. 再次發放點數 100 點 (累計達到 200 點)，觸發第 2 次達成
+            rec2 = await client.post(
+                "/api/kudos/record",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "再次累積 100 點",
+                    "condition_value": "100",
+                    "points_awarded": 100,
+                    "note": "第二次達標",
+                },
+            )
+            assert rec2.status_code == 200
+            newly2 = rec2.json()["newly_unlocked_badges"]
+            assert any(b["badge_key"] == "FIRST_100_PTS" and b["reward_points"] == 25 and b["unlocked_count"] == 2 for b in newly2)
+
+            # 驗證成員點數：current_points = 125 + 100 + 25 = 250, total_earned_points = 200
+            m_res2 = await client.get("/api/members")
+            m2 = next(m for m in m_res2.json() if m["id"] == bot_id)
+            assert m2["current_points"] == 250
+            assert m2["total_earned_points"] == 200
+
+            # 驗證勳章狀態：達成 2 次，進度再次重設為 0 / 100
+            badges_res2 = await client.get(f"/api/members/{bot_id}/badges")
+            b_list2 = badges_res2.json()
+            badge_100_2 = next(b for b in b_list2 if b["badge_key"] == "FIRST_100_PTS")
+            assert badge_100_2["unlocked_count"] == 2
+            assert badge_100_2["progress"] == 0
+
+            # 3. 再發放 40 點 (累積中，未達標 100 點)
+            rec3 = await client.post(
+                "/api/kudos/record",
+                headers={"X-Parent-PIN": "0000"},
+                json={
+                    "member_id": bot_id,
+                    "target_name": "累積中點數",
+                    "condition_value": "40",
+                    "points_awarded": 40,
+                    "note": "進行中",
+                },
+            )
+            assert rec3.status_code == 200
+            assert len(rec3.json()["newly_unlocked_badges"]) == 0
+
+            # 驗證進度為 40 / 100，達成次數維持 2 次
+            badges_res3 = await client.get(f"/api/members/{bot_id}/badges")
+            b_list3 = badges_res3.json()
+            badge_100_3 = next(b for b in b_list3 if b["badge_key"] == "FIRST_100_PTS")
+            assert badge_100_3["unlocked_count"] == 2
+            assert badge_100_3["progress"] == 40
+            assert badge_100_3["target"] == 100
+        finally:
+            await cleanup_test_child(client, bot_id)
+
+@pytest.mark.asyncio
 async def test_child_pin_and_self_points_restrictions():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # 1. 建立兩個獨立測試小孩：ChildA (PIN 1111) 與 ChildB (PIN 2222)

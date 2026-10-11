@@ -30,6 +30,7 @@ const icon = ref('🏅')
 const conditionType = ref('TOTAL_POINTS')
 const targetValue = ref(5000)
 const rewardPoints = ref(0)
+const isRepeatable = ref(true)
 const sortOrder = ref(10)
 const isActive = ref(true)
 const parentPinInput = ref('')
@@ -77,6 +78,7 @@ function openCreateForm() {
   conditionType.value = 'TOTAL_POINTS'
   targetValue.value = 5000
   rewardPoints.value = Math.round(5000 * 0.25)
+  isRepeatable.value = true
   sortOrder.value = (badgesList.value.length + 1) * 5
   isActive.value = true
   parentPinInput.value = ''
@@ -94,6 +96,7 @@ function openEditForm(badge) {
   conditionType.value = badge.condition_type || 'TOTAL_POINTS'
   targetValue.value = badge.target_value
   rewardPoints.value = badge.reward_points ?? 0
+  isRepeatable.value = badge.is_repeatable ?? true
   sortOrder.value = badge.sort_order ?? 0
   isActive.value = badge.is_active
   parentPinInput.value = ''
@@ -156,6 +159,7 @@ async function handleSave() {
         condition_type: conditionType.value,
         target_value: parseInt(targetValue.value, 10),
         reward_points: parseInt(rewardPoints.value, 10) || 0,
+        is_repeatable: isRepeatable.value,
         sort_order: parseInt(sortOrder.value, 10) || 0,
         is_active: isActive.value,
         parent_pin: pin,
@@ -169,6 +173,7 @@ async function handleSave() {
         condition_type: conditionType.value,
         target_value: parseInt(targetValue.value, 10),
         reward_points: parseInt(rewardPoints.value, 10) || 0,
+        is_repeatable: isRepeatable.value,
         sort_order: parseInt(sortOrder.value, 10) || 0,
         is_active: isActive.value,
         parent_pin: pin,
@@ -311,6 +316,12 @@ async function handleToggleMember(badge) {
                     class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800"
                   >
                     🎁 +{{ b.reward_points }} 點
+                  </span>
+                  <span
+                    v-if="b.is_repeatable"
+                    class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800"
+                  >
+                    🔄 可循環
                   </span>
                 </div>
                 <p class="text-xs text-gray-500 truncate mt-0.5">{{ b.description }}</p>
@@ -464,16 +475,30 @@ async function handleToggleMember(badge) {
             />
           </div>
 
-          <div class="flex items-center space-x-3 pt-6">
-            <input
-              v-model="isActive"
-              id="badge-active"
-              type="checkbox"
-              class="w-5 h-5 rounded-lg text-frog-600 focus:ring-frog-500 cursor-pointer"
-            />
-            <label for="badge-active" class="text-sm font-bold text-gray-700 cursor-pointer">
-              啟用此成就勳章
-            </label>
+          <div class="flex flex-col sm:flex-row sm:items-center gap-4 pt-6">
+            <div class="flex items-center space-x-2">
+              <input
+                v-model="isActive"
+                id="badge-active"
+                type="checkbox"
+                class="w-5 h-5 rounded-lg text-frog-600 focus:ring-frog-500 cursor-pointer"
+              />
+              <label for="badge-active" class="text-sm font-bold text-gray-700 cursor-pointer">
+                啟用此勳章
+              </label>
+            </div>
+
+            <div class="flex items-center space-x-2">
+              <input
+                v-model="isRepeatable"
+                id="badge-repeatable"
+                type="checkbox"
+                class="w-5 h-5 rounded-lg text-purple-600 focus:ring-purple-500 cursor-pointer"
+              />
+              <label for="badge-repeatable" class="text-sm font-bold text-gray-700 cursor-pointer" title="達成解鎖並發放獎勵點數後，重設進度為 0 並可繼續累積達成再次獲獎">
+                🔄 可重複循環達成
+              </label>
+            </div>
           </div>
         </div>
 

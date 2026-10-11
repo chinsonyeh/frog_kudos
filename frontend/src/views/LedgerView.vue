@@ -373,7 +373,7 @@ function onUnlockedBadges(bList) {
                 v-if="b.unlocked"
                 class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800"
               >
-                ✨ 已解鎖
+                ✨ {{ b.is_repeatable && b.unlocked_count > 1 ? `達成 ${b.unlocked_count} 次` : '已解鎖' }}
               </span>
               <span
                 v-if="b.reward_points > 0"
@@ -383,14 +383,18 @@ function onUnlockedBadges(bList) {
                 🎁 +{{ b.reward_points }} 點
               </span>
             </div>
-            <div v-if="!b.unlocked" class="space-y-1 pt-1">
+            <!-- 進度條：未解鎖時顯示；若可重複達成，即使已解鎖亦顯示重設後目前循環之累積進度 -->
+            <div v-if="!b.unlocked || b.is_repeatable" class="space-y-1 pt-1">
               <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
                 <div
-                  class="bg-frog-500 h-1.5 rounded-full"
+                  class="bg-frog-500 h-1.5 rounded-full transition-all duration-300"
                   :style="{ width: `${Math.min(100, Math.floor((b.progress / b.target) * 100))}%` }"
                 ></div>
               </div>
-              <span class="text-[10px] text-gray-400 font-mono font-semibold">{{ b.progress }}/{{ b.target }}</span>
+              <div class="flex items-center justify-between text-[10px] text-gray-400 font-mono font-semibold">
+                <span v-if="b.unlocked && b.is_repeatable" class="text-[9px] text-purple-600 font-sans">🔄 重設累積</span>
+                <span class="ml-auto">{{ b.progress }}/{{ b.target }}</span>
+              </div>
             </div>
           </div>
         </div>

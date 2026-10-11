@@ -28,7 +28,7 @@ onMounted(() => {
           🎉
         </div>
         <h2 class="text-2xl font-black text-gray-800 mb-1">
-          恭喜解鎖全新里程碑勳章！
+          恭喜達成榮譽里程碑成就！
         </h2>
         <p class="text-sm text-gray-500 mb-6">
           你的堅持與努力獲得了專屬榮譽認證！
@@ -49,7 +49,12 @@ onMounted(() => {
                 <h4 class="font-bold text-gray-800 text-base">
                   {{ b.title }}
                 </h4>
-                <span class="text-xs bg-yellow-200 text-yellow-800 px-2 py-0.5 rounded-full font-semibold">NEW!</span>
+                <span
+                  class="text-xs px-2 py-0.5 rounded-full font-semibold"
+                  :class="b.unlocked_count > 1 ? 'bg-purple-100 text-purple-800' : 'bg-yellow-200 text-yellow-800'"
+                >
+                  {{ b.unlocked_count > 1 ? `第 ${b.unlocked_count} 次達成！` : 'NEW!' }}
+                </span>
                 <span
                   v-if="b.reward_points > 0"
                   class="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 shadow-sm"
@@ -60,6 +65,9 @@ onMounted(() => {
               <p class="text-xs text-gray-600">{{ b.description }}</p>
               <p v-if="b.reward_points > 0" class="text-xs font-bold text-emerald-600 mt-1 flex items-center gap-1">
                 <span>🪙 獲得特別獎勵點數已自動記入錢包！</span>
+              </p>
+              <p v-if="b.is_repeatable" class="text-[11px] font-semibold text-purple-700 mt-0.5 flex items-center gap-1">
+                <span>🔄 本成就已重設，可繼續累積邁向下一次達成！</span>
               </p>
             </div>
           </div>
