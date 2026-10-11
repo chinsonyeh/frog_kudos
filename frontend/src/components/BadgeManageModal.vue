@@ -29,6 +29,7 @@ const description = ref('')
 const icon = ref('🏅')
 const conditionType = ref('TOTAL_POINTS')
 const targetValue = ref(5000)
+const rewardPoints = ref(0)
 const sortOrder = ref(10)
 const isActive = ref(true)
 const parentPinInput = ref('')
@@ -75,6 +76,7 @@ function openCreateForm() {
   icon.value = '🏅'
   conditionType.value = 'TOTAL_POINTS'
   targetValue.value = 5000
+  rewardPoints.value = 0
   sortOrder.value = (badgesList.value.length + 1) * 5
   isActive.value = true
   parentPinInput.value = ''
@@ -91,6 +93,7 @@ function openEditForm(badge) {
   icon.value = badge.icon || '🏅'
   conditionType.value = badge.condition_type || 'TOTAL_POINTS'
   targetValue.value = badge.target_value
+  rewardPoints.value = badge.reward_points ?? 0
   sortOrder.value = badge.sort_order ?? 0
   isActive.value = badge.is_active
   parentPinInput.value = ''
@@ -146,6 +149,7 @@ async function handleSave() {
         icon: icon.value.trim() || '🏅',
         condition_type: conditionType.value,
         target_value: parseInt(targetValue.value, 10),
+        reward_points: parseInt(rewardPoints.value, 10) || 0,
         sort_order: parseInt(sortOrder.value, 10) || 0,
         is_active: isActive.value,
         parent_pin: pin,
@@ -158,6 +162,7 @@ async function handleSave() {
         icon: icon.value.trim() || '🏅',
         condition_type: conditionType.value,
         target_value: parseInt(targetValue.value, 10),
+        reward_points: parseInt(rewardPoints.value, 10) || 0,
         sort_order: parseInt(sortOrder.value, 10) || 0,
         is_active: isActive.value,
         parent_pin: pin,
@@ -295,6 +300,12 @@ async function handleToggleMember(badge) {
                   >
                     {{ b.condition_type === 'TOTAL_POINTS' ? `🪙 ${Number(b.target_value).toLocaleString()} 點` : `${b.target_value} 次/點` }}
                   </span>
+                  <span
+                    v-if="b.reward_points > 0"
+                    class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800"
+                  >
+                    🎁 +{{ b.reward_points }} 點
+                  </span>
                 </div>
                 <p class="text-xs text-gray-500 truncate mt-0.5">{{ b.description }}</p>
               </div>
@@ -410,6 +421,28 @@ async function handleToggleMember(badge) {
             placeholder="例如: 累計獲得 5,000 點"
             class="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 font-medium text-sm focus:bg-white focus:ring-2 focus:ring-frog-500"
           />
+        </div>
+
+        <!-- 達成解鎖額外獎勵點數 -->
+        <div>
+          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+            <span>🎁 達成解鎖額外獎勵點數 (Bonus Points)</span>
+            <span class="text-[11px] text-gray-400 font-normal">填 0 代表純榮譽無點數</span>
+          </label>
+          <div class="relative">
+            <input
+              v-model="rewardPoints"
+              type="number"
+              min="0"
+              step="1"
+              placeholder="0"
+              class="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 font-mono font-bold text-sm focus:bg-white focus:ring-2 focus:ring-frog-500"
+            />
+            <span class="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">點</span>
+          </div>
+          <p class="text-[11px] text-gray-500 mt-1">
+            成員達成此成就時，系統將自動於可用點數錢包發放該點數，並記錄於存摺明細中。
+          </p>
         </div>
 
         <!-- 排序權重與啟用狀態 -->

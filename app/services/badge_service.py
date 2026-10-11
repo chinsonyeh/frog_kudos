@@ -14,21 +14,21 @@ from app.models.category import Category
 from app.schemas.badge import MemberBadgeOut, BadgeCreate, BadgeUpdate, BadgeOut
 
 BADGE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
-    "FIRST_100_PTS": {"title": "初出茅廬蛙", "description": "累計獲得 100 點", "icon": "🌟", "target": 100},
-    "PERFECT_SCORE_5": {"title": "百分學霸蛙", "description": "科目滿分達 5 次", "icon": "🏆", "target": 5},
-    "CHORE_MASTER_200": {"title": "家事小達人", "description": "生活常規或家事協助累計獲得 200 點", "icon": "🧹", "target": 200},
-    "MILLIONAIRE_1000": {"title": "點數千元蛙", "description": "累計獲得 1,000 點", "icon": "👑", "target": 1000},
-    "POINTS_5000": {"title": "五千非凡蛙", "description": "累計獲得 5,000 點", "icon": "💎", "target": 5000},
-    "POINTS_10000": {"title": "萬點榮耀蛙", "description": "累計獲得 10,000 點", "icon": "🎖️", "target": 10000},
-    "POINTS_20000": {"title": "兩萬破繭蛙", "description": "累計獲得 20,000 點", "icon": "🚀", "target": 20000},
-    "POINTS_30000": {"title": "三萬卓越蛙", "description": "累計獲得 30,000 點", "icon": "⚡", "target": 30000},
-    "POINTS_40000": {"title": "四萬巔峰蛙", "description": "累計獲得 40,000 點", "icon": "🔥", "target": 40000},
-    "POINTS_50000": {"title": "五萬傳奇蛙", "description": "累計獲得 50,000 點", "icon": "🔮", "target": 50000},
-    "POINTS_60000": {"title": "六萬超神蛙", "description": "累計獲得 60,000 點", "icon": "🌈", "target": 60000},
-    "POINTS_70000": {"title": "七萬極限蛙", "description": "累計獲得 70,000 點", "icon": "🌠", "target": 70000},
-    "POINTS_80000": {"title": "八萬無雙蛙", "description": "累計獲得 80,000 點", "icon": "🛡️", "target": 80000},
-    "POINTS_90000": {"title": "九萬至尊蛙", "description": "累計獲得 90,000 點", "icon": "🔱", "target": 90000},
-    "POINTS_100000": {"title": "十萬不朽蛙", "description": "累計獲得 100,000 點", "icon": "🪐", "target": 100000},
+    "FIRST_100_PTS": {"title": "初出茅廬蛙", "description": "累計獲得 100 點", "icon": "🌟", "target": 100, "reward_points": 20},
+    "PERFECT_SCORE_5": {"title": "百分學霸蛙", "description": "科目滿分達 5 次", "icon": "🏆", "target": 5, "reward_points": 50},
+    "CHORE_MASTER_200": {"title": "家事小達人", "description": "生活常規或家事協助累計獲得 200 點", "icon": "🧹", "target": 200, "reward_points": 30},
+    "MILLIONAIRE_1000": {"title": "點數千元蛙", "description": "累計獲得 1,000 點", "icon": "👑", "target": 1000, "reward_points": 100},
+    "POINTS_5000": {"title": "五千非凡蛙", "description": "累計獲得 5,000 點", "icon": "💎", "target": 5000, "reward_points": 200},
+    "POINTS_10000": {"title": "萬點榮耀蛙", "description": "累計獲得 10,000 點", "icon": "🎖️", "target": 10000, "reward_points": 500},
+    "POINTS_20000": {"title": "兩萬破繭蛙", "description": "累計獲得 20,000 點", "icon": "🚀", "target": 20000, "reward_points": 800},
+    "POINTS_30000": {"title": "三萬卓越蛙", "description": "累計獲得 30,000 點", "icon": "⚡", "target": 30000, "reward_points": 1000},
+    "POINTS_40000": {"title": "四萬巔峰蛙", "description": "累計獲得 40,000 點", "icon": "🔥", "target": 40000, "reward_points": 1200},
+    "POINTS_50000": {"title": "五萬傳奇蛙", "description": "累計獲得 50,000 點", "icon": "🔮", "target": 50000, "reward_points": 1500},
+    "POINTS_60000": {"title": "六萬超神蛙", "description": "累計獲得 60,000 點", "icon": "🌈", "target": 60000, "reward_points": 1800},
+    "POINTS_70000": {"title": "七萬極限蛙", "description": "累計獲得 70,000 點", "icon": "🌠", "target": 70000, "reward_points": 2000},
+    "POINTS_80000": {"title": "八萬無雙蛙", "description": "累計獲得 80,000 點", "icon": "🛡️", "target": 80000, "reward_points": 2500},
+    "POINTS_90000": {"title": "九萬至尊蛙", "description": "累計獲得 90,000 點", "icon": "🔱", "target": 90000, "reward_points": 3000},
+    "POINTS_100000": {"title": "十萬不朽蛙", "description": "累計獲得 100,000 點", "icon": "🪐", "target": 100000, "reward_points": 5000},
 }
 
 async def get_all_badges(db: AsyncSession, active_only: bool = False) -> List[Badge]:
@@ -59,6 +59,7 @@ async def create_badge(db: AsyncSession, badge_in: BadgeCreate) -> Badge:
         icon=badge_in.icon.strip() or "🏅",
         condition_type=badge_in.condition_type,
         target_value=badge_in.target_value,
+        reward_points=badge_in.reward_points,
         sort_order=badge_in.sort_order,
         is_active=badge_in.is_active,
     )
@@ -83,6 +84,8 @@ async def update_badge(db: AsyncSession, badge_id: uuid.UUID, badge_in: BadgeUpd
         badge.condition_type = badge_in.condition_type
     if badge_in.target_value is not None:
         badge.target_value = badge_in.target_value
+    if badge_in.reward_points is not None:
+        badge.reward_points = badge_in.reward_points
     if badge_in.sort_order is not None:
         badge.sort_order = badge_in.sort_order
     if badge_in.is_active is not None:
@@ -140,7 +143,7 @@ async def toggle_member_badge(
             # 收回
             await db.delete(existing)
             await db.commit()
-            return {"success": True, "unlocked": False, "message": f"已收回 {member.name} 的「{badge.title}」勳章"}
+            return {"success": True, "unlocked": False, "message": f"已收回 {member.name} 的「{badge.title}」勳章（過往已發放之獎勵點數保留）"}
         else:
             return {"success": True, "unlocked": True, "message": f"{member.name} 已擁有「{badge.title}」勳章"}
     else:
@@ -148,8 +151,27 @@ async def toggle_member_badge(
             # 頒發
             new_mb = MemberBadge(member_id=member_id, badge_key=badge_key, unlocked_at=now)
             db.add(new_mb)
+            pts_granted = 0
+            if badge.reward_points > 0:
+                pts_granted = badge.reward_points
+                member.current_points += pts_granted
+                reward_kudos = KudosRecord(
+                    member_id=member_id,
+                    rule_id=None,
+                    target_name_snapshot=f"🏅 榮譽勳章頒發「{badge.title}」特別獎勵",
+                    condition_snapshot="家長手動頒發",
+                    points_awarded=pts_granted,
+                    rule_detail_snapshot={"badge_key": badge_key, "title": badge.title, "reward_points": pts_granted},
+                    status="APPROVED",
+                    note=f"家長手動頒發榮譽成就勳章「{badge.title}」獲得額外獎勵點數",
+                    reviewed_at=now,
+                    review_note="家長手動頒發榮譽成就獎勵",
+                    recorded_by="家長",
+                )
+                db.add(reward_kudos)
             await db.commit()
-            return {"success": True, "unlocked": True, "message": f"已為 {member.name} 頒發「{badge.title}」勳章！"}
+            bonus_hint = f"（額外獲得 +{pts_granted} 點）" if pts_granted > 0 else ""
+            return {"success": True, "unlocked": True, "points_awarded": pts_granted, "message": f"已為 {member.name} 頒發「{badge.title}」勳章！{bonus_hint}"}
         else:
             return {"success": True, "unlocked": False, "message": f"{member.name} 尚未擁有「{badge.title}」勳章"}
 
@@ -240,6 +262,7 @@ async def get_member_badges(db: AsyncSession, member_id: uuid.UUID) -> List[Memb
                 description=b.description,
                 icon=b.icon,
                 condition_type=b.condition_type,
+                reward_points=b.reward_points,
                 unlocked=is_unlocked,
                 unlocked_at=unlocked_map.get(key),
                 progress=min(prog["progress"], b.target_value) if is_unlocked else prog["progress"],
@@ -252,6 +275,8 @@ async def get_member_badges(db: AsyncSession, member_id: uuid.UUID) -> List[Memb
 async def evaluate_and_unlock_badges(db: AsyncSession, member_id: uuid.UUID) -> List[MemberBadgeOut]:
     """
     評估成員是否有達成新勳章條件。若有達成且尚未解鎖，寫入 member_badges 表並回傳新解鎖之勳章清單。
+    若該勳章設有額外獎勵點數 (reward_points > 0)，在同一交易中將點數計入成員可用餘額 (current_points)，
+    並建立 APPROVED 之 kudos_records 存摺流水帳。
     需在交易內部呼叫。
     """
     member = await db.get(Member, member_id)
@@ -285,6 +310,26 @@ async def evaluate_and_unlock_badges(db: AsyncSession, member_id: uuid.UUID) -> 
                 unlocked_at=now,
             )
             db.add(badge_record)
+
+            # 若設有額外獎勵點數，發入可用錢包並留下正式存摺明細
+            if b.reward_points > 0:
+                pts_bonus = b.reward_points
+                member.current_points += pts_bonus
+                reward_kudos = KudosRecord(
+                    member_id=member_id,
+                    rule_id=None,
+                    target_name_snapshot=f"🏅 解鎖成就「{b.title}」特別獎勵",
+                    condition_snapshot="成就達成",
+                    points_awarded=pts_bonus,
+                    rule_detail_snapshot={"badge_key": key, "title": b.title, "reward_points": pts_bonus},
+                    status="APPROVED",
+                    note=f"達成榮譽成就勳章「{b.title}」獲得額外獎勵點數",
+                    reviewed_at=now,
+                    review_note="成就系統自動發放",
+                    recorded_by="成就系統",
+                )
+                db.add(reward_kudos)
+
             newly_unlocked.append(
                 MemberBadgeOut(
                     id=b.id,
@@ -293,6 +338,7 @@ async def evaluate_and_unlock_badges(db: AsyncSession, member_id: uuid.UUID) -> 
                     description=b.description,
                     icon=b.icon,
                     condition_type=b.condition_type,
+                    reward_points=b.reward_points,
                     unlocked=True,
                     unlocked_at=now,
                     progress=b.target_value,

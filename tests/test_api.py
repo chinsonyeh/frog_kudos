@@ -222,12 +222,17 @@ async def test_kudos_points_and_badges_flow():
             )
             assert rec2_res.status_code == 200
 
-            # 檢查是否自動解鎖 FIRST_100_PTS 勳章 (FR-18)
+            # 檢查是否自動解鎖 FIRST_100_PTS 勳章 (FR-18) 與額外發放獎勵點數 (+20 點)
             badges_res = await client.get(f"/api/members/{bot_id}/badges")
             assert badges_res.status_code == 200
             badges = badges_res.json()
             first_100_badge = next(b for b in badges if b["badge_key"] == "FIRST_100_PTS")
             assert first_100_badge["unlocked"] is True
+            assert first_100_badge["reward_points"] == 20
+
+            # 檢查 newly_unlocked_badges 回傳資訊
+            newly = rec2_res.json()["newly_unlocked_badges"]
+            assert any(b["badge_key"] == "FIRST_100_PTS" and b["reward_points"] == 20 for b in newly)
 
             # 3. 違規扣點 Penalty (FR-14)
             pen_res = await client.post(
@@ -243,10 +248,10 @@ async def test_kudos_points_and_badges_flow():
             )
             assert pen_res.status_code == 200
 
-            # 檢查雙軌帳本約束
+            # 檢查雙軌帳本約束 (可用餘額包含成就獎勵 20 點，累計榮譽不含額外贈點)
             m_res = await client.get("/api/members")
             bot_after = next(m for m in m_res.json() if m["id"] == bot_id)
-            assert bot_after["current_points"] == 50 + 50 - 10
+            assert bot_after["current_points"] == 50 + 50 + 20 - 10
             assert bot_after["total_earned_points"] == 50 + 50
 
             # 4. 防呆安全：超額扣點至負數應被拒絕 (HTTP 400)
@@ -279,7 +284,7 @@ async def test_redemption_and_refund_lifecycle():
                     "member_id": bot_id,
                     "target_name": "初始贈點",
                     "condition_value": "自訂",
-                    "points_awarded": 100,
+                    "points_awarded": 80,
                 },
             )
 
@@ -309,7 +314,7 @@ async def test_redemption_and_refund_lifecycle():
 
             m_res2 = await client.get("/api/members")
             bot_mid = next(m for m in m_res2.json() if m["id"] == bot_id)
-            assert bot_mid["current_points"] == 100 - 30
+            assert bot_mid["current_points"] == 80 - 30
 
             # 家長退回申請並全額退款 (REJECT -> Refund) (FR-15)
             rev_res = await client.post(
@@ -323,7 +328,7 @@ async def test_redemption_and_refund_lifecycle():
             # 檢查點數是否已全額退還
             m_res3 = await client.get("/api/members")
             bot_refunded = next(m for m in m_res3.json() if m["id"] == bot_id)
-            assert bot_refunded["current_points"] == 100
+            assert bot_refunded["current_points"] == 80
 
             # 再次兌換並核銷 (COMPLETE)
             red_res2 = await client.post(
@@ -500,7 +505,7 @@ async def test_badge_management_and_milestones():
         ]:
             assert milestone_key in keys
 
-        # 2. 家長新增自訂成就勳章
+        # 2. 家長新增自訂成就勳章 (帶有額外獎勵點數 35 點)
         custom_key = f"TEST_READING_{uuid.uuid4().hex[:6]}"
         new_b_res = await client.post(
             "/api/badges",
@@ -512,17 +517,31 @@ async def test_badge_management_and_milestones():
                 "icon": "📖",
                 "condition_type": "CUSTOM",
                 "target_value": 10,
+                "reward_points": 35,
                 "sort_order": 99,
             },
         )
         assert new_b_res.status_code == 200
-        badge_id = new_b_res.json()["id"]
+        badge_data = new_b_res.json()
+        badge_id = badge_data["id"]
+        assert badge_data["reward_points"] == 35
+
+        # 編輯勳章更新獎勵點數為 50 點
+        put_b_res = await client.put(
+            f"/api/badges/{badge_id}",
+            headers={"X-Parent-PIN": "0000"},
+            json={
+                "reward_points": 50,
+            },
+        )
+        assert put_b_res.status_code == 200
+        assert put_b_res.json()["reward_points"] == 50
 
         test_bot = await create_isolated_test_child(client, "BotBadge")
         bot_id = test_bot["id"]
 
         try:
-            # 3. 手動為測試成員頒發勳章與收回
+            # 3. 手動為測試成員頒發勳章與收回 (頒發時自動發放 +50 點特別獎勵)
             toggle_res = await client.post(
                 f"/api/badges/{custom_key}/toggle/{bot_id}",
                 headers={"X-Parent-PIN": "0000"},
@@ -530,7 +549,14 @@ async def test_badge_management_and_milestones():
             )
             assert toggle_res.status_code == 200
             assert toggle_res.json()["unlocked"] is True
+            assert toggle_res.json()["points_awarded"] == 50
 
+            # 驗證成員可用餘額增加 50 點
+            m_res = await client.get("/api/members")
+            bot_after = next(m for m in m_res.json() if m["id"] == bot_id)
+            assert bot_after["current_points"] == 50
+
+            # 收回勳章 (過往點數安全保留，不引發負額錯誤)
             toggle_off_res = await client.post(
                 f"/api/badges/{custom_key}/toggle/{bot_id}",
                 headers={"X-Parent-PIN": "0000"},
@@ -538,6 +564,10 @@ async def test_badge_management_and_milestones():
             )
             assert toggle_off_res.status_code == 200
             assert toggle_off_res.json()["unlocked"] is False
+
+            m_res2 = await client.get("/api/members")
+            bot_after2 = next(m for m in m_res2.json() if m["id"] == bot_id)
+            assert bot_after2["current_points"] == 50
         finally:
             await client.delete(f"/api/badges/{badge_id}", headers={"X-Parent-PIN": "0000"})
             await cleanup_test_child(client, bot_id)

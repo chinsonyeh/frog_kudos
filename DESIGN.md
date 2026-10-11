@@ -225,6 +225,7 @@ erDiagram
    - **`total_earned_points` (歷史累計榮譽成就值)**：代表孩子一生付出的努力總成果，解鎖勳章專用。
      - **臨時違規扣點 (FR-14 Penalty)**：僅扣除可用點數 `current_points`，**絕不扣減 `total_earned_points`**，既保護歷史榮譽感，也防止新成員 0 點被扣點時觸發 `CHECK (total_earned_points >= 0)` 違規拋錯。
      - **歷史成就批次調整 (FR-7 Batch Adjustment)**：因屬於回溯修正過往成績，當 $\Delta$ 變動時，同時更新 `current_points += Δ` 與 `total_earned_points += Δ`，且交易前置防呆必須同時滿足 `current_points + Δ >= 0` 與 `total_earned_points + Δ >= 0`。
+     - **成就勳章額外獎勵點數 (FR-18 Bonus Points)**：當解鎖勳章或家長手動頒發具有 `reward_points > 0` 的榮譽時，點數以 `APPROVED` 狀態入帳並**僅計入可用餘額 `current_points += reward_points`**，**絕不計入 `total_earned_points`**，以維護長期努力成就值的客觀性，並根絕自激遞迴觸發下一個里程碑的雪崩風險。
 7. **家長安全鎖 PIN 碼分級驗證架構**：
    - **系統種子 PIN (`.env` 的 `PARENT_DEFAULT_PIN`)**：僅用於系統初次安裝建立種子家長帳號（Dad/Mom）時的初始預設值（預設 `0000`）與緊急維護重設。
    - **日常業務 API 驗證**：前端發起批次調整、兌換審核或系統設定傳入 `parent_pin` 時，後端統一查詢資料庫中 `role = 'parent'` 且 `is_active = TRUE` 的所有家長成員，使用 `bcrypt.verify` 逐一比對 `pin_code`，符合任一家長之 PIN 碼即視為驗證通過。
@@ -303,8 +304,8 @@ erDiagram
 | `DELETE` | `/api/members/{id}` | `{ parent_pin }` | `{ success: true, action: "DEACTIVATED"\|"DELETED" }` | **安全刪除或停用成員（若已有歷史積分或兌換紀錄則自動轉為軟停用 is_active=FALSE 以保全審計鏈，無歷史紀錄之全新成員則執行實體刪除；需家長安全鎖）** |
 | `GET` | `/api/members/{id}/badges` | - | `MemberBadgeOut[]` | **查詢成員里程碑成就勳章清單與達成進度 (FR-18)** |
 | `GET` | `/api/badges` | `?all=false` | `BadgeOut[]` | **查詢所有里程碑成就勳章定義清單 (FR-18)** |
-| `POST` | `/api/badges` | `{ badge_key, title, description, icon, condition_type, target_value, sort_order, parent_pin }` | `BadgeOut` | **新增自訂成就勳章或里程碑（需家長安全鎖）** |
-| `PUT` | `/api/badges/{id}` | `{ title, description, icon, condition_type, target_value, sort_order, is_active, parent_pin }` | `BadgeOut` | **編輯成就勳章資訊、條件門檻或啟用狀態（需家長安全鎖）** |
+| `POST` | `/api/badges` | `{ badge_key, title, description, icon, condition_type, target_value, reward_points, sort_order, parent_pin }` | `BadgeOut` | **新增自訂成就勳章或里程碑（支援額外獎勵點數，需家長安全鎖）** |
+| `PUT` | `/api/badges/{id}` | `{ title, description, icon, condition_type, target_value, reward_points, sort_order, is_active, parent_pin }` | `BadgeOut` | **編輯成就勳章資訊、條件門檻、獎勵點數或啟用狀態（需家長安全鎖）** |
 | `DELETE` | `/api/badges/{id}` | `?parent_pin=...` | `{ success: true, action: "DEACTIVATED"\|"DELETED" }` | **刪除或安全停用成就勳章（需家長安全鎖）** |
 | `POST` | `/api/badges/{key}/toggle/{member_id}` | `{ unlock, parent_pin }` | `{ success: true, unlocked: bool }` | **手動為特定成員頒發或收回特定榮譽勳章（需家長安全鎖）** |
 | `GET` | `/api/categories` | - | `CategoryOut[]` | **取得規則與獎勵分類清單 (學業、常規、家事等)** |
@@ -1074,11 +1075,15 @@ CREATE TABLE IF NOT EXISTS badges (
     icon VARCHAR(20) NOT NULL DEFAULT '🏅',
     condition_type VARCHAR(50) NOT NULL DEFAULT 'TOTAL_POINTS', -- 'TOTAL_POINTS', 'PERFECT_SCORE_COUNT', 'CHORE_POINTS', 'CUSTOM'
     target_value INTEGER NOT NULL DEFAULT 100,
+    reward_points INTEGER NOT NULL DEFAULT 0 CHECK (reward_points >= 0),
     sort_order INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 資料庫遷移：確保舊版升級時增加 reward_points 欄位
+ALTER TABLE badges ADD COLUMN IF NOT EXISTS reward_points INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS member_badges (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

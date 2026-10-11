@@ -367,14 +367,23 @@ function onUnlockedBadges(bList) {
           <p class="text-[11px] text-gray-500 mb-2">{{ b.description }}</p>
 
           <!-- 達成狀態 -->
-          <div class="w-full mt-auto">
-            <span
-              v-if="b.unlocked"
-              class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800"
-            >
-              ✨ 已解鎖
-            </span>
-            <div v-else class="space-y-1">
+          <div class="w-full mt-auto space-y-1">
+            <div class="flex items-center justify-center flex-wrap gap-1">
+              <span
+                v-if="b.unlocked"
+                class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800"
+              >
+                ✨ 已解鎖
+              </span>
+              <span
+                v-if="b.reward_points > 0"
+                class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold"
+                :class="b.unlocked ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'"
+              >
+                🎁 +{{ b.reward_points }} 點
+              </span>
+            </div>
+            <div v-if="!b.unlocked" class="space-y-1 pt-1">
               <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
                 <div
                   class="bg-frog-500 h-1.5 rounded-full"
