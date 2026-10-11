@@ -14,21 +14,21 @@ from app.models.category import Category
 from app.schemas.badge import MemberBadgeOut, BadgeCreate, BadgeUpdate, BadgeOut
 
 BADGE_DEFINITIONS: Dict[str, Dict[str, Any]] = {
-    "FIRST_100_PTS": {"title": "初出茅廬蛙", "description": "累計獲得 100 點", "icon": "🌟", "target": 100, "reward_points": 20},
+    "FIRST_100_PTS": {"title": "初出茅廬蛙", "description": "累計獲得 100 點", "icon": "🌟", "target": 100, "reward_points": 25},
     "PERFECT_SCORE_5": {"title": "百分學霸蛙", "description": "科目滿分達 5 次", "icon": "🏆", "target": 5, "reward_points": 50},
-    "CHORE_MASTER_200": {"title": "家事小達人", "description": "生活常規或家事協助累計獲得 200 點", "icon": "🧹", "target": 200, "reward_points": 30},
-    "MILLIONAIRE_1000": {"title": "點數千元蛙", "description": "累計獲得 1,000 點", "icon": "👑", "target": 1000, "reward_points": 100},
-    "POINTS_5000": {"title": "五千非凡蛙", "description": "累計獲得 5,000 點", "icon": "💎", "target": 5000, "reward_points": 200},
-    "POINTS_10000": {"title": "萬點榮耀蛙", "description": "累計獲得 10,000 點", "icon": "🎖️", "target": 10000, "reward_points": 500},
-    "POINTS_20000": {"title": "兩萬破繭蛙", "description": "累計獲得 20,000 點", "icon": "🚀", "target": 20000, "reward_points": 800},
-    "POINTS_30000": {"title": "三萬卓越蛙", "description": "累計獲得 30,000 點", "icon": "⚡", "target": 30000, "reward_points": 1000},
-    "POINTS_40000": {"title": "四萬巔峰蛙", "description": "累計獲得 40,000 點", "icon": "🔥", "target": 40000, "reward_points": 1200},
-    "POINTS_50000": {"title": "五萬傳奇蛙", "description": "累計獲得 50,000 點", "icon": "🔮", "target": 50000, "reward_points": 1500},
-    "POINTS_60000": {"title": "六萬超神蛙", "description": "累計獲得 60,000 點", "icon": "🌈", "target": 60000, "reward_points": 1800},
-    "POINTS_70000": {"title": "七萬極限蛙", "description": "累計獲得 70,000 點", "icon": "🌠", "target": 70000, "reward_points": 2000},
-    "POINTS_80000": {"title": "八萬無雙蛙", "description": "累計獲得 80,000 點", "icon": "🛡️", "target": 80000, "reward_points": 2500},
-    "POINTS_90000": {"title": "九萬至尊蛙", "description": "累計獲得 90,000 點", "icon": "🔱", "target": 90000, "reward_points": 3000},
-    "POINTS_100000": {"title": "十萬不朽蛙", "description": "累計獲得 100,000 點", "icon": "🪐", "target": 100000, "reward_points": 5000},
+    "CHORE_MASTER_200": {"title": "家事小達人", "description": "生活常規或家事協助累計獲得 200 點", "icon": "🧹", "target": 200, "reward_points": 50},
+    "MILLIONAIRE_1000": {"title": "點數千元蛙", "description": "累計獲得 1,000 點", "icon": "👑", "target": 1000, "reward_points": 250},
+    "POINTS_5000": {"title": "五千非凡蛙", "description": "累計獲得 5,000 點", "icon": "💎", "target": 5000, "reward_points": 1250},
+    "POINTS_10000": {"title": "萬點榮耀蛙", "description": "累計獲得 10,000 點", "icon": "🎖️", "target": 10000, "reward_points": 2500},
+    "POINTS_20000": {"title": "兩萬破繭蛙", "description": "累計獲得 20,000 點", "icon": "🚀", "target": 20000, "reward_points": 5000},
+    "POINTS_30000": {"title": "三萬卓越蛙", "description": "累計獲得 30,000 點", "icon": "⚡", "target": 30000, "reward_points": 7500},
+    "POINTS_40000": {"title": "四萬巔峰蛙", "description": "累計獲得 40,000 點", "icon": "🔥", "target": 40000, "reward_points": 10000},
+    "POINTS_50000": {"title": "五萬傳奇蛙", "description": "累計獲得 50,000 點", "icon": "🔮", "target": 50000, "reward_points": 12500},
+    "POINTS_60000": {"title": "六萬超神蛙", "description": "累計獲得 60,000 點", "icon": "🌈", "target": 60000, "reward_points": 15000},
+    "POINTS_70000": {"title": "七萬極限蛙", "description": "累計獲得 70,000 點", "icon": "🌠", "target": 70000, "reward_points": 17500},
+    "POINTS_80000": {"title": "八萬無雙蛙", "description": "累計獲得 80,000 點", "icon": "🛡️", "target": 80000, "reward_points": 20000},
+    "POINTS_90000": {"title": "九萬至尊蛙", "description": "累計獲得 90,000 點", "icon": "🔱", "target": 90000, "reward_points": 22500},
+    "POINTS_100000": {"title": "十萬不朽蛙", "description": "累計獲得 100,000 點", "icon": "🪐", "target": 100000, "reward_points": 25000},
 }
 
 async def get_all_badges(db: AsyncSession, active_only: bool = False) -> List[Badge]:
@@ -52,6 +52,14 @@ async def create_badge(db: AsyncSession, badge_in: BadgeCreate) -> Badge:
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail=f"勳章代碼 '{key}' 已存在")
 
+    # 若未自訂獎勵點數，預設按門檻數值的 25% 自動試算
+    reward_pts = badge_in.reward_points
+    if reward_pts is None:
+        if badge_in.condition_type in ("TOTAL_POINTS", "CHORE_POINTS"):
+            reward_pts = int(round(badge_in.target_value * 0.25))
+        else:
+            reward_pts = 0
+
     badge = Badge(
         badge_key=key,
         title=badge_in.title.strip(),
@@ -59,7 +67,7 @@ async def create_badge(db: AsyncSession, badge_in: BadgeCreate) -> Badge:
         icon=badge_in.icon.strip() or "🏅",
         condition_type=badge_in.condition_type,
         target_value=badge_in.target_value,
-        reward_points=badge_in.reward_points,
+        reward_points=reward_pts,
         sort_order=badge_in.sort_order,
         is_active=badge_in.is_active,
     )

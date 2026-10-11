@@ -9,7 +9,7 @@ class BadgeBase(BaseModel):
     icon: str = Field("🏅", max_length=20)
     condition_type: str = Field("TOTAL_POINTS", description="TOTAL_POINTS, PERFECT_SCORE_COUNT, CHORE_POINTS, CUSTOM")
     target_value: int = Field(100, ge=1)
-    reward_points: int = Field(0, ge=0, description="達成解鎖時額外發放的獎勵點數")
+    reward_points: Optional[int] = Field(None, ge=0, description="達成解鎖時額外發放的獎勵點數 (未指定時預設門檻的 25%)")
     sort_order: int = Field(0)
     is_active: bool = True
 

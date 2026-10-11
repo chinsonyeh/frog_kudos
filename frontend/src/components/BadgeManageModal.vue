@@ -76,7 +76,7 @@ function openCreateForm() {
   icon.value = '🏅'
   conditionType.value = 'TOTAL_POINTS'
   targetValue.value = 5000
-  rewardPoints.value = 0
+  rewardPoints.value = Math.round(5000 * 0.25)
   sortOrder.value = (badgesList.value.length + 1) * 5
   isActive.value = true
   parentPinInput.value = ''
@@ -101,8 +101,11 @@ function openEditForm(badge) {
   viewMode.value = 'form'
 }
 
-// 自動根據條件類型與門檻輔助填寫
+// 自動根據條件類型與門檻輔助填寫 (預設 25% 獎勵點數)
 function onConditionChange() {
+  if (formMode.value === 'create' && (conditionType.value === 'TOTAL_POINTS' || conditionType.value === 'CHORE_POINTS')) {
+    rewardPoints.value = Math.round(Number(targetValue.value || 0) * 0.25)
+  }
   if (conditionType.value === 'TOTAL_POINTS' && !title.value) {
     title.value = `里程碑蛙`
     description.value = `累計獲得 ${Number(targetValue.value).toLocaleString()} 點`
@@ -116,6 +119,9 @@ function onConditionChange() {
 }
 
 function onTargetChange() {
+  if (formMode.value === 'create' && (conditionType.value === 'TOTAL_POINTS' || conditionType.value === 'CHORE_POINTS')) {
+    rewardPoints.value = Math.round(Number(targetValue.value || 0) * 0.25)
+  }
   if (conditionType.value === 'TOTAL_POINTS' && (!description.value || description.value.startsWith('累計獲得'))) {
     description.value = `累計獲得 ${Number(targetValue.value).toLocaleString()} 點`
   }
@@ -426,7 +432,7 @@ async function handleToggleMember(badge) {
         <!-- 達成解鎖額外獎勵點數 -->
         <div>
           <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-            <span>🎁 達成解鎖額外獎勵點數 (Bonus Points)</span>
+            <span>🎁 達成解鎖額外獎勵點數 (預設 25%)</span>
             <span class="text-[11px] text-gray-400 font-normal">填 0 代表純榮譽無點數</span>
           </label>
           <div class="relative">
@@ -441,7 +447,7 @@ async function handleToggleMember(badge) {
             <span class="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">點</span>
           </div>
           <p class="text-[11px] text-gray-500 mt-1">
-            成員達成此成就時，系統將自動於可用點數錢包發放該點數，並記錄於存摺明細中。
+            系統預設按門檻之 25% 自動試算，成員達成成就時自動入帳可用點數錢包。家長亦可自由修改。
           </p>
         </div>
 

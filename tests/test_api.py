@@ -222,17 +222,17 @@ async def test_kudos_points_and_badges_flow():
             )
             assert rec2_res.status_code == 200
 
-            # 檢查是否自動解鎖 FIRST_100_PTS 勳章 (FR-18) 與額外發放獎勵點數 (+20 點)
+            # 檢查是否自動解鎖 FIRST_100_PTS 勳章 (FR-18) 與額外發放獎勵點數 (+25 點，門檻 25%)
             badges_res = await client.get(f"/api/members/{bot_id}/badges")
             assert badges_res.status_code == 200
             badges = badges_res.json()
             first_100_badge = next(b for b in badges if b["badge_key"] == "FIRST_100_PTS")
             assert first_100_badge["unlocked"] is True
-            assert first_100_badge["reward_points"] == 20
+            assert first_100_badge["reward_points"] == 25
 
             # 檢查 newly_unlocked_badges 回傳資訊
             newly = rec2_res.json()["newly_unlocked_badges"]
-            assert any(b["badge_key"] == "FIRST_100_PTS" and b["reward_points"] == 20 for b in newly)
+            assert any(b["badge_key"] == "FIRST_100_PTS" and b["reward_points"] == 25 for b in newly)
 
             # 3. 違規扣點 Penalty (FR-14)
             pen_res = await client.post(
@@ -248,10 +248,10 @@ async def test_kudos_points_and_badges_flow():
             )
             assert pen_res.status_code == 200
 
-            # 檢查雙軌帳本約束 (可用餘額包含成就獎勵 20 點，累計榮譽不含額外贈點)
+            # 檢查雙軌帳本約束 (可用餘額包含成就獎勵 25 點，累計榮譽不含額外贈點)
             m_res = await client.get("/api/members")
             bot_after = next(m for m in m_res.json() if m["id"] == bot_id)
-            assert bot_after["current_points"] == 50 + 50 + 20 - 10
+            assert bot_after["current_points"] == 50 + 50 + 25 - 10
             assert bot_after["total_earned_points"] == 50 + 50
 
             # 4. 防呆安全：超額扣點至負數應被拒絕 (HTTP 400)
