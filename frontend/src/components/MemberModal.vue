@@ -44,6 +44,11 @@ const pinCode = ref('')
 const isActive = ref(true)
 const originalIsActive = ref(true)
 
+// 小孩帳號角色類型設為無法使用 (編輯既有小孩成員或小孩身分操作時鎖定)
+const isRoleDisabled = computed(() => {
+  return (formMode.value === 'edit' && originalRole.value === 'child') || authStore.isChild
+})
+
 // 自訂頭像三合一選擇器狀態
 const avatarTab = ref('upload') // 'upload' | 'frog' | 'emoji'
 const selectedFile = ref(null)
@@ -460,6 +465,11 @@ async function handleSave() {
     return
   }
 
+  // 若為小孩帳號，角色固定鎖定為 child 不允許修改
+  if (isRoleDisabled.value) {
+    role.value = 'child'
+  }
+
   // 判斷是否修改需要家長授權之敏感屬性 (建立成員、姓名、角色、PIN 碼、啟用狀態變更)
   const isSensitiveChange = formMode.value === 'create' ||
     name.value.trim() !== originalName.value ||
@@ -691,22 +701,45 @@ async function handleDelete(member) {
 
         <!-- 角色類型 -->
         <div>
-          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-            角色類型
+          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+            <span>角色類型</span>
+            <span v-if="isRoleDisabled" class="text-[11px] text-amber-600 font-normal flex items-center gap-1">
+              <span>🔒</span><span>小孩帳號角色無法變更</span>
+            </span>
           </label>
           <div class="grid grid-cols-2 gap-3">
             <label
-              class="flex items-center space-x-2 p-3 rounded-xl border cursor-pointer transition text-xs font-medium"
-              :class="role === 'child' ? 'border-frog-500 bg-frog-50/50 text-frog-800 font-bold' : 'border-gray-200 text-gray-600'"
+              class="flex items-center space-x-2 p-3 rounded-xl border transition text-xs font-medium select-none"
+              :class="[
+                isRoleDisabled ? 'opacity-60 cursor-not-allowed bg-gray-50' : 'cursor-pointer',
+                role === 'child' ? 'border-frog-500 bg-frog-50/50 text-frog-800 font-bold' : 'border-gray-200 text-gray-600'
+              ]"
+              @click="isRoleDisabled ? $event.preventDefault() : null"
             >
-              <input type="radio" v-model="role" value="child" class="text-frog-600" />
+              <input
+                type="radio"
+                v-model="role"
+                value="child"
+                :disabled="isRoleDisabled"
+                class="text-frog-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              />
               <span>👦 小孩 (自主申請增加/兌換)</span>
             </label>
             <label
-              class="flex items-center space-x-2 p-3 rounded-xl border cursor-pointer transition text-xs font-medium"
-              :class="role === 'parent' ? 'border-blue-500 bg-blue-50/50 text-blue-800 font-bold' : 'border-gray-200 text-gray-600'"
+              class="flex items-center space-x-2 p-3 rounded-xl border transition text-xs font-medium select-none"
+              :class="[
+                isRoleDisabled ? 'opacity-60 cursor-not-allowed bg-gray-50' : 'cursor-pointer',
+                role === 'parent' ? 'border-blue-500 bg-blue-50/50 text-blue-800 font-bold' : 'border-gray-200 text-gray-600'
+              ]"
+              @click="isRoleDisabled ? $event.preventDefault() : null"
             >
-              <input type="radio" v-model="role" value="parent" class="text-blue-600" />
+              <input
+                type="radio"
+                v-model="role"
+                value="parent"
+                :disabled="isRoleDisabled"
+                class="text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              />
               <span>👨 家長 (管理員/需 4 碼 PIN)</span>
             </label>
           </div>
