@@ -241,9 +241,9 @@ function triggerUnlock() {
         </div>
 
         <div class="p-4 rounded-2xl bg-gray-50 border border-gray-100 space-y-1">
-          <h4 class="font-bold text-gray-900 text-xs sm:text-sm">Q: 如何更換自己的頭像或自行變更 PIN 碼？</h4>
+          <h4 class="font-bold text-gray-900 text-xs sm:text-sm">Q: 如何更換個人代表頭像或管理家庭成員？</h4>
           <p class="text-xs text-gray-600 leading-relaxed">
-            以您的小孩身分解鎖後，導航列會出現「<strong>個人成員</strong>」按鈕。點入後僅能編輯自己的代表頭像 Emoji，或輸入舊 PIN 碼變更為新密碼，無法變更其他人的資料。
+            點選導航列「<strong>家庭成員</strong>」按鈕，在成員清單中點擊「<strong>⚙️ 編輯</strong>」即可進入完整的成員編輯頁面，自由挑選代表頭像、上傳個人照片或調整設定。
           </p>
         </div>
 

@@ -29,14 +29,14 @@ const navItems = computed(() => {
       { type: 'link', name: '點數登記', path: '/record', icon: '📝' },
       { type: 'link', name: '榮譽存摺', path: '/ledger', icon: '🏆' },
       { type: 'link', name: '兌換商城', path: '/rewards', icon: '🎁' },
-      { type: 'button', name: '個人成員', action: () => emit('openMemberModal'), avatar: authStore.unlockedMember?.avatar || '👤', icon: '👤', title: '變更個人代表頭像與 PIN 碼' },
+      { type: 'button', name: '家庭成員', action: () => emit('openMemberModal'), avatar: authStore.unlockedMember?.avatar || '👤', icon: '👥', title: '檢視家庭成員與設定' },
       { type: 'link', name: '使用說明', path: '/guide', icon: '📖' },
     ]
   } else {
-    // 訪客模式：提供榮譽存摺、更換頭像與使用說明
+    // 訪客模式：提供榮譽存摺、家庭成員與使用說明
     return [
       { type: 'link', name: '榮譽存摺', path: '/ledger', icon: '🏆' },
-      { type: 'button', name: '更換頭像', action: () => emit('openMemberModal'), icon: '🎨', title: '選擇成員並更換代表頭像' },
+      { type: 'button', name: '家庭成員', action: () => emit('openMemberModal'), icon: '👥', title: '檢視家庭成員清單' },
       { type: 'link', name: '使用說明', path: '/guide', icon: '📖' },
     ]
   }

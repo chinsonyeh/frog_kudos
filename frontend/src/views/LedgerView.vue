@@ -207,22 +207,13 @@ function onUnlockedBadges(bList) {
           <span>{{ m.name }}</span>
         </button>
 
-        <!-- 家長管理成員按鈕 / 更換個人頭像按鈕 -->
+        <!-- 家庭成員管理按鈕 -->
         <button
-          v-if="authStore.isParent"
           @click="targetMemberIdForModal = null; showMemberModal = true"
           class="flex items-center space-x-1 px-3 py-2 rounded-2xl text-xs font-bold border border-dashed border-gray-300 hover:border-frog-500 hover:bg-frog-50/50 text-gray-500 hover:text-frog-700 transition flex-shrink-0 cursor-pointer"
-          title="新增或維護家庭成員"
+          title="檢視或維護家庭成員"
         >
-          <span>+ 管理成員</span>
-        </button>
-        <button
-          v-else
-          @click="openMemberAvatarModal(selectedMemberId)"
-          class="flex items-center space-x-1 px-3 py-2 rounded-2xl text-xs font-bold border border-dashed border-gray-300 hover:border-frog-500 hover:bg-frog-50/50 text-gray-500 hover:text-frog-700 transition flex-shrink-0 cursor-pointer"
-          title="挑選或更換代表頭像"
-        >
-          <span>🎨 更換頭像</span>
+          <span>👥 管理成員</span>
         </button>
       </div>
 
@@ -260,7 +251,7 @@ function onUnlockedBadges(bList) {
             <div
               @click="openMemberAvatarModal(currentMember.id)"
               class="transition flex-shrink-0 cursor-pointer hover:scale-105 active:scale-95"
-              title="點擊挑選或更換代表頭像"
+              title="點擊編輯成員資料與代表頭像"
             >
               <MemberAvatar :avatar="currentMember.avatar" :name="currentMember.name" size="2xl" class="shadow-md ring-2 ring-white/30" />
             </div>
@@ -268,12 +259,12 @@ function onUnlockedBadges(bList) {
               <div class="flex items-center space-x-2">
                 <h3 class="text-2xl font-black tracking-tight">{{ currentMember.name }} 的點數存摺</h3>
                 <button
-                  @click="authStore.isParent ? (targetMemberIdForModal = null, showMemberModal = true) : openMemberAvatarModal(currentMember.id)"
+                  @click="openMemberAvatarModal(currentMember.id)"
                   type="button"
                   class="text-[11px] bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded-lg font-bold transition cursor-pointer"
-                  :title="authStore.isParent ? '管理成員' : '更換代表頭像'"
+                  title="編輯成員資料與設定"
                 >
-                  {{ authStore.isParent ? '👥 管理成員' : '🎨 更換頭像' }}
+                  ⚙️ 編輯成員
                 </button>
               </div>
               <span class="text-xs font-medium text-frog-100">持續累積自主自律成果</span>

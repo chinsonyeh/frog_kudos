@@ -19,8 +19,7 @@ const authStore = useAuthStore()
 const themeStore = useThemeStore()
 
 const viewMode = ref('list') // 'list' | 'form'
-const formMode = ref('create') // 'create' | 'edit' | 'avatar' | 'change_pin'
-const editTab = ref('profile') // 'profile' (基本資料與安全) | 'avatar' (代表頭像)
+const formMode = ref('create') // 'create' | 'edit'
 const membersList = ref([])
 const loading = ref(false)
 const errorMsg = ref('')
@@ -36,11 +35,14 @@ const verifyingPin = ref(false)
 // 表單資料
 const editingMemberId = ref(null)
 const name = ref('')
+const originalName = ref('')
 const role = ref('child')
+const originalRole = ref('child')
 const avatar = ref('🐸')
 const originalAvatar = ref('🐸')
 const pinCode = ref('')
 const isActive = ref(true)
+const originalIsActive = ref(true)
 
 // 自訂頭像三合一選擇器狀態
 const avatarTab = ref('upload') // 'upload' | 'frog' | 'emoji'
@@ -195,10 +197,6 @@ watch(avatarTab, (newTab) => {
   }
 })
 
-// 修改 PIN 碼專用欄位
-const oldPin = ref('')
-const newPin = ref('')
-const confirmPin = ref('')
 
 // 豐富多元的代表頭像分類清單 (包含 250+ 款熱門、動物、角色、人物、運動、美食、自然 Emoji)
 const avatarCategories = [
@@ -301,7 +299,7 @@ watch(() => props.show, async (newVal) => {
     if (props.initialMemberId) {
       const target = membersList.value.find(m => m.id === props.initialMemberId)
       if (target) {
-        openEditForm(target, 'avatar')
+        openEditForm(target)
         return
       } else {
         viewMode.value = 'list'
@@ -342,33 +340,34 @@ const pendingAction = ref(null) // null | 'save'
 
 function openCreateForm() {
   formMode.value = 'create'
-  editTab.value = 'profile'
   editingMemberId.value = crypto.randomUUID()
   customAvatars.value = []
   customAvatarsCount.value = 0
   name.value = ''
+  originalName.value = ''
   role.value = 'child'
+  originalRole.value = 'child'
   avatar.value = '🐸'
   originalAvatar.value = '🐸'
   latestUploadedAvatar.value = null
   avatarTab.value = 'frog'
   selectedFile.value = null
-  filePreviewUrl.value = ''
   rawImageSrc.value = ''
   showCropper.value = false
   activeAvatarCategory.value = '熱門精選'
   pinCode.value = ''
   isActive.value = true
+  originalIsActive.value = true
   errorMsg.value = ''
   viewMode.value = 'form'
 }
 
 function handleCardClick(member) {
-  openEditForm(member, 'profile')
+  openEditForm(member)
 }
 
 function handleEditClick(member) {
-  openEditForm(member, 'profile')
+  openEditForm(member)
 }
 
 async function verifyAndProceedToEdit() {
@@ -387,7 +386,7 @@ async function verifyAndProceedToEdit() {
       pendingAction.value = null
       await handleSave()
     } else if (pendingEditMember.value) {
-      openEditForm(pendingEditMember.value, 'profile')
+      openEditForm(pendingEditMember.value)
       pendingEditMember.value = null
     } else {
       openCreateForm()
@@ -400,17 +399,17 @@ async function verifyAndProceedToEdit() {
   }
 }
 
-function openEditForm(member, initialTab = 'profile') {
+function openEditForm(member) {
   formMode.value = 'edit'
-  editTab.value = initialTab
   editingMemberId.value = member.id
   name.value = member.name
+  originalName.value = member.name
   role.value = member.role
+  originalRole.value = member.role
   avatar.value = member.avatar || '🐸'
   originalAvatar.value = member.avatar || '🐸'
   latestUploadedAvatar.value = null
   selectedFile.value = null
-  filePreviewUrl.value = ''
   showCropper.value = false
   if (isImageAvatar(avatar.value)) {
     avatarTab.value = avatar.value.includes('/icons/gallery/') ? 'frog' : 'upload'
@@ -423,92 +422,13 @@ function openEditForm(member, initialTab = 'profile') {
   activeAvatarCategory.value = matchedCat ? matchedCat.name : '熱門精選'
   pinCode.value = ''
   isActive.value = member.is_active
+  originalIsActive.value = member.is_active
   errorMsg.value = ''
   loadCustomAvatars(member.id)
   viewMode.value = 'form'
 }
 
-function openChangePinForm(member) {
-  if (!authStore.isUnlocked) {
-    errorMsg.value = '訪客模式無法變更 PIN 碼，請先解鎖！'
-    return
-  }
-  if (authStore.isChild && member.id !== authStore.unlockedMemberId) {
-    errorMsg.value = `目前以「${authStore.unlockedMember?.name}」身分解鎖，僅可變更個人 PIN 碼！`
-    return
-  }
-  formMode.value = 'change_pin'
-  editingMemberId.value = member.id
-  name.value = member.name
-  oldPin.value = ''
-  newPin.value = ''
-  confirmPin.value = ''
-  errorMsg.value = ''
-  viewMode.value = 'form'
-}
-
 async function handleSave() {
-  // 1. 修改 PIN 碼模式 (小孩自主變更或家長重設)
-  if (formMode.value === 'change_pin') {
-    if (!authStore.isParent && !oldPin.value.trim()) {
-      errorMsg.value = '請輸入目前使用的 4 位數 PIN 碼'
-      return
-    }
-    if (!newPin.value.trim() || newPin.value.trim().length < 4) {
-      errorMsg.value = '新 PIN 碼必須至少為 4 位數字'
-      return
-    }
-    if (newPin.value.trim() !== confirmPin.value.trim()) {
-      errorMsg.value = '兩次輸入的新 PIN 碼不一致'
-      return
-    }
-
-    loading.value = true
-    errorMsg.value = ''
-    try {
-      await api.changeMemberPin(editingMemberId.value, {
-        old_pin: oldPin.value.trim() || null,
-        new_pin: newPin.value.trim(),
-        parent_pin: authStore.parentPin,
-      })
-      successMsg.value = `✅ 已成功變更「${name.value}」的 PIN 碼！`
-      setTimeout(() => { successMsg.value = '' }, 3000)
-      emit('memberUpdated')
-      await loadMembers()
-      viewMode.value = 'list'
-    } catch (err) {
-      errorMsg.value = err.message || '變更 PIN 碼失敗'
-    } finally {
-      loading.value = false
-    }
-    return
-  }
-
-  // 2. 代表頭像自訂模式：更換頭像 (所有使用者均可自由更換，無須 PIN 碼)
-  if (editTab.value === 'avatar') {
-    loading.value = true
-    errorMsg.value = ''
-    try {
-      let finalAvatar = avatar.value
-      await api.updateMemberAvatar(editingMemberId.value, finalAvatar)
-      originalAvatar.value = finalAvatar
-      if (authStore.unlockedMemberId === editingMemberId.value) {
-        authStore.updateUnlockedMember({ avatar: finalAvatar })
-      }
-      successMsg.value = `✅ 已成功更換「${name.value}」的代表頭像！`
-      setTimeout(() => { successMsg.value = '' }, 3000)
-      emit('memberUpdated')
-      await loadMembers()
-      viewMode.value = 'list'
-    } catch (err) {
-      errorMsg.value = err.message || '更換頭像失敗'
-    } finally {
-      loading.value = false
-    }
-    return
-  }
-
-  // 3. 基本與安全設定模式：驗證與儲存 (姓名、角色、PIN 碼、啟用狀態)
   if (!name.value.trim()) {
     errorMsg.value = '請輸入成員姓名'
     return
@@ -519,8 +439,15 @@ async function handleSave() {
     return
   }
 
-  // 若尚未解鎖家長權限，提示輸入家長 PIN 碼授權以完成儲存
-  if (!authStore.isParent) {
+  // 判斷是否修改需要家長授權之敏感屬性 (建立成員、姓名、角色、PIN 碼、啟用狀態變更)
+  const isSensitiveChange = formMode.value === 'create' ||
+    name.value.trim() !== originalName.value ||
+    role.value !== originalRole.value ||
+    (pinCode.value && pinCode.value.trim().length > 0) ||
+    isActive.value !== originalIsActive.value
+
+  // 若尚未解鎖家長權限且涉及敏感異動，提示輸入家長 PIN 碼授權以完成儲存
+  if (isSensitiveChange && !authStore.isParent) {
     pendingAction.value = 'save'
     showUnlockPrompt.value = true
     unlockPin.value = ''
@@ -542,6 +469,14 @@ async function handleSave() {
         parent_pin: authStore.parentPin,
       })
       successMsg.value = `✅ 已成功新增家庭成員「${name.value}」！`
+    } else if (!isSensitiveChange && avatar.value !== originalAvatar.value) {
+      // 僅變更頭像：非家長解鎖模式亦可無痛套用更新
+      const updated = await api.updateMemberAvatar(editingMemberId.value, avatar.value)
+      originalAvatar.value = updated.avatar
+      if (authStore.unlockedMemberId === editingMemberId.value) {
+        authStore.updateUnlockedMember({ avatar: updated.avatar })
+      }
+      successMsg.value = `✅ 已更新「${name.value}」的代表頭像！`
     } else {
       const updated = await api.updateMember(editingMemberId.value, {
         name: name.value.trim(),
@@ -551,7 +486,10 @@ async function handleSave() {
         is_active: isActive.value,
         parent_pin: authStore.parentPin,
       })
+      originalName.value = updated.name
+      originalRole.value = updated.role
       originalAvatar.value = updated.avatar
+      originalIsActive.value = updated.is_active
       if (authStore.unlockedMemberId === editingMemberId.value) {
         authStore.updateUnlockedMember({
           name: updated.name,
@@ -603,13 +541,13 @@ async function handleDelete(member) {
       <!-- 頂部 Header -->
       <div class="flex items-center justify-between pb-4 border-b border-gray-100 flex-shrink-0">
         <div class="flex items-center space-x-2">
-          <span class="text-2xl">{{ authStore.isParent ? '👨‍👩‍👧' : '🎨' }}</span>
+          <span class="text-2xl">👥</span>
           <h3 class="text-lg font-bold text-gray-900">
             <template v-if="viewMode === 'list'">
-              {{ authStore.isParent ? '家庭成員管理' : '家庭成員清單與頭像設定' }}
+              家庭成員管理
             </template>
             <template v-else>
-              {{ formMode === 'create' ? '新增家庭成員' : (formMode === 'change_pin' ? `變更「${name}」的個人 PIN 碼` : (editTab === 'profile' ? `編輯「${name}」基本與安全設定` : `為「${name}」自訂代表頭像`)) }}
+              {{ formMode === 'create' ? '新增家庭成員' : `編輯「${name}」成員資料與設定` }}
             </template>
           </h3>
         </div>
@@ -632,9 +570,9 @@ async function handleDelete(member) {
       <div v-if="viewMode === 'list'" class="flex-1 overflow-y-auto py-4 space-y-4">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">
-            {{ authStore.isParent ? `目前家庭成員清單 (${membersList.length})` : (authStore.isChild ? `已解鎖「${authStore.unlockedMember?.name}」：點選成員可更換頭像與設定` : '點選任一成員即可挑選頭像或編輯設定') }}
+            目前家庭成員清單 ({{ membersList.length }})
           </span>
-          <!-- 新增成員按鈕 (直接開啟新增表單，儲存時進行安全驗證) -->
+          <!-- 新增成員按鈕 -->
           <button
             @click="openCreateForm"
             class="px-3.5 py-1.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-sm transition flex items-center space-x-1 cursor-pointer"
@@ -657,8 +595,8 @@ async function handleDelete(member) {
                 size="lg"
                 :alt="m.name"
                 class="transition hover:scale-110 flex-shrink-0 cursor-pointer"
-                title="點擊直接挑選或更換代表頭像"
-                @click.stop="openEditForm(m, 'avatar')"
+                title="點擊編輯成員資料與設定"
+                @click.stop="openEditForm(m)"
               />
               <div>
                 <div class="flex items-center space-x-2">
@@ -685,38 +623,17 @@ async function handleDelete(member) {
 
             <!-- 操作按鈕 -->
             <div class="flex items-center space-x-2">
-              <!-- 1. 更換頭像按鈕 (所有人皆可自由更換個人代表頭像) -->
+              <!-- 編輯基本設定按鈕 (進入管理員使用的編輯頁面) -->
               <button
-                @click.stop="openEditForm(m, 'avatar')"
-                type="button"
-                class="px-2.5 py-1.5 rounded-xl bg-frog-50 hover:bg-frog-100 border border-frog-200 text-xs font-bold text-frog-700 transition flex items-center space-x-1 cursor-pointer"
-                title="點擊挑選或更換代表頭像"
-              >
-                <span>🎨 頭像</span>
-              </button>
-
-              <!-- 2. 編輯基本設定按鈕 (進入設定選單) -->
-              <button
-                @click.stop="openEditForm(m, 'profile')"
+                @click.stop="openEditForm(m)"
                 type="button"
                 class="px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-white hover:border-frog-400 transition cursor-pointer flex items-center space-x-1"
-                title="進入成員姓名、角色與安全設定選單"
+                title="編輯成員資料與設定"
               >
                 <span>⚙️ 編輯</span>
               </button>
 
-              <!-- 3. 小孩解鎖模式：自己項目顯示變更 PIN 碼按鈕 -->
-              <button
-                v-if="authStore.isChild && m.id === authStore.unlockedMemberId"
-                @click.stop="openChangePinForm(m)"
-                type="button"
-                class="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-xs font-bold text-amber-700 transition flex items-center space-x-1 cursor-pointer"
-                title="變更個人 PIN 碼"
-              >
-                <span>🔑 PIN</span>
-              </button>
-
-              <!-- 4. 僅家長模式顯示刪除/停用按鈕，未解鎖時嚴格隱藏且禁用 -->
+              <!-- 僅家長模式顯示刪除/停用按鈕 -->
               <button
                 v-if="authStore.isParent"
                 @click.stop="handleDelete(m)"
@@ -730,429 +647,344 @@ async function handleDelete(member) {
         </div>
       </div>
 
-      <!-- 【模式 2: 表單 (新增/編輯/更換頭像/修改 PIN)】 -->
+      <!-- 【模式 2: 表單 (新增 / 編輯成員資料與設定 - 管理員編輯頁面)】 -->
       <div v-else class="flex-1 overflow-y-auto py-4 space-y-4">
-        <!-- 變更個人 PIN 碼模式 -->
-        <template v-if="formMode === 'change_pin'">
-          <div v-if="!authStore.isParent">
-            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-              目前 PIN 碼 (舊密碼，預設為 0000)
-            </label>
-            <input
-              v-model="oldPin"
-              type="password"
-              maxlength="6"
-              placeholder="請輸入目前 4 位數 PIN 碼"
-              class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-mono tracking-widest"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-              設定新 PIN 碼 (4 位數)
-            </label>
-            <input
-              v-model="newPin"
-              type="password"
-              maxlength="6"
-              placeholder="請輸入新 4 位數 PIN 碼"
-              class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-mono tracking-widest"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-              再次確認新 PIN 碼
-            </label>
-            <input
-              v-model="confirmPin"
-              type="password"
-              maxlength="6"
-              placeholder="請再次輸入新 4 位數 PIN 碼"
-              class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-mono tracking-widest"
-            />
-          </div>
-        </template>
+        <!-- 成員姓名 / 暱稱 -->
+        <div>
+          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+            成員姓名 / 暱稱
+          </label>
+          <input
+            v-model="name"
+            type="text"
+            placeholder="例如: Ian, Amy, Mom, Dad"
+            class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-medium focus:ring-2 focus:ring-frog-500 transition"
+          />
+        </div>
 
-        <template v-else>
-          <!-- 設定選單分頁切換列 (基本設定 vs 代表頭像) - 對所有使用者公開可用 -->
-          <div class="flex space-x-1.5 p-1 bg-gray-100 rounded-2xl mb-4">
-            <button
-              type="button"
-              @click="editTab = 'profile'"
-              class="flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition flex items-center justify-center space-x-1.5 cursor-pointer"
-              :class="editTab === 'profile' ? 'bg-white text-frog-800 shadow-sm' : 'text-gray-500 hover:text-gray-800'"
+        <!-- 角色類型 -->
+        <div>
+          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+            角色類型
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <label
+              class="flex items-center space-x-2 p-3 rounded-xl border cursor-pointer transition text-xs font-medium"
+              :class="role === 'child' ? 'border-frog-500 bg-frog-50/50 text-frog-800 font-bold' : 'border-gray-200 text-gray-600'"
             >
-              <span>⚙️ 基本與安全設定</span>
-            </button>
-            <button
-              type="button"
-              @click="editTab = 'avatar'"
-              class="flex-1 py-2 text-xs sm:text-sm font-bold rounded-xl transition flex items-center justify-center space-x-1.5 cursor-pointer"
-              :class="editTab === 'avatar' ? 'bg-white text-frog-800 shadow-sm' : 'text-gray-500 hover:text-gray-800'"
+              <input type="radio" v-model="role" value="child" class="text-frog-600" />
+              <span>👦 小孩 (自主申請增加/兌換)</span>
+            </label>
+            <label
+              class="flex items-center space-x-2 p-3 rounded-xl border cursor-pointer transition text-xs font-medium"
+              :class="role === 'parent' ? 'border-blue-500 bg-blue-50/50 text-blue-800 font-bold' : 'border-gray-200 text-gray-600'"
             >
-              <span>🎨 代表頭像自訂</span>
-            </button>
+              <input type="radio" v-model="role" value="parent" class="text-blue-600" />
+              <span>👨 家長 (管理員/需 4 碼 PIN)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 代表頭像自訂設定 (三合一：相片上傳、10 款青蛙、Emoji) -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+              代表頭像設定
+            </label>
+            <span class="text-[11px] text-gray-400">支援相片上傳、青蛙公仔與 Emoji</span>
           </div>
 
-          <!-- 【選單 1：基本與安全設定】 -->
-          <div v-if="editTab === 'profile'" class="space-y-4">
-            <!-- 成員姓名 / 暱稱 -->
-            <div>
-              <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                成員姓名 / 暱稱
-              </label>
-              <input
-                v-model="name"
-                type="text"
-                placeholder="例如: Ian, Amy, Mom, Dad"
-                class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-medium focus:ring-2 focus:ring-frog-500 transition"
-              />
-            </div>
-
-            <!-- 角色類型 -->
-            <div>
-              <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                角色類型
-              </label>
-              <div class="grid grid-cols-2 gap-3">
-                <label
-                  class="flex items-center space-x-2 p-3 rounded-xl border cursor-pointer transition text-xs font-medium"
-                  :class="role === 'child' ? 'border-frog-500 bg-frog-50/50 text-frog-800 font-bold' : 'border-gray-200 text-gray-600'"
-                >
-                  <input type="radio" v-model="role" value="child" class="text-frog-600" />
-                  <span>👦 小孩 (自主申請增加/兌換)</span>
-                </label>
-                <label
-                  class="flex items-center space-x-2 p-3 rounded-xl border cursor-pointer transition text-xs font-medium"
-                  :class="role === 'parent' ? 'border-blue-500 bg-blue-50/50 text-blue-800 font-bold' : 'border-gray-200 text-gray-600'"
-                >
-                  <input type="radio" v-model="role" value="parent" class="text-blue-600" />
-                  <span>👨 家長 (管理員/需 4 碼 PIN)</span>
-                </label>
-              </div>
-            </div>
-
-            <!-- PIN 碼設定 -->
-            <div>
-              <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                {{ role === 'parent' ? '家長安全鎖 4 位數 PIN 碼' : '小孩個人專屬 4 位數 PIN 碼 (預設 0000)' }}
-                {{ formMode === 'edit' ? '(留空表示不變更)' : '' }}
-              </label>
-              <input
-                v-model="pinCode"
-                type="password"
-                maxlength="6"
-                placeholder="請輸入 4 位數 PIN 碼"
-                class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-mono tracking-widest"
-              />
-            </div>
-
-            <!-- 帳號啟用狀態 -->
-            <div v-if="formMode === 'edit'" class="flex items-center justify-between p-3.5 bg-gray-50 rounded-2xl border border-gray-100">
-              <div>
-                <span class="text-xs font-bold text-gray-700 block">帳號啟用狀態</span>
-                <span class="text-[11px] text-gray-400">停用後無法登入或累積點數，但已存在之歷史帳本將永久保全</span>
-              </div>
-              <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
-                <input type="checkbox" v-model="isActive" class="sr-only peer" />
-                <div class="w-10 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-frog-500"></div>
-              </label>
-            </div>
-
-            <!-- 代表頭像即時縮圖預覽卡片 (附快捷進入更換頭像按鈕) -->
-            <div class="flex items-center justify-between p-3.5 bg-frog-50/70 rounded-2xl border border-frog-200/80">
-              <div class="flex items-center space-x-3 min-w-0">
-                <MemberAvatar :avatar="avatar" size="lg" :alt="name" class="shadow-xs flex-shrink-0" />
-                <div class="min-w-0">
-                  <span class="text-xs font-bold text-gray-800 block">目前代表頭像</span>
-                  <span class="text-[11px] text-gray-500 truncate block">
-                    {{ isImageAvatar(avatar) ? '已選用自訂相片 / 青蛙造型' : `Emoji：${avatar || '🐸'}` }}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                @click="editTab = 'avatar'"
-                class="px-3 py-1.5 rounded-xl bg-white hover:bg-frog-100 text-frog-700 border border-frog-200 text-xs font-bold transition flex items-center space-x-1 cursor-pointer flex-shrink-0 shadow-2xs"
-              >
-                <span>🎨 更換頭像 ➔</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- 【選單 2：代表頭像自訂設定】 (三合一：相片上傳、10 款青蛙、Emoji) -->
-          <div v-else class="space-y-3">
-            <div class="flex items-center justify-between mb-1.5">
-              <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                {{ authStore.isParent ? `為「${name || '成員'}」自訂代表頭像` : `為「${name}」挑選代表頭像` }}
-              </label>
-              <span class="text-[11px] text-gray-400">支援相片上傳、青蛙公仔與 Emoji</span>
-            </div>
-
-            <!-- 當前頭像即時大預覽卡片 -->
-            <div class="flex items-center space-x-3.5 p-3.5 bg-frog-50/70 rounded-2xl border border-frog-200/80 mb-3">
-              <MemberAvatar :avatar="avatar" size="xl" :alt="name" class="shadow-sm" />
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center space-x-2">
-                  <span class="font-bold text-gray-900 text-sm">目前代表頭像</span>
-                  <span class="text-[10px] bg-frog-500 text-white font-bold px-2 py-0.5 rounded-full">即時預覽</span>
-                </div>
-                <p class="text-xs text-gray-500 mt-0.5 truncate">
-                  {{ isImageAvatar(avatar) ? '已選用自訂相片 / 青蛙造型' : `目前 Emoji：${avatar || '🐸'}` }}
-                </p>
-              </div>
-              <button
-                v-if="editingMemberId && avatar !== originalAvatar"
-                type="button"
-                @click="applyAvatar(avatar)"
-                :disabled="loading"
-                class="px-3 py-1.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-xs transition cursor-pointer flex-shrink-0 disabled:opacity-50"
-              >
-                {{ loading ? '套用中...' : '👉 立即套用' }}
-              </button>
-              <button
-                v-if="avatar !== '🐸'"
-                type="button"
-                @click="avatar = '🐸'; selectedFile = null"
-                class="text-xs text-gray-400 hover:text-red-500 transition px-2 py-1 rounded-lg hover:bg-white cursor-pointer"
-                title="重設為預設青蛙 Emoji"
-              >
-                重設
-              </button>
-            </div>
-
-            <!-- 三合一分頁切換列 -->
-            <div class="flex space-x-1.5 p-1 bg-gray-100 rounded-xl mb-3">
-              <button
-                type="button"
-                @click="avatarTab = 'upload'"
-                class="flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center space-x-1 cursor-pointer"
-                :class="avatarTab === 'upload' ? 'bg-white text-frog-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'"
-              >
-                <span>📸</span>
-                <span>自訂照片上傳</span>
-              </button>
-              <button
-                type="button"
-                @click="avatarTab = 'frog'"
-                class="flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center space-x-1 cursor-pointer"
-                :class="avatarTab === 'frog' ? 'bg-white text-frog-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'"
-              >
-                <span>🐸</span>
-                <span>10 款青蛙公仔</span>
-              </button>
-              <button
-                type="button"
-                @click="avatarTab = 'emoji'"
-                class="flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center space-x-1 cursor-pointer"
-                :class="avatarTab === 'emoji' ? 'bg-white text-frog-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'"
-              >
-                <span>🎨</span>
-                <span>Emoji 選擇庫</span>
-              </button>
-            </div>
-
-            <!-- 【分頁 1：照片上傳】 -->
-            <div v-if="avatarTab === 'upload'" class="space-y-3 p-3 bg-gray-50 rounded-2xl border border-gray-100 mb-2">
-              <div
-                @click="triggerFileInput"
-                class="border-2 border-dashed rounded-2xl p-4 text-center transition group"
-                :class="customAvatarsCount >= customAvatarsMax ? 'border-amber-300 bg-amber-50/50 cursor-not-allowed opacity-80' : 'border-gray-200 hover:border-frog-400 bg-white cursor-pointer'"
-              >
-                <input
-                  ref="fileInputRef"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  class="hidden"
-                  :disabled="customAvatarsCount >= customAvatarsMax"
-                  @change="handleFileSelect"
-                />
-                <div class="space-y-1.5">
-                  <div class="text-3xl transition-transform" :class="customAvatarsCount < customAvatarsMax ? 'group-hover:scale-110' : ''">
-                    {{ customAvatarsCount >= customAvatarsMax ? '⚠️' : '📷' }}
-                  </div>
-                  <div class="text-xs font-bold" :class="customAvatarsCount >= customAvatarsMax ? 'text-amber-800' : 'text-gray-700'">
-                    {{ customAvatarsCount >= customAvatarsMax ? '已達 100 張儲存上限，請先刪除舊相片' : '點擊選取相簿照片或大頭貼' }}
-                  </div>
-                  <div class="text-[11px] text-gray-400">
-                    {{ customAvatarsCount >= customAvatarsMax ? '需先從下方相片庫點選 ✕ 刪除不需要的頭像' : '支援 JPG、PNG、WebP，系統將自動居中圓形裁切與壓製 (上限 5MB)' }}
-                  </div>
-                </div>
-              </div>
-
-              <!-- 上傳處理中提示 -->
-              <div v-if="uploading" class="p-3 bg-frog-50 border border-frog-200 rounded-xl text-center text-xs font-bold text-frog-700 flex items-center justify-center space-x-2">
-                <span class="animate-spin text-base">⏳</span>
-                <span>裁切相片壓製中，正在加入自訂相片庫...</span>
-              </div>
-
-              <!-- 剛裁切完成之相片 (已加入相片庫，尚未套用 / 已套用) -->
-              <div v-if="latestUploadedAvatar" class="p-3 bg-white rounded-xl border-2 transition shadow-xs" :class="avatar === latestUploadedAvatar.url ? 'border-frog-500 bg-frog-50/40' : 'border-frog-200'">
-                <div class="flex items-center justify-between gap-2">
-                  <div class="flex items-center space-x-2.5 min-w-0">
-                    <img :src="latestUploadedAvatar.url" class="w-12 h-12 rounded-full object-cover border-2 border-frog-400 shadow-xs flex-shrink-0" />
-                    <div class="min-w-0 text-xs text-left">
-                      <div class="font-bold text-gray-800 flex items-center space-x-1.5">
-                        <span>剛裁切完成之相片</span>
-                        <span class="text-[10px] text-gray-400 font-normal">({{ latestUploadedAvatar.size_kb }} KB)</span>
-                      </div>
-                      <div class="text-[11px] font-semibold mt-0.5">
-                        <span v-if="avatar === latestUploadedAvatar.url" class="text-frog-600 flex items-center space-x-1">
-                          <span>✓</span>
-                          <span>目前已套用為代表頭像</span>
-                        </span>
-                        <span v-else class="text-amber-600">
-                          已加入相片庫（尚未套用）
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="flex items-center space-x-1.5 flex-shrink-0">
-                    <!-- 重新微調裁切按鈕 -->
-                    <button
-                      v-if="rawImageSrc"
-                      type="button"
-                      @click="showCropper = true"
-                      class="px-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-frog-400 bg-gray-50 hover:bg-frog-50/50 text-gray-700 hover:text-frog-700 font-bold text-xs shadow-2xs transition flex items-center space-x-1 cursor-pointer"
-                      title="調整 ROI 圓圈位置與放大縮小"
-                    >
-                      <span>✂️</span>
-                      <span>微調</span>
-                    </button>
-
-                    <!-- 立即套用按鈕 -->
-                    <button
-                      v-if="avatar !== latestUploadedAvatar.url"
-                      type="button"
-                      @click="applyAvatar(latestUploadedAvatar.url)"
-                      :disabled="loading"
-                      class="px-3.5 py-1.5 rounded-lg bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-xs transition flex-shrink-0 cursor-pointer disabled:opacity-50"
-                    >
-                      {{ loading ? '套用中...' : '👉 立即套用' }}
-                    </button>
-                    <span v-else class="px-2.5 py-1.5 rounded-lg bg-frog-100 text-frog-800 font-bold text-xs">
-                      已套用
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 已儲存之自訂頭像庫 (上限 100 個) -->
-              <div class="space-y-2 pt-2 border-t border-gray-200/60">
-                <div class="flex items-center justify-between text-xs font-bold text-gray-700">
-                  <span class="flex items-center space-x-1.5">
-                    <span>🖼️</span>
-                    <span>「{{ name || '此成員' }}」的個人相片庫</span>
-                  </span>
-                  <span class="font-mono text-[11px]" :class="customAvatarsCount >= 100 ? 'text-red-600 font-black' : 'text-gray-400'">
-                    {{ customAvatarsCount }} / {{ customAvatarsMax }} 張
-                  </span>
-                </div>
-
-                <!-- 達到 100 個上限警告 -->
-                <div v-if="customAvatarsCount >= 100" class="p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-semibold text-left">
-                  ⚠️ 此成員專屬相片庫已達 100 個上限！請點選右上角 ✕ 刪除不需要的舊頭像以釋出空間。
-                </div>
-
-                <!-- 頭像清單 (縮圖網格) -->
-                <div v-if="customAvatars.length > 0" class="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-48 overflow-y-auto pr-1 p-1">
-                  <div
-                    v-for="item in customAvatars"
-                    :key="item.filename"
-                    class="relative group rounded-2xl border-2 transition overflow-hidden cursor-pointer aspect-square"
-                    :class="avatar === item.url ? 'border-frog-500 ring-2 ring-frog-400/40 shadow-xs scale-102' : 'border-gray-200 hover:border-gray-300 bg-white'"
-                    @click="avatar = item.url; selectedFile = null"
-                    :title="`點擊套用此頭像 (${item.size_kb} KB)`"
-                  >
-                    <img :src="item.url" class="w-full h-full object-cover" />
-
-                    <!-- 當前選取勾勾標記 -->
-                    <div v-if="avatar === item.url" class="absolute top-1 left-1 bg-frog-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold shadow-xs">
-                      ✓
-                    </div>
-
-                    <!-- 刪除按鈕 (手機一律可見，電腦 Hover 顯示) -->
-                    <button
-                      type="button"
-                      @click.stop="handleDeleteCustomAvatar(item)"
-                      class="absolute top-1 right-1 w-5 h-5 bg-black/60 hover:bg-red-600 active:bg-red-700 text-white rounded-full flex items-center justify-center text-[10px] font-bold transition opacity-80 sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer shadow-xs"
-                      title="從頭像庫永久刪除此相片"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-                <div v-else class="text-center py-4 text-xs text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
-                  尚無儲存的個人自訂頭像，每次上傳裁切後皆會保存於此成員專屬庫中（每人上限 100 張）
-                </div>
-              </div>
-            </div>
-
-            <!-- 【分頁 2：10 款青蛙公仔庫】 -->
-            <div v-else-if="avatarTab === 'frog'" class="space-y-2 p-3 bg-gray-50 rounded-2xl border border-gray-100 mb-2">
-              <div class="text-[11px] text-gray-500 mb-1">
-                點選以下任一原創 3D 青蛙造型，立即設為個人代表頭像：
-              </div>
-              <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-56 overflow-y-auto pr-1">
-                <button
-                  v-for="frog in themeStore.logoIcons"
-                  :key="frog.id"
-                  type="button"
-                  @click="avatar = frog.src; selectedFile = null"
-                  class="p-2 rounded-xl border-2 transition text-center flex flex-col items-center space-y-1 cursor-pointer"
-                  :class="avatar === frog.src ? 'border-frog-500 bg-frog-50 shadow-xs' : 'border-gray-200 bg-white hover:border-gray-300'"
-                >
-                  <img :src="frog.src" :alt="frog.name" class="w-11 h-11 rounded-xl object-cover shadow-xs" />
-                  <span class="text-[10px] font-bold text-gray-800 truncate w-full">{{ frog.name }}</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- 【分頁 3：Emoji 選擇庫與自訂輸入】 -->
-            <div v-else class="space-y-2.5 mb-2">
+          <!-- 當前頭像即時大預覽卡片 -->
+          <div class="flex items-center space-x-3.5 p-3.5 bg-frog-50/70 rounded-2xl border border-frog-200/80 mb-3">
+            <MemberAvatar :avatar="avatar" size="xl" :alt="name" class="shadow-sm flex-shrink-0" />
+            <div class="flex-1 min-w-0">
               <div class="flex items-center space-x-2">
-                <input
-                  v-model="avatar"
-                  type="text"
-                  maxlength="20"
-                  placeholder="或直接鍵盤輸入任意 Emoji / 字母符號"
-                  class="flex-1 px-3 py-2 rounded-xl border border-gray-200 bg-white text-xs font-medium focus:outline-none focus:border-frog-500 focus:ring-1 focus:ring-frog-200"
-                />
+                <span class="font-bold text-gray-900 text-sm">目前代表頭像</span>
+                <span class="text-[10px] bg-frog-500 text-white font-bold px-2 py-0.5 rounded-full">即時預覽</span>
+              </div>
+              <p class="text-xs text-gray-500 mt-0.5 truncate">
+                {{ isImageAvatar(avatar) ? '已選用自訂相片 / 青蛙造型' : `目前 Emoji：${avatar || '🐸'}` }}
+              </p>
+            </div>
+            <button
+              v-if="editingMemberId && avatar !== originalAvatar"
+              type="button"
+              @click="applyAvatar(avatar)"
+              :disabled="loading"
+              class="px-3 py-1.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-xs transition cursor-pointer flex-shrink-0 disabled:opacity-50"
+            >
+              {{ loading ? '套用中...' : '👉 立即套用' }}
+            </button>
+            <button
+              v-if="avatar !== '🐸'"
+              type="button"
+              @click="avatar = '🐸'; selectedFile = null"
+              class="text-xs text-gray-400 hover:text-red-500 transition px-2 py-1 rounded-lg hover:bg-white cursor-pointer"
+              title="重設為預設青蛙 Emoji"
+            >
+              重設
+            </button>
+          </div>
+
+          <!-- 三合一分頁切換列 -->
+          <div class="flex space-x-1.5 p-1 bg-gray-100 rounded-xl mb-3">
+            <button
+              type="button"
+              @click="avatarTab = 'upload'"
+              class="flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center space-x-1 cursor-pointer"
+              :class="avatarTab === 'upload' ? 'bg-white text-frog-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'"
+            >
+              <span>📸</span>
+              <span>自訂照片上傳</span>
+            </button>
+            <button
+              type="button"
+              @click="avatarTab = 'frog'"
+              class="flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center space-x-1 cursor-pointer"
+              :class="avatarTab === 'frog' ? 'bg-white text-frog-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'"
+            >
+              <span>🐸</span>
+              <span>10 款青蛙公仔</span>
+            </button>
+            <button
+              type="button"
+              @click="avatarTab = 'emoji'"
+              class="flex-1 py-1.5 text-xs font-bold rounded-lg transition flex items-center justify-center space-x-1 cursor-pointer"
+              :class="avatarTab === 'emoji' ? 'bg-white text-frog-700 shadow-xs' : 'text-gray-500 hover:text-gray-800'"
+            >
+              <span>🎨</span>
+              <span>Emoji 選擇庫</span>
+            </button>
+          </div>
+
+          <!-- 【分頁 1：照片上傳】 -->
+          <div v-if="avatarTab === 'upload'" class="space-y-3 p-3 bg-gray-50 rounded-2xl border border-gray-100 mb-2">
+            <div
+              @click="triggerFileInput"
+              class="border-2 border-dashed rounded-2xl p-4 text-center transition group"
+              :class="customAvatarsCount >= customAvatarsMax ? 'border-amber-300 bg-amber-50/50 cursor-not-allowed opacity-80' : 'border-gray-200 hover:border-frog-400 bg-white cursor-pointer'"
+            >
+              <input
+                ref="fileInputRef"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                class="hidden"
+                :disabled="customAvatarsCount >= customAvatarsMax"
+                @change="handleFileSelect"
+              />
+              <div class="space-y-1.5">
+                <div class="text-3xl transition-transform" :class="customAvatarsCount < customAvatarsMax ? 'group-hover:scale-110' : ''">
+                  {{ customAvatarsCount >= customAvatarsMax ? '⚠️' : '📷' }}
+                </div>
+                <div class="text-xs font-bold" :class="customAvatarsCount >= customAvatarsMax ? 'text-amber-800' : 'text-gray-700'">
+                  {{ customAvatarsCount >= customAvatarsMax ? '已達 100 張儲存上限，請先刪除舊相片' : '點擊選取相簿照片或大頭貼' }}
+                </div>
+                <div class="text-[11px] text-gray-400">
+                  {{ customAvatarsCount >= customAvatarsMax ? '需先從下方相片庫點選 ✕ 刪除不需要的頭像' : '支援 JPG、PNG、WebP，系統將自動居中圓形裁切與壓製 (上限 5MB)' }}
+                </div>
+              </div>
+            </div>
+
+            <!-- 上傳處理中提示 -->
+            <div v-if="uploading" class="p-3 bg-frog-50 border border-frog-200 rounded-xl text-center text-xs font-bold text-frog-700 flex items-center justify-center space-x-2">
+              <span class="animate-spin text-base">⏳</span>
+              <span>裁切相片壓製中，正在加入自訂相片庫...</span>
+            </div>
+
+            <!-- 剛裁切完成之相片 (已加入相片庫，尚未套用 / 已套用) -->
+            <div v-if="latestUploadedAvatar" class="p-3 bg-white rounded-xl border-2 transition shadow-xs" :class="avatar === latestUploadedAvatar.url ? 'border-frog-500 bg-frog-50/40' : 'border-frog-200'">
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center space-x-2.5 min-w-0">
+                  <img :src="latestUploadedAvatar.url" class="w-12 h-12 rounded-full object-cover border-2 border-frog-400 shadow-xs flex-shrink-0" />
+                  <div class="min-w-0 text-xs text-left">
+                    <div class="font-bold text-gray-800 flex items-center space-x-1.5">
+                      <span>剛裁切完成之相片</span>
+                      <span class="text-[10px] text-gray-400 font-normal">({{ latestUploadedAvatar.size_kb }} KB)</span>
+                    </div>
+                    <div class="text-[11px] font-semibold mt-0.5">
+                      <span v-if="avatar === latestUploadedAvatar.url" class="text-frog-600 flex items-center space-x-1">
+                        <span>✓</span>
+                        <span>目前已套用為代表頭像</span>
+                      </span>
+                      <span v-else class="text-amber-600">
+                        已加入相片庫（尚未套用）
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex items-center space-x-1.5 flex-shrink-0">
+                  <!-- 重新微調裁切按鈕 -->
+                  <button
+                    v-if="rawImageSrc"
+                    type="button"
+                    @click="showCropper = true"
+                    class="px-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-frog-400 bg-gray-50 hover:bg-frog-50/50 text-gray-700 hover:text-frog-700 font-bold text-xs shadow-2xs transition flex items-center space-x-1 cursor-pointer"
+                    title="調整 ROI 圓圈位置與放大縮小"
+                  >
+                    <span>✂️</span>
+                    <span>微調</span>
+                  </button>
+
+                  <!-- 立即套用按鈕 -->
+                  <button
+                    v-if="avatar !== latestUploadedAvatar.url"
+                    type="button"
+                    @click="applyAvatar(latestUploadedAvatar.url)"
+                    :disabled="loading"
+                    class="px-3.5 py-1.5 rounded-lg bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-xs transition flex-shrink-0 cursor-pointer disabled:opacity-50"
+                  >
+                    {{ loading ? '套用中...' : '👉 立即套用' }}
+                  </button>
+                  <span v-else class="px-2.5 py-1.5 rounded-lg bg-frog-100 text-frog-800 font-bold text-xs">
+                    已套用
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 已儲存之自訂頭像庫 (上限 100 個) -->
+            <div class="space-y-2 pt-2 border-t border-gray-200/60">
+              <div class="flex items-center justify-between text-xs font-bold text-gray-700">
+                <span class="flex items-center space-x-1.5">
+                  <span>🖼️</span>
+                  <span>「{{ name || '此成員' }}」的個人相片庫</span>
+                </span>
+                <span class="font-mono text-[11px]" :class="customAvatarsCount >= 100 ? 'text-red-600 font-black' : 'text-gray-400'">
+                  {{ customAvatarsCount }} / {{ customAvatarsMax }} 張
+                </span>
               </div>
 
-              <!-- 分類標籤切換列 -->
-              <div class="flex items-center space-x-1.5 overflow-x-auto pb-1">
-                <button
-                  v-for="cat in avatarCategories"
-                  :key="cat.name"
-                  type="button"
-                  @click="activeAvatarCategory = cat.name"
-                  class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center space-x-1 flex-shrink-0 cursor-pointer"
-                  :class="activeAvatarCategory === cat.name
-                    ? 'bg-frog-500 text-white shadow-xs'
-                    : 'bg-gray-100 hover:bg-gray-200 text-gray-600'"
-                >
-                  <span>{{ cat.icon }}</span>
-                  <span>{{ cat.name }}</span>
-                </button>
+              <!-- 達到 100 個上限警告 -->
+              <div v-if="customAvatarsCount >= 100" class="p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-semibold text-left">
+                ⚠️ 此成員專屬相片庫已達 100 個上限！請點選右上角 ✕ 刪除不需要的舊頭像以釋出空間。
               </div>
 
-              <!-- Emoji 方格選擇區 -->
-              <div class="flex flex-wrap gap-2 p-3 bg-gray-50 rounded-2xl border border-gray-100 max-h-44 overflow-y-auto">
-                <button
-                  v-for="av in displayedAvatars"
-                  :key="av"
-                  type="button"
-                  @click="avatar = av; selectedFile = null"
-                  class="w-10 h-10 rounded-xl flex items-center justify-center text-2xl transition hover:scale-110 cursor-pointer"
-                  :class="avatar === av ? 'bg-frog-200 ring-2 ring-frog-500 shadow-inner' : 'hover:bg-white bg-white/70 shadow-xs'"
+              <!-- 頭像清單 (縮圖網格) -->
+              <div v-if="customAvatars.length > 0" class="grid grid-cols-4 sm:grid-cols-5 gap-2 max-h-48 overflow-y-auto pr-1 p-1">
+                <div
+                  v-for="item in customAvatars"
+                  :key="item.filename"
+                  class="relative group rounded-2xl border-2 transition overflow-hidden cursor-pointer aspect-square"
+                  :class="avatar === item.url ? 'border-frog-500 ring-2 ring-frog-400/40 shadow-xs scale-102' : 'border-gray-200 hover:border-gray-300 bg-white'"
+                  @click="avatar = item.url; selectedFile = null"
+                  :title="`點擊套用此頭像 (${item.size_kb} KB)`"
                 >
-                  {{ av }}
-                </button>
+                  <img :src="item.url" class="w-full h-full object-cover" />
+
+                  <!-- 當前選取勾勾標記 -->
+                  <div v-if="avatar === item.url" class="absolute top-1 left-1 bg-frog-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold shadow-xs">
+                    ✓
+                  </div>
+
+                  <!-- 刪除按鈕 (手機一律可見，電腦 Hover 顯示) -->
+                  <button
+                    type="button"
+                    @click.stop="handleDeleteCustomAvatar(item)"
+                    class="absolute top-1 right-1 w-5 h-5 bg-black/60 hover:bg-red-600 active:bg-red-700 text-white rounded-full flex items-center justify-center text-[10px] font-bold transition opacity-80 sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer shadow-xs"
+                    title="從頭像庫永久刪除此相片"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+              <div v-else class="text-center py-4 text-xs text-gray-400 bg-white rounded-2xl border border-dashed border-gray-200">
+                尚無儲存的個人自訂頭像，每次上傳裁切後皆會保存於此成員專屬庫中（每人上限 100 張）
               </div>
             </div>
           </div>
-        </template>
+
+          <!-- 【分頁 2：10 款青蛙公仔庫】 -->
+          <div v-else-if="avatarTab === 'frog'" class="space-y-2 p-3 bg-gray-50 rounded-2xl border border-gray-100 mb-2">
+            <div class="text-[11px] text-gray-500 mb-1">
+              點選以下任一原創 3D 青蛙造型，立即設為個人代表頭像：
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-56 overflow-y-auto pr-1">
+              <button
+                v-for="frog in themeStore.logoIcons"
+                :key="frog.id"
+                type="button"
+                @click="avatar = frog.src; selectedFile = null"
+                class="p-2 rounded-xl border-2 transition text-center flex flex-col items-center space-y-1 cursor-pointer"
+                :class="avatar === frog.src ? 'border-frog-500 bg-frog-50 shadow-xs' : 'border-gray-200 bg-white hover:border-gray-300'"
+              >
+                <img :src="frog.src" :alt="frog.name" class="w-11 h-11 rounded-xl object-cover shadow-xs" />
+                <span class="text-[10px] font-bold text-gray-800 truncate w-full">{{ frog.name }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 【分頁 3：Emoji 選擇庫與自訂輸入】 -->
+          <div v-else class="space-y-2.5 mb-2">
+            <div class="flex items-center space-x-2">
+              <input
+                v-model="avatar"
+                type="text"
+                maxlength="20"
+                placeholder="或直接鍵盤輸入任意 Emoji / 字母符號"
+                class="flex-1 px-3 py-2 rounded-xl border border-gray-200 bg-white text-xs font-medium focus:outline-none focus:border-frog-500 focus:ring-1 focus:ring-frog-200"
+              />
+            </div>
+
+            <!-- 分類標籤切換列 -->
+            <div class="flex items-center space-x-1.5 overflow-x-auto pb-1">
+              <button
+                v-for="cat in avatarCategories"
+                :key="cat.name"
+                type="button"
+                @click="activeAvatarCategory = cat.name"
+                class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center space-x-1 flex-shrink-0 cursor-pointer"
+                :class="activeAvatarCategory === cat.name
+                  ? 'bg-frog-500 text-white shadow-xs'
+                  : 'bg-gray-100 hover:bg-gray-200 text-gray-600'"
+              >
+                <span>{{ cat.icon }}</span>
+                <span>{{ cat.name }}</span>
+              </button>
+            </div>
+
+            <!-- Emoji 方格選擇區 -->
+            <div class="flex flex-wrap gap-2 p-3 bg-gray-50 rounded-2xl border border-gray-100 max-h-44 overflow-y-auto">
+              <button
+                v-for="av in displayedAvatars"
+                :key="av"
+                type="button"
+                @click="avatar = av; selectedFile = null"
+                class="w-10 h-10 rounded-xl flex items-center justify-center text-2xl transition hover:scale-110 cursor-pointer"
+                :class="avatar === av ? 'bg-frog-200 ring-2 ring-frog-500 shadow-inner' : 'hover:bg-white bg-white/70 shadow-xs'"
+              >
+                {{ av }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- PIN 碼設定 -->
+        <div>
+          <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+            {{ role === 'parent' ? '家長安全鎖 4 位數 PIN 碼' : '小孩個人專屬 4 位數 PIN 碼 (預設 0000)' }}
+            {{ formMode === 'edit' ? '(留空表示不變更)' : '' }}
+          </label>
+          <input
+            v-model="pinCode"
+            type="password"
+            maxlength="6"
+            placeholder="請輸入 4 位數 PIN 碼"
+            class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50 focus:bg-white text-sm font-mono tracking-widest"
+          />
+        </div>
+
+        <!-- 帳號啟用狀態 -->
+        <div v-if="formMode === 'edit'" class="flex items-center justify-between p-3.5 bg-gray-50 rounded-2xl border border-gray-100">
+          <div>
+            <span class="text-xs font-bold text-gray-700 block">帳號啟用狀態</span>
+            <span class="text-[11px] text-gray-400">停用後無法登入或累積點數，但已存在之歷史帳本將永久保全</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer flex-shrink-0">
+            <input type="checkbox" v-model="isActive" class="sr-only peer" />
+            <div class="w-10 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-frog-500"></div>
+          </label>
+        </div>
 
         <!-- 表單操作按鈕 -->
         <div class="flex space-x-3 pt-3">
@@ -1169,7 +1001,7 @@ async function handleDelete(member) {
             type="button"
             class="flex-1 py-2.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-md shadow-frog-200 transition disabled:opacity-50 cursor-pointer"
           >
-            {{ loading ? '儲存中...' : (formMode === 'change_pin' ? '確認變更 PIN 碼' : (editTab === 'avatar' ? '確認更換頭像' : (formMode === 'create' ? '確認新增' : '儲存修改'))) }}
+            {{ loading ? '儲存中...' : (formMode === 'create' ? '確認新增' : '儲存修改') }}
           </button>
         </div>
       </div>
