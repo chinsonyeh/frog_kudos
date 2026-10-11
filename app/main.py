@@ -146,7 +146,14 @@ async def spa_fallback(request: Request, full_path: str):
 
     index_html = FRONTEND_DIST / "index.html"
     if index_html.exists():
-        return FileResponse(str(index_html))
+        return FileResponse(
+            str(index_html),
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     # 若前端尚未編譯，提供友善提示
     return JSONResponse(

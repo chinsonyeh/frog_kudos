@@ -338,14 +338,9 @@ async function loadMembers() {
   }
 }
 
+const pendingAction = ref(null) // null | 'save'
+
 function openCreateForm() {
-  if (!authStore.isParent) {
-    pendingEditMember.value = null
-    showUnlockPrompt.value = true
-    unlockPin.value = ''
-    unlockError.value = ''
-    return
-  }
   formMode.value = 'create'
   editTab.value = 'profile'
   editingMemberId.value = crypto.randomUUID()
@@ -369,22 +364,11 @@ function openCreateForm() {
 }
 
 function handleCardClick(member) {
-  if (authStore.isParent) {
-    openEditForm(member, 'profile')
-  } else {
-    openEditForm(member, 'avatar')
-  }
+  openEditForm(member, 'profile')
 }
 
 function handleEditClick(member) {
-  if (authStore.isParent) {
-    openEditForm(member, 'profile')
-  } else {
-    pendingEditMember.value = member
-    showUnlockPrompt.value = true
-    unlockPin.value = ''
-    unlockError.value = ''
-  }
+  openEditForm(member, 'profile')
 }
 
 async function verifyAndProceedToEdit() {
@@ -398,7 +382,11 @@ async function verifyAndProceedToEdit() {
     const res = await api.verifyParentPin(unlockPin.value)
     authStore.unlockParent(unlockPin.value, res.session_token || '')
     showUnlockPrompt.value = false
-    if (pendingEditMember.value) {
+    unlockPin.value = ''
+    if (pendingAction.value === 'save') {
+      pendingAction.value = null
+      await handleSave()
+    } else if (pendingEditMember.value) {
       openEditForm(pendingEditMember.value, 'profile')
       pendingEditMember.value = null
     } else {
@@ -413,9 +401,8 @@ async function verifyAndProceedToEdit() {
 }
 
 function openEditForm(member, initialTab = 'profile') {
-  // 若為家長模式則為完整編輯；未解鎖/訪客或小孩模式則為更換代表頭像模式
-  formMode.value = authStore.isParent ? 'edit' : 'avatar'
-  editTab.value = authStore.isParent ? initialTab : 'avatar'
+  formMode.value = 'edit'
+  editTab.value = initialTab
   editingMemberId.value = member.id
   name.value = member.name
   role.value = member.role
@@ -461,7 +448,7 @@ function openChangePinForm(member) {
 }
 
 async function handleSave() {
-  // 修改 PIN 碼模式 (小孩自主變更或家長重設)
+  // 1. 修改 PIN 碼模式 (小孩自主變更或家長重設)
   if (formMode.value === 'change_pin') {
     if (!authStore.isParent && !oldPin.value.trim()) {
       errorMsg.value = '請輸入目前使用的 4 位數 PIN 碼'
@@ -497,8 +484,8 @@ async function handleSave() {
     return
   }
 
-  // 未解鎖狀態：僅更換代表頭像 (無須 PIN 碼)
-  if (!authStore.isParent || formMode.value === 'avatar') {
+  // 2. 代表頭像自訂模式：更換頭像 (所有使用者均可自由更換，無須 PIN 碼)
+  if (editTab.value === 'avatar') {
     loading.value = true
     errorMsg.value = ''
     try {
@@ -521,7 +508,7 @@ async function handleSave() {
     return
   }
 
-  // 家長管理模式：完整驗證與儲存
+  // 3. 基本與安全設定模式：驗證與儲存 (姓名、角色、PIN 碼、啟用狀態)
   if (!name.value.trim()) {
     errorMsg.value = '請輸入成員姓名'
     return
@@ -529,6 +516,15 @@ async function handleSave() {
 
   if (formMode.value === 'create' && role.value === 'parent' && (!pinCode.value || pinCode.value.length < 4)) {
     errorMsg.value = '新增家長角色時必須設定 4 碼 PIN 碼'
+    return
+  }
+
+  // 若尚未解鎖家長權限，提示輸入家長 PIN 碼授權以完成儲存
+  if (!authStore.isParent) {
+    pendingAction.value = 'save'
+    showUnlockPrompt.value = true
+    unlockPin.value = ''
+    unlockError.value = ''
     return
   }
 
@@ -609,11 +605,11 @@ async function handleDelete(member) {
         <div class="flex items-center space-x-2">
           <span class="text-2xl">{{ authStore.isParent ? '👨‍👩‍👧' : '🎨' }}</span>
           <h3 class="text-lg font-bold text-gray-900">
-            <template v-if="!authStore.isParent">
-              {{ viewMode === 'list' ? '更換成員代表頭像 / PIN 碼' : (formMode === 'change_pin' ? `變更「${name}」的個人 PIN 碼` : `為「${name}」挑選代表頭像`) }}
+            <template v-if="viewMode === 'list'">
+              {{ authStore.isParent ? '家庭成員管理' : '家庭成員清單與頭像設定' }}
             </template>
             <template v-else>
-              {{ viewMode === 'list' ? '家庭成員管理' : (formMode === 'create' ? '新增家庭成員' : (formMode === 'change_pin' ? `變更「${name}」的個人 PIN 碼` : (editTab === 'profile' ? `編輯「${name}」基本設定` : `為「${name}」設定代表頭像`))) }}
+              {{ formMode === 'create' ? '新增家庭成員' : (formMode === 'change_pin' ? `變更「${name}」的個人 PIN 碼` : (editTab === 'profile' ? `編輯「${name}」基本與安全設定` : `為「${name}」自訂代表頭像`)) }}
             </template>
           </h3>
         </div>
@@ -636,9 +632,9 @@ async function handleDelete(member) {
       <div v-if="viewMode === 'list'" class="flex-1 overflow-y-auto py-4 space-y-4">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">
-            {{ authStore.isParent ? `目前家庭成員清單 (${membersList.length})` : (authStore.isChild ? `已解鎖「${authStore.unlockedMember?.name}」：點選成員可更換頭像` : '點選任一成員即可挑選或更換代表頭像') }}
+            {{ authStore.isParent ? `目前家庭成員清單 (${membersList.length})` : (authStore.isChild ? `已解鎖「${authStore.unlockedMember?.name}」：點選成員可更換頭像與設定` : '點選任一成員即可挑選頭像或編輯設定') }}
           </span>
-          <!-- 新增成員按鈕 (未解鎖時點擊自動引導家長 PIN 碼解鎖) -->
+          <!-- 新增成員按鈕 (直接開啟新增表單，儲存時進行安全驗證) -->
           <button
             @click="openCreateForm"
             class="px-3.5 py-1.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-sm transition flex items-center space-x-1 cursor-pointer"
@@ -699,9 +695,9 @@ async function handleDelete(member) {
                 <span>🎨 頭像</span>
               </button>
 
-              <!-- 2. 編輯基本設定按鈕 (進入設定選單，未解鎖時點擊引導輸入家長 PIN 碼) -->
+              <!-- 2. 編輯基本設定按鈕 (進入設定選單) -->
               <button
-                @click.stop="handleEditClick(m)"
+                @click.stop="openEditForm(m, 'profile')"
                 type="button"
                 class="px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-white hover:border-frog-400 transition cursor-pointer flex items-center space-x-1"
                 title="進入成員姓名、角色與安全設定選單"
@@ -777,8 +773,8 @@ async function handleDelete(member) {
         </template>
 
         <template v-else>
-          <!-- 設定選單分頁切換列 (基本設定 vs 代表頭像) - 僅家長模式提供雙選單切換 -->
-          <div v-if="authStore.isParent" class="flex space-x-1.5 p-1 bg-gray-100 rounded-2xl mb-4">
+          <!-- 設定選單分頁切換列 (基本設定 vs 代表頭像) - 對所有使用者公開可用 -->
+          <div class="flex space-x-1.5 p-1 bg-gray-100 rounded-2xl mb-4">
             <button
               type="button"
               @click="editTab = 'profile'"
@@ -798,7 +794,7 @@ async function handleDelete(member) {
           </div>
 
           <!-- 【選單 1：基本與安全設定】 -->
-          <div v-if="authStore.isParent && editTab === 'profile'" class="space-y-4">
+          <div v-if="editTab === 'profile'" class="space-y-4">
             <!-- 成員姓名 / 暱稱 -->
             <div>
               <label class="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
@@ -1173,7 +1169,7 @@ async function handleDelete(member) {
             type="button"
             class="flex-1 py-2.5 rounded-xl bg-frog-500 hover:bg-frog-600 text-white font-bold text-xs shadow-md shadow-frog-200 transition disabled:opacity-50 cursor-pointer"
           >
-            {{ loading ? '儲存中...' : (formMode === 'change_pin' ? '確認變更 PIN 碼' : (authStore.isParent ? (formMode === 'create' ? '確認新增' : '儲存修改') : '確認更換頭像')) }}
+            {{ loading ? '儲存中...' : (formMode === 'change_pin' ? '確認變更 PIN 碼' : (editTab === 'avatar' ? '確認更換頭像' : (formMode === 'create' ? '確認新增' : '儲存修改'))) }}
           </button>
         </div>
       </div>
@@ -1201,7 +1197,7 @@ async function handleDelete(member) {
       </div>
       <h4 class="text-base font-black text-gray-900 mb-1">家長身分安全驗證</h4>
       <p class="text-xs text-gray-500 mb-4 leading-relaxed">
-        {{ pendingEditMember ? `進入「${pendingEditMember.name}」的成員設定選單需驗證家長權限` : '新增家庭成員需先驗證家長權限' }}，請輸入 4 位數家長安全 PIN 碼：
+        {{ pendingAction === 'save' ? '儲存成員基本資料或安全設定需驗證家長權限' : (pendingEditMember ? `進入「${pendingEditMember.name}」的成員設定選單需驗證家長權限` : '家庭成員管理需先驗證家長權限') }}，請輸入 4 位數家長安全 PIN 碼：
       </p>
 
       <div v-if="unlockError" class="mb-3 p-2.5 bg-red-50 text-red-600 border border-red-200 rounded-xl text-xs font-semibold">
@@ -1221,7 +1217,7 @@ async function handleDelete(member) {
       <div class="flex space-x-2.5">
         <button
           type="button"
-          @click="showUnlockPrompt = false; pendingEditMember = null"
+          @click="showUnlockPrompt = false; pendingEditMember = null; pendingAction = null"
           class="flex-1 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50 transition cursor-pointer"
         >
           取消
