@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS member_badges (
 CREATE INDEX IF NOT EXISTS idx_rules_member_active ON reward_rules(member_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_kudos_records_member_created ON kudos_records(member_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_kudos_batch_filter ON kudos_records(member_id, target_name_snapshot, created_at);
+CREATE INDEX IF NOT EXISTS idx_kudos_status ON kudos_records(status);
 CREATE INDEX IF NOT EXISTS idx_redemptions_member_created ON redemptions(member_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_member_badges_member ON member_badges(member_id);
 CREATE INDEX IF NOT EXISTS idx_badges_active_sort ON badges(is_active, sort_order ASC, target_value ASC);
