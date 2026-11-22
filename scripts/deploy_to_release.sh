@@ -221,6 +221,7 @@ LATEST_BACKUP=$(echo "$BACKUP_OUTPUT" | grep '完整備份路徑:' | sed 's/.*�
 echo "📥 [5/7] 同步正式發佈目錄 (${PROD_DIR})..."
 cd "$PROD_DIR"
 git pull --ff-only origin master
+chmod +x "$PROD_DIR/run.sh" "$PROD_DIR/scripts/"*.sh
 
 if git diff --name-only "$PREV_PROD_COMMIT"..HEAD -- schema.sql | grep -q '^schema\.sql$'; then
     echo "🐘 偵測到 schema.sql 有變更，套用冪等資料庫遷移 (ON_ERROR_STOP=1)..."
