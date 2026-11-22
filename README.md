@@ -69,6 +69,7 @@ cd frog_kudos
 | **手動備份** | `./scripts/backup.sh [路徑]` | 建立資料庫二進位 dump 備份，自動輪替保留最新 10 份 |
 | **資料庫還原** | `./scripts/restore.sh <dump_file> [-y]` | 安全還原資料庫（還原前自動建立防護快照） |
 | **一鍵系統升級** | `./scripts/upgrade.sh [套件檔]` | 自動自 GitHub 下載或使用本地套件執行無縫升級與 Migration |
+| **正式發版部署** | `./scripts/deploy_to_release.sh <tag>` | 於測試環境跑測試、建立 Git Tag 並同步發佈至正式環境（詳見部署文件） |
 | **執行自動化測試** | `./venv/bin/pytest tests/test_api.py -v` | 執行 12 項核心端到端與單元測試套件 |
 
 ---
@@ -77,4 +78,5 @@ cd frog_kudos
 
 - [需求規格書 (REQUIREMENT.md)](./REQUIREMENT.md) - 系統背景、角色定位、功能需求與非功能需求。
 - [系統詳細設計文件 (DESIGN.md)](./DESIGN.md) - 詳細 Mermaid 資料庫實體關聯 (ERD)、API 規格、Vue 3 介面線框圖與 PostgreSQL DDL 腳本。
+- [開發與部署標準流程 (doc/deployment-workflow.md)](./doc/deployment-workflow.md) - 本機開發、GitHub 同步與遠端測試環境（Port `8001` / HTTPS `8443`）及正式環境（Port `8000` / HTTPS `443`）完整對照與發佈步驟。
 

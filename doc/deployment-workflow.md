@@ -6,12 +6,12 @@
 
 ## 1. 環境與主機資訊
 
-| 角色 | 位置 / 連線方式 | 路徑 | 對應服務 / 本機監聽 / 對外網址 |
-| :--- | :--- | :--- | :--- |
-| **本機開發區** | Windows 本機 | `d:\Users\Chinson\Documents\Code\frog_kudos` | — |
-| **程式碼倉庫** | GitHub | `git@github.com:chinsonyeh/frog_kudos.git`（分支 `master`） | — |
-| **開發測試機** | `ssh chinsonyeh@192.168.50.3`（主機名 `frog-asset`） | `/home/chinsonyeh/Code/frog_kudos` | `frog_kudos_dev.service`（本機 `127.0.0.1:8001`；Caddy HTTPS 對外網址 `https://kudos.chinson.idv.tw:8443`） |
-| **正式運行機** | `ssh chinsonyeh@192.168.50.3`（主機名 `frog-asset`） | `/home/chinsonyeh/frog_kudos` | `frog_kudos.service`（本機 `127.0.0.1:8000`；Caddy HTTPS 對外網址 `https://kudos.chinson.idv.tw`，`http://192.168.50.3` 會永久重導向至 `https://kudos.chinson.idv.tw`） |
+| 角色 | 位置 / 連線方式 | 路徑 | 資料庫 (`DB_NAME`) | 對應服務 / 本機監聽 / Caddy HTTPS 對外網址 |
+| :--- | :--- | :--- | :--- | :--- |
+| **本機開發區** | Windows 本機 | `d:\Users\Chinson\Documents\Code\frog_kudos` | — | — |
+| **程式碼倉庫** | GitHub | `git@github.com:chinsonyeh/frog_kudos.git`（分支 `master`） | — | — |
+| **開發測試環境** | `ssh chinsonyeh@192.168.50.3`（主機名 `frog-asset`） | `/home/chinsonyeh/Code/frog_kudos` | `frog_kudos_dev` | `frog_kudos_dev.service`（本機 `127.0.0.1:8001`；Caddy HTTPS Port **`8443`** → `https://kudos.chinson.idv.tw:8443`） |
+| **正式運行環境** | `ssh chinsonyeh@192.168.50.3`（主機名 `frog-asset`） | `/home/chinsonyeh/frog_kudos` | `frog_kudos` | `frog_kudos.service`（本機 `127.0.0.1:8000`；Caddy HTTPS Port **`443`** → `https://kudos.chinson.idv.tw`，`http://192.168.50.3` 會 301 重導向至此） |
 
 ---
 
@@ -111,4 +111,5 @@ curl -s http://127.0.0.1:8001/api/health
 3. **發佈後本機必執行 `git pull origin master`**：同步 `deploy_to_release.sh` 建立的 `VERSION` commit，防止本機與遠端分支歷史分叉。
 4. **前端依賴異動時正式目錄須補跑 `npm install`**：`deploy_to_release.sh` 預設僅執行 `npm run build`，若本次更新有異動 `frontend/package.json`，須手動於 `/home/chinsonyeh/frog_kudos/frontend` 執行 `npm install` 後再建置。
 5. **重做 `git clone` 前必備份清單**：`.env`、`uploads/`、`backups/`（以及可重建但耗時的 `venv/`、`frontend/node_modules/`）。
-6. **變更檢查**：部署完成後可於遠端以 `git rev-parse --short HEAD` 與 `git status -sb` 確認版本號與 GitHub 一致且工作目錄乾淨，並透過對應健康檢查端點確認服務運作正常（開發：`127.0.0.1:8001/api/health`、正式：`127.0.0.1:8000/api/health`）。
+6. **資料庫隔離確認**：開發測試環境使用獨立資料庫 `frog_kudos_dev`，正式環境使用 `frog_kudos`；測試驗證一律於 `https://kudos.chinson.idv.tw:8443` 進行，避免誤寫正式資料。
+7. **變更檢查**：部署完成後可於遠端以 `git rev-parse --short HEAD` 與 `git status -sb` 確認版本號與 GitHub 一致且工作目錄乾淨，並透過對應健康檢查端點確認服務運作正常（開發：`127.0.0.1:8001/api/health`、正式：`127.0.0.1:8000/api/health`）。
