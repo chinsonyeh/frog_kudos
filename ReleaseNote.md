@@ -1,4 +1,32 @@
-# Frog Kudos 家庭積分獎勵系統 - 版本發佈日誌 (RELEASE_NOTES.md)
+# Frog Kudos 家庭積分獎勵系統 - 版本發佈日誌 (ReleaseNote.md)
+
+---
+
+## 🚀 [v1.0.5] - 2026-11-22
+
+本次更新專注於**「iPhone 動態島 / 瀏海與 WebLoader 安全區域完整適配」**、**「行動端自適應頂部導覽列優化」**，以及**「專案開發與部署規範自動化」**：
+
+### ✨ 新增與核心改進 (New Features & UI/UX Improvements)
+
+#### 1. iPhone 動態島 / 瀏海與全螢幕 WebLoader 安全區域適配（第一、二層）
+- **標準 Safe Area CSS 變數系統**：保留 `viewport-fit=cover` 與 `apple-mobile-web-app-status-bar-style="default"`，建立 `--app-safe-top/bottom/left/right` 變數層，並以 `@media (orientation: landscape)` 區分直向與橫向旋轉，確保橫向時頂部覆寫自動歸回系統安全區、不產生多餘留白。
+- **Sticky 導覽列與頁面左右對齊**：將頂部安全間距套用於 `<header>` 本身（毛玻璃背景自然延伸至動態島後方），並統一 `<header>` 與 `<main>` 共用 `.px-safe-page` 達成橫向像素級左右對齊；`<body>` 與根容器升級為 `.min-h-app`（`100vh` / `100dvh` 漸進增強），頁尾同步支援底部 Home Indicator 安全區。
+- **WebLoader 情境 B 備援機制**：
+  - 於 `frontend/index.html` 加入同步預載腳本，在 Vue Router 重導向前攔截 `?top_inset=<0~120>` 與 `?top_inset=auto`（自動持久化於本機 `localStorage` `frog_kudos_top_inset`，並兼容停用 `localStorage` 之受限環境）。
+  - 於「視覺風格設定」彈窗（`ThemeModal.vue`）新增 **「📱 顯示」** 分頁，提供系統實測 `env(safe-area-inset-top)` 即時診斷、生效來源顯示、四種模式切換（系統自動 / iPhone 瀏海 48px / iPhone 動態島 60px / 自訂 0～120px 滑桿），以及不寫入儲存的謹慎滿版啟發式備援。
+
+#### 2. 全站 14 處 Modal 彈窗安全邊界與橫向捲動強化
+- 全站 12 個元件／頁面共 14 處 `fixed inset-0` 彈窗統一改用 `.modal-safe-backdrop` 與 `max-h-full`，補齊原本 8 處無高度上限卡片之 `overflow-y-auto overscroll-contain` 捲動能力。
+- 修正 `ImageViewModal`（明確高度 `h-[85dvh] max-h-full` 避免高解析度照片縮放異常）、`AvatarCropperModal`（`touch-none` 限縮於裁切畫布與橫向間距壓縮）、`BadgeUnlockModal`（光暈裝飾層與捲動區分離）、`ParentPinModal` / `MemberPinModal`（捲動相容性）以及 `MemberModal` 提權確認彈窗層級（無效 `z-60` 修正為 `z-[60]`）。
+
+#### 3. 行動端頂部標題列流體縮放與窄螢幕防折行修正
+- `Frog Kudos` 標題改用 `clamp(0.875rem, 3.6vw, 1.125rem)` 搭配 `whitespace-nowrap truncate`，依螢幕寬度平滑縮放不再折成兩行或向上溢位。
+- 頂部列改為彈性最小高度（`min-h-[3.5rem] sm:min-h-[4rem]`），並於手機窄螢幕精簡右側按鈕尺寸與身分膠囊文字，確保 375px 小螢幕於訪客／家長／小孩三種模式下皆完整單行顯示。
+
+### 🔧 開發規範與專案文件 (Infrastructure & Docs)
+- 新增 `AGENTS.md`（專案環境對照與維運鐵則）、`doc/deployment-workflow.md`（本機 → GitHub → `192.168.50.3` 開發／正式標準部署流程）與 `doc/iphone-safe-area-plan.md`（Safe Area 設計與實作計畫）。
+- 新增專案專屬唯讀程式碼審查 Agent（`.agents/agents/reviewer.md`）與標準進版發佈 Skill（`.agents/skills/release-version/SKILL.md`）。
+- 發佈日誌檔名統一更名為 `ReleaseNote.md`。
 
 ---
 
