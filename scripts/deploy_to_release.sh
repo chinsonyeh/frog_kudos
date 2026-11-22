@@ -294,14 +294,14 @@ sudo -n systemctl restart frog_kudos.service
 
 HEALTH_OK=0
 HEALTH_CHECK=""
-for attempt in $(seq 1 10); do
+for attempt in $(seq 1 20); do
     sleep 1
     HEALTH_CHECK=$(curl -fsS --max-time 3 http://127.0.0.1:8000/api/health 2>/dev/null || true)
     if echo "$HEALTH_CHECK" | grep -Fq '"status":"ok"' && echo "$HEALTH_CHECK" | grep -Fq "\"version\":\"${VERSION}\""; then
         HEALTH_OK=1
         break
     fi
-    echo "   ⏳ 等待服務就緒 (${attempt}/10)..."
+    echo "   ⏳ 等待服務就緒 (${attempt}/20)..."
 done
 
 echo "=========================================================="

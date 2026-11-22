@@ -92,7 +92,7 @@ description: >-
    4. **強制備份正式資料庫**（呼叫 `/home/chinsonyeh/frog_kudos/scripts/backup.sh`）並記錄備份檔路徑與發版前 `PREV_PROD_COMMIT`。
    5. 於正式目錄執行 `git pull --ff-only origin master`；若偵測到 `schema.sql` 異動，自動以 `psql -v ON_ERROR_STOP=1` 安全套用冪等遷移。
    6. 更新正式版 Python 依賴；若偵測到 `frontend/package.json` 依賴欄位或 `package-lock.json` 異動則自動補跑 `npm install`，再執行 `npm run build`。
-   7. `sudo -n systemctl restart frog_kudos.service`，以 10 次重試迴圈驗證 `/api/health` 同時回傳 `"status":"ok"` 與 `"version":"vX.Y.Z"`（失敗回傳 `exit 1` 並列印回滾指引）。
+   7. `sudo -n systemctl restart frog_kudos.service`，以 20 次重試迴圈驗證 `/api/health` 同時回傳 `"status":"ok"` 與 `"version":"vX.Y.Z"`（失敗回傳 `exit 1` 並列印回滾指引）。
 3. **（選用）重啟開發服務同步執行中應用狀態與 `/docs` 版本號**：
    ```bash
    ssh -o BatchMode=yes chinsonyeh@192.168.50.3 'sudo -n systemctl restart frog_kudos_dev.service'
