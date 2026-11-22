@@ -65,13 +65,13 @@ function handleOpenSystem() {
 <template>
   <header class="sticky top-0 z-40 pt-safe-top bg-white/90 backdrop-blur-md border-b border-gray-100 shadow-sm">
     <div class="max-w-7xl mx-auto px-safe-page">
-      <div class="flex items-center justify-between h-16">
+      <div class="flex items-center justify-between gap-2 min-h-[3.5rem] sm:min-h-[4rem] py-1.5">
         <!-- Logo 與品牌 -->
-        <div class="flex items-center space-x-3">
+        <div class="flex items-center gap-2 sm:gap-3 min-w-0">
           <!-- 頁面左上青蛙圖示 (支援即時更換不同青蛙造型) -->
           <div
             @click.stop="emit('openThemeModal', 'icon')"
-            class="w-10 h-10 rounded-2xl overflow-hidden shadow-inner flex items-center justify-center relative group cursor-pointer border border-frog-200/60 bg-frog-50 hover:ring-2 hover:ring-frog-400 transition transform active:scale-95 flex-shrink-0"
+            class="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl overflow-hidden shadow-inner flex items-center justify-center relative group cursor-pointer border border-frog-200/60 bg-frog-50 hover:ring-2 hover:ring-frog-400 transition transform active:scale-95 flex-shrink-0"
             title="點擊更換青蛙圖示與風格配色 🎨"
           >
             <img
@@ -80,7 +80,7 @@ function handleOpenSystem() {
               :alt="themeStore.currentLogo.name"
               class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
             />
-            <span v-else class="text-2xl">🐸</span>
+            <span v-else class="text-xl sm:text-2xl">🐸</span>
             
             <!-- 懸浮提示小指示 -->
             <span class="absolute bottom-0 right-0 bg-black/60 text-white text-[8px] rounded-tl-md px-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -88,11 +88,11 @@ function handleOpenSystem() {
             </span>
           </div>
 
-          <div class="cursor-pointer" @click="router.push(authStore.isParent ? '/record' : '/ledger')">
-            <h1 class="text-lg font-black tracking-tight text-gray-900 leading-none">
+          <div class="cursor-pointer min-w-0" @click="router.push(authStore.isParent ? '/record' : '/ledger')">
+            <h1 class="text-[clamp(0.875rem,3.6vw,1.125rem)] font-black tracking-tight text-gray-900 leading-tight whitespace-nowrap truncate">
               Frog Kudos
             </h1>
-            <span class="text-[10px] font-semibold text-frog-600 uppercase tracking-wider">
+            <span class="block text-[9px] sm:text-[10px] font-semibold text-frog-600 uppercase tracking-wider leading-tight whitespace-nowrap truncate">
               家庭積分獎勵系統
             </span>
           </div>
@@ -125,37 +125,37 @@ function handleOpenSystem() {
         </nav>
 
         <!-- 右側：模式切換與設定按鈕 -->
-        <div class="flex items-center space-x-2 sm:space-x-3">
+        <div class="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
           <!-- 1. 家長解鎖狀態 -->
           <div
             v-if="authStore.isParent"
-            class="flex items-center bg-frog-50 border border-frog-200 text-frog-800 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm"
+            class="flex items-center bg-frog-50 border border-frog-200 text-frog-800 rounded-full px-2.5 sm:px-3 py-1 sm:py-1.5 text-[11px] sm:text-xs font-semibold shadow-sm whitespace-nowrap"
           >
-            <span class="mr-1.5">👑 家長模式</span>
-            <span class="text-frog-600 font-mono text-[11px] mr-2">({{ authStore.remainingMinutesFormatted }})</span>
+            <span class="mr-1 sm:mr-1.5">👑 家長<span class="hidden sm:inline">模式</span></span>
+            <span class="text-frog-600 font-mono text-[10px] sm:text-[11px] mr-1 sm:mr-2">({{ authStore.remainingMinutesFormatted }})</span>
             <button
               @click="handleModeToggle"
-              class="text-frog-700 hover:text-red-600 transition underline underline-offset-2 ml-1 cursor-pointer"
+              class="text-frog-700 hover:text-red-600 transition underline underline-offset-2 ml-0.5 sm:ml-1 cursor-pointer"
               title="立即手動鎖定並退回訪客模式"
             >
-              🔒 鎖定
+              🔒<span class="hidden sm:inline"> 鎖定</span>
             </button>
           </div>
 
           <!-- 2. 小孩解鎖狀態 -->
           <div
             v-else-if="authStore.isChild"
-            class="flex items-center space-x-1.5 bg-frog-50 border border-frog-200 text-frog-800 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm"
+            class="flex items-center gap-1 sm:gap-1.5 bg-frog-50 border border-frog-200 text-frog-800 rounded-full px-2.5 sm:px-3 py-1 sm:py-1.5 text-[11px] sm:text-xs font-semibold shadow-sm whitespace-nowrap"
           >
             <MemberAvatar :avatar="authStore.unlockedMember?.avatar" :name="authStore.unlockedMember?.name" size="xs" />
-            <span>{{ authStore.unlockedMember?.name }} (小孩模式)</span>
-            <span class="text-frog-600 font-mono text-[11px] mr-1">({{ authStore.remainingMinutesFormatted }})</span>
+            <span class="max-w-[4.5rem] sm:max-w-none truncate">{{ authStore.unlockedMember?.name }}<span class="hidden sm:inline"> (小孩模式)</span></span>
+            <span class="text-frog-600 font-mono text-[10px] sm:text-[11px]">({{ authStore.remainingMinutesFormatted }})</span>
             <button
               @click="handleModeToggle"
-              class="text-frog-700 hover:text-red-600 transition underline underline-offset-2 ml-1 cursor-pointer"
+              class="text-frog-700 hover:text-red-600 transition underline underline-offset-2 ml-0.5 sm:ml-1 cursor-pointer"
               title="立即手動鎖定並退出小孩帳號"
             >
-              🔒 鎖定
+              🔒<span class="hidden sm:inline"> 鎖定</span>
             </button>
           </div>
 
@@ -163,9 +163,9 @@ function handleOpenSystem() {
           <button
             v-else
             @click="handleModeToggle"
-            class="flex items-center space-x-1.5 bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 rounded-full px-3 py-1.5 text-xs font-semibold transition cursor-pointer"
+            class="flex items-center gap-1 sm:gap-1.5 bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-700 rounded-full px-2.5 sm:px-3 py-1 sm:py-1.5 text-[11px] sm:text-xs font-semibold transition cursor-pointer whitespace-nowrap"
           >
-            <span>👦 訪客模式</span>
+            <span>👦 訪客<span class="hidden sm:inline">模式</span></span>
             <span class="text-gray-400">|</span>
             <span class="text-frog-700 font-bold hover:underline">🔐 解鎖</span>
           </button>
@@ -173,7 +173,7 @@ function handleOpenSystem() {
           <!-- 佈景主題切換按鈕 (🎨 10 款特色主題) -->
           <button
             @click="emit('openThemeModal', 'theme')"
-            class="w-9 h-9 rounded-xl border border-gray-200 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-50 active:bg-gray-100 transition shadow-sm cursor-pointer"
+            class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl border border-gray-200 flex items-center justify-center text-sm sm:text-base text-gray-600 hover:text-gray-900 hover:bg-gray-50 active:bg-gray-100 transition shadow-sm cursor-pointer flex-shrink-0"
             title="更換個人佈景主題與青蛙圖示"
           >
             🎨
@@ -182,7 +182,7 @@ function handleOpenSystem() {
           <!-- 系統設定齒輪按鈕 -->
           <button
             @click="handleOpenSystem"
-            class="w-9 h-9 rounded-xl border border-gray-200 flex items-center justify-center text-gray-600 hover:text-gray-900 hover:bg-gray-50 active:bg-gray-100 transition shadow-sm cursor-pointer"
+            class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl border border-gray-200 flex items-center justify-center text-sm sm:text-base text-gray-600 hover:text-gray-900 hover:bg-gray-50 active:bg-gray-100 transition shadow-sm cursor-pointer flex-shrink-0"
             title="系統設定、備份與升級維運 (需家長權限)"
           >
             ⚙️
