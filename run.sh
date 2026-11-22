@@ -10,7 +10,10 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 # 載入環境變數 (讀取 PORT, DB 等設定)
-export $(grep -v '^#' "$ENV_FILE" | xargs)
+set -a
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set +a
 PORT="${PORT:-8000}"
 
 # 支援命令列引數指定連接埠 (例如 ./run.sh 8080 或 ./run.sh --port 8080)

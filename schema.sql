@@ -165,7 +165,7 @@ INSERT INTO badges (badge_key, title, description, icon, condition_type, target_
     ('POINTS_80000', '八萬無雙蛙', '累計獲得 80,000 點', '🛡️', 'TOTAL_POINTS', 80000, 20000, 13),
     ('POINTS_90000', '九萬至尊蛙', '累計獲得 90,000 點', '🔱', 'TOTAL_POINTS', 90000, 22500, 14),
     ('POINTS_100000', '十萬不朽蛙', '累計獲得 100,000 點', '🪐', 'TOTAL_POINTS', 100000, 25000, 15)
-ON CONFLICT (badge_key) DO UPDATE SET reward_points = EXCLUDED.reward_points;
+ON CONFLICT (badge_key) DO NOTHING;
 
 -- 12. 系統冷啟動預設種子成員 (Bootstrap Seed Members)
 -- Dad 預設 PIN 為 0000 (標準 bcrypt 雜湊，與後端驗證相容)

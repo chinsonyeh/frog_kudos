@@ -17,7 +17,10 @@ fi
 
 ENV_FILE="$ROOT_DIR/.env"
 if [ -f "$ENV_FILE" ]; then
-    export $(grep -v '^#' "$ENV_FILE" | xargs)
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
 fi
 
 DB_NAME="${DB_NAME:-frog_kudos}"

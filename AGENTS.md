@@ -18,7 +18,7 @@
 - **一律走 GitHub 同步**：所有程式碼修改必須先於本機完成、測試並推送至 GitHub，再 SSH 至 `192.168.50.3` 執行 `git pull`；嚴禁跨機直接傳檔覆寫，也不要只在遠端改碼。
 - **先測試、後正式**：未經使用者明確確認前，部署驗證一律只更新**開發 / 測試環境**（`/home/chinsonyeh/Code/frog_kudos`、`frog_kudos_dev.service`、Port `8001` / HTTPS `8443`），切勿未經同意更動正式環境（`/home/chinsonyeh/frog_kudos`、`frog_kudos.service`、資料庫 `frog_kudos`）。
 - **保護未追蹤資料**：遠端更新優先使用 `git pull`，嚴禁誤刪 `.env`、`uploads/`、`backups/`、`venv/`。
-- **發版腳本注意**：執行 `scripts/deploy_to_release.sh <version>` 前須先確認遠端開發目錄 `git status -sb` 乾淨；若 `frontend/package.json` 有變動，正式目錄須補跑 `npm install`；發版後本機須執行 `git pull origin master` 同步 `VERSION` commit。
+- **發版標準流程**：進版部署正式環境一律載入 `.agents/skills/release-version/SKILL.md`；發版前必先更新 `ReleaseNote.md` 並推送 GitHub，執行 `scripts/deploy_to_release.sh <vX.Y.Z>`（內建工作區潔淨檢查、防誤連正式庫、發版前備份、自動偵測 `schema.sql` 與 `npm install` 及健康檢查重試），發版後本機必執行 `git pull origin master --tags` 同步版號 commit 與 Tag。
 
 ## 3. 核心開發與安全準則
 

@@ -1,5 +1,7 @@
 import os
 import shutil
+import tempfile
+from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, UploadFile, File, Form, Header, status
 import uuid
@@ -132,10 +134,11 @@ async def upload_offline_package(
     if not await verify_parent_pin(db, pin):
         raise HTTPException(status_code=403, detail="家長安全鎖 PIN 碼錯誤或未授權")
 
-    if not file.filename.endswith(".tar.gz"):
+    safe_name = Path(file.filename or "").name
+    if not safe_name.endswith(".tar.gz"):
         raise HTTPException(status_code=400, detail="僅支援 .tar.gz 格式之升級套件")
 
-    tmp_path = f"/tmp/{file.filename}"
+    tmp_path = str(Path(tempfile.gettempdir()) / f"frog_kudos_upload_{uuid.uuid4().hex}.tar.gz")
     with open(tmp_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 

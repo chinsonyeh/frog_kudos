@@ -8,7 +8,10 @@ mkdir -p "$TMP_DIR"
 
 ENV_FILE="$ROOT_DIR/.env"
 if [ -f "$ENV_FILE" ]; then
-    export $(grep -v '^#' "$ENV_FILE" | xargs)
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
 fi
 
 DB_NAME="${DB_NAME:-frog_kudos}"
@@ -63,15 +66,15 @@ if [ -d "$ROOT_DIR/venv" ]; then
     pip install -r "$ROOT_DIR/requirements.txt"
 fi
 
-# 5. 資料庫結構遷移 (Migration - 執行冪等性 DDL)
+# 5. 資料庫結構遷移 (Migration - 執行冪等性 DDL，遇錯即中止不吞錯)
 echo "🐘 步驟 5/6: 檢查並執行資料庫結構遷移..."
 export PGPASSWORD="${DB_PASSWORD:-}"
 if [ -n "${DB_PASSWORD:-}" ]; then
-    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$ROOT_DIR/schema.sql" || true
+    psql -v ON_ERROR_STOP=1 -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$ROOT_DIR/schema.sql"
 elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-    cat "$ROOT_DIR/schema.sql" | sudo -n -u postgres psql -d "$DB_NAME" || true
+    sudo -n -u postgres psql -v ON_ERROR_STOP=1 -d "$DB_NAME" < "$ROOT_DIR/schema.sql"
 else
-    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$ROOT_DIR/schema.sql" || true
+    psql -v ON_ERROR_STOP=1 -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" < "$ROOT_DIR/schema.sql"
 fi
 unset PGPASSWORD
 

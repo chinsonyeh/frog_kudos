@@ -83,33 +83,29 @@ curl -s http://127.0.0.1:8001/api/health
   sudo systemctl restart frog_kudos.service
   curl -s http://127.0.0.1:8000/api/health
   ```
-- **方式二（正式發版並打 Git Tag）**：
-  於 `192.168.50.3` 的開發目錄執行既有一鍵發佈腳本（自動跑 `pytest`、寫入 `VERSION`、commit 並推 Tag 至 GitHub、同步 `~/frog_kudos`、建置前端並重啟正式服務）：
+- **方式二（正式發版並打 Git Tag — 推薦，完整細節見 [release-version SKILL](../.agents/skills/release-version/SKILL.md)）**：
+  發版前須先於本機更新 `ReleaseNote.md` 並推送至 GitHub、於開發目錄拉取同步；接著於 `192.168.50.3` 開發目錄執行一鍵發佈腳本（內建前置防呆檢查、自動跑 `pytest`、同步 `VERSION` 與 `frontend/package.json`、推 Tag 至 GitHub、**發版前強制備份正式庫**、同步 `~/frog_kudos` 並視需要安全套用 `schema.sql` 與 `npm install`、建置前端、重啟正式服務並嚴格重試驗證健康檢查與版本號）：
   ```bash
   cd /home/chinsonyeh/Code/frog_kudos
-  git status -sb                      # 執行前務必確認工作區乾淨（腳本會 git add -A 並 commit + push）
+  ./scripts/deploy_to_release.sh v1.0.x --dry-run   # 可先執行乾跑確認所有前置防呆通過
   ./scripts/deploy_to_release.sh v1.0.x
   ```
-  - **若 `frontend/package.json` 有新增依賴**：因 `deploy_to_release.sh` 預設僅執行 `npm run build` 而不會自動執行 `npm install`，請於正式目錄補跑：
+  - **發佈後同步本機（必做）**：腳本會自動產生更新 `VERSION` 與 `frontend/package.json` 的 commit 與 Tag 並推送至 GitHub，發佈完成後請務必回到**本機開發區**執行：
     ```bash
-    cd /home/chinsonyeh/frog_kudos/frontend
-    npm install && npm run build
-    sudo systemctl restart frog_kudos.service
-    curl -s http://127.0.0.1:8000/api/health
+    git pull origin master --tags
     ```
-  - **發佈後同步本機**：腳本會自動產生更新 `VERSION` 的 commit 並推送至 GitHub，發佈完成後請務必回到**本機開發區**執行：
-    ```bash
-    git pull origin master
-    ```
+
+> **補充說明**：本專案正式升級以「Git Tag + `deploy_to_release.sh`」為主；系統後台 Web UI 的「檢查 GitHub 最新 Release」功能查詢的是 GitHub Releases（需另建立 Release 並附上 `.tar.gz` 套件才會顯示）。
 
 ---
 
 ## 3. 注意事項與防呆清單
 
 1. **禁止未經 GitHub 直接傳檔覆寫 50.3**：確保本機、GitHub、`~/Code/frog_kudos`、`~/frog_kudos` 四處版本可追溯且一致。
-2. **執行 `deploy_to_release.sh` 前必先檢查 `git status -sb`**：因腳本內含 `git add -A`、`git commit` 與 `git push`，務必先確認遠端開發目錄沒有未預期之暫存或修改檔案，避免誤提交。
-3. **發佈後本機必執行 `git pull origin master`**：同步 `deploy_to_release.sh` 建立的 `VERSION` commit，防止本機與遠端分支歷史分叉。
-4. **前端依賴異動時正式目錄須補跑 `npm install`**：`deploy_to_release.sh` 預設僅執行 `npm run build`，若本次更新有異動 `frontend/package.json`，須手動於 `/home/chinsonyeh/frog_kudos/frontend` 執行 `npm install` 後再建置。
-5. **重做 `git clone` 前必備份清單**：`.env`、`uploads/`、`backups/`（以及可重建但耗時的 `venv/`、`frontend/node_modules/`）。
-6. **資料庫隔離確認**：開發測試環境使用獨立資料庫 `frog_kudos_dev`，正式環境使用 `frog_kudos`；測試驗證一律於 `https://kudos.chinson.idv.tw:8443` 進行，避免誤寫正式資料。
-7. **變更檢查**：部署完成後可於遠端以 `git rev-parse --short HEAD` 與 `git status -sb` 確認版本號與 GitHub 一致且工作目錄乾淨，並透過對應健康檢查端點確認服務運作正常（開發：`127.0.0.1:8001/api/health`、正式：`127.0.0.1:8000/api/health`）。
+2. **進版前必先更新 `ReleaseNote.md`**：`deploy_to_release.sh` 會自動檢查 `ReleaseNote.md` 是否已包含 `[vX.Y.Z]` 條目，缺漏將中止發版。
+3. **發版前強制備份與防誤覆寫**：`deploy_to_release.sh` 會自動驗證開發與正式工作區乾淨、開發庫非正式庫 `frog_kudos`、預設禁止覆寫既有 Tag（除非明確加 `--force-tag`），並於更新正式目錄前強制呼叫 `scripts/backup.sh` 備份正式庫。
+4. **發佈後本機必執行 `git pull origin master --tags`**：同步 `deploy_to_release.sh` 建立的版號 commit 與 Git Tag，防止本機與遠端分叉並確保 `git describe --tags` 準確。
+5. **前端依賴與 DB 遷移自動化**：`deploy_to_release.sh` 會自動比對 `frontend/package.json`（依賴欄位）與 `package-lock.json`，有變動時自動補跑 `npm install`；若 `schema.sql` 有變更則自動以 `psql -v ON_ERROR_STOP=1` 套用冪等遷移（失敗將立即中止並印出回滾指引）。
+6. **重做 `git clone` 前必備份清單**：`.env`、`uploads/`、`backups/`（以及可重建但耗時的 `venv/`、`frontend/node_modules/`）。
+7. **資料庫隔離確認**：開發測試環境使用獨立資料庫 `frog_kudos_dev`，正式環境使用 `frog_kudos`；測試驗證一律於 `https://kudos.chinson.idv.tw:8443` 進行，避免誤寫正式資料。
+8. **變更檢查**：部署完成後可於遠端以 `git rev-parse --short HEAD` 與 `git status -sb` 確認版本號與 GitHub 一致且工作目錄乾淨，並透過對應健康檢查端點確認服務運作正常（開發：`127.0.0.1:8001/api/health`、正式：`127.0.0.1:8000/api/health`）。
