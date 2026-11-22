@@ -28,6 +28,27 @@ watch(
   }
 )
 
+watch(
+  () => props.show,
+  (visible) => {
+    if (visible) {
+      activeTab.value = props.initialTab || 'icon'
+      themeStore.refreshSafeAreaMetrics()
+    }
+  }
+)
+
+const topInsetOptions = [
+  { id: 'auto', icon: '✨', title: '系統自動', subtitle: '預設推薦 (env 自動避讓)' },
+  { id: 'notch', icon: '📱', title: 'iPhone 瀏海', subtitle: '固定備援 48px' },
+  { id: 'island', icon: '🏝️', title: 'iPhone 動態島', subtitle: '固定備援 60px' },
+  { id: 'custom', icon: '🎚️', title: '自訂間距', subtitle: '自由微調 0 ~ 120px' },
+]
+
+function adjustCustomTopInset(delta) {
+  themeStore.setCustomTopInset(themeStore.customTopInset + delta)
+}
+
 function selectLogoIcon(iconId) {
   themeStore.setLogoIcon(iconId)
   pwaSuccessMsg.value = ''
@@ -57,10 +78,10 @@ async function applyToSystemPwa() {
 <template>
   <div
     v-if="show"
-    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+    class="fixed inset-0 z-50 flex items-center justify-center modal-safe-backdrop bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
     @click.self="$emit('close')"
   >
-    <div class="bg-white rounded-3xl shadow-2xl max-w-2xl w-full p-6 sm:p-8 max-h-[92vh] flex flex-col">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-2xl w-full p-6 sm:p-8 max-h-full flex flex-col">
       <!-- 頂部標題區 -->
       <div class="flex items-center justify-between pb-3 border-b border-gray-100 flex-shrink-0">
         <div class="flex items-center space-x-2.5">
@@ -87,25 +108,37 @@ async function applyToSystemPwa() {
         </button>
       </div>
 
-      <!-- 分頁切換選單 -->
+      <!-- 分頁切換選單 (精簡短標籤避免 375px 窄螢幕折行) -->
       <div class="flex space-x-2 border-b border-gray-100 py-3 flex-shrink-0">
         <button
           @click="activeTab = 'icon'"
           type="button"
-          class="flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center space-x-2 cursor-pointer"
+          class="flex-1 py-2 px-2.5 sm:px-3 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center space-x-1.5 whitespace-nowrap cursor-pointer"
           :class="activeTab === 'icon' ? 'bg-frog-500 text-white shadow-md shadow-frog-200' : 'text-gray-600 hover:bg-gray-100'"
         >
           <span>🐸</span>
-          <span>頁面左上青蛙圖示 (10 款)</span>
+          <span>圖示</span>
+          <span class="hidden sm:inline text-xs opacity-80">(10款)</span>
         </button>
         <button
           @click="activeTab = 'theme'"
           type="button"
-          class="flex-1 py-2 px-3 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center space-x-2 cursor-pointer"
+          class="flex-1 py-2 px-2.5 sm:px-3 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center space-x-1.5 whitespace-nowrap cursor-pointer"
           :class="activeTab === 'theme' ? 'bg-frog-500 text-white shadow-md shadow-frog-200' : 'text-gray-600 hover:bg-gray-100'"
         >
           <span>🎨</span>
-          <span>全站佈景主題 (10 款)</span>
+          <span>主題</span>
+          <span class="hidden sm:inline text-xs opacity-80">(10款)</span>
+        </button>
+        <button
+          @click="activeTab = 'display'"
+          type="button"
+          class="flex-1 py-2 px-2.5 sm:px-3 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center space-x-1.5 whitespace-nowrap cursor-pointer"
+          :class="activeTab === 'display' ? 'bg-frog-500 text-white shadow-md shadow-frog-200' : 'text-gray-600 hover:bg-gray-100'"
+        >
+          <span>📱</span>
+          <span>顯示</span>
+          <span class="hidden sm:inline text-xs opacity-80">(安全區)</span>
         </button>
       </div>
 
@@ -265,6 +298,143 @@ async function applyToSystemPwa() {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- 【分頁 3: 本機裝置顯示與頂部安全區 / 動態島避讓】 -->
+      <div v-else-if="activeTab === 'display'" class="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
+        <!-- 即時診斷卡片 -->
+        <div class="p-4 rounded-2xl bg-frog-50/70 border border-frog-200/80 space-y-2.5">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center space-x-2">
+              <span class="text-lg">📐</span>
+              <h4 class="font-bold text-gray-900 text-sm">頂部安全區域即時診斷（本機裝置）</h4>
+            </div>
+            <span
+              class="text-[11px] font-bold px-2.5 py-0.5 rounded-full"
+              :class="themeStore.isLandscape ? 'bg-amber-100 text-amber-800' : 'bg-frog-100 text-frog-800'"
+            >
+              {{ themeStore.isLandscape ? '橫向模式' : '直向模式' }}
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2.5 text-xs">
+            <div class="p-2.5 rounded-xl bg-white border border-frog-100">
+              <div class="text-[11px] text-gray-500">系統實測 env(safe-area-inset-top)</div>
+              <div class="text-base font-black font-mono text-gray-900 mt-0.5">
+                {{ themeStore.detectedSafeAreaTop }} px
+              </div>
+            </div>
+            <div class="p-2.5 rounded-xl bg-white border border-frog-100">
+              <div class="text-[11px] text-gray-500">目前生效頂部安全距離</div>
+              <div class="text-base font-black font-mono text-frog-700 mt-0.5">
+                {{ themeStore.effectiveSafeTopPx }} px
+              </div>
+            </div>
+          </div>
+
+          <div class="text-xs text-gray-600 flex items-start space-x-1.5 bg-white/80 px-3 py-2 rounded-xl border border-frog-100">
+            <span class="flex-shrink-0">🧭</span>
+            <span>
+              <span class="font-semibold text-gray-700">生效來源：</span>
+              <span>{{ themeStore.topInsetSourceLabel }}</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- 四種模式選擇 -->
+        <div class="space-y-2">
+          <div class="text-xs font-bold text-gray-700">
+            選擇頂部避讓模式（僅套用於此手機／瀏覽器，橫向旋轉自動歸回系統安全區）
+          </div>
+          <div class="grid grid-cols-2 gap-2.5">
+            <button
+              v-for="opt in topInsetOptions"
+              :key="opt.id"
+              @click="themeStore.setTopInsetMode(opt.id)"
+              type="button"
+              class="p-3 rounded-2xl border-2 text-left transition-all cursor-pointer flex items-start justify-between gap-2"
+              :class="
+                themeStore.topInsetMode === opt.id
+                  ? 'border-frog-500 bg-frog-50/60 shadow-sm ring-2 ring-frog-500/20'
+                  : 'border-gray-200/80 bg-white hover:border-gray-300'
+              "
+            >
+              <div class="min-w-0">
+                <div class="flex items-center space-x-1.5">
+                  <span class="text-base">{{ opt.icon }}</span>
+                  <span class="font-bold text-gray-900 text-xs sm:text-sm truncate">{{ opt.title }}</span>
+                </div>
+                <p class="text-[11px] text-gray-500 mt-0.5 leading-snug">{{ opt.subtitle }}</p>
+              </div>
+              <div
+                v-if="themeStore.topInsetMode === opt.id"
+                class="w-5 h-5 rounded-full bg-frog-500 text-white flex items-center justify-center text-xs font-bold flex-shrink-0"
+              >
+                ✓
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- 自訂頂部安全距離滑桿 (任何時候拖曳即切換為自訂並即時預覽) -->
+        <div class="p-4 rounded-2xl bg-gray-50 border border-gray-200 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-gray-800">自訂頂部留白微調（0 ～ 120 px）</span>
+            <span class="text-xs font-mono font-bold text-frog-700 bg-white px-2.5 py-1 rounded-lg border border-frog-200">
+              {{ themeStore.customTopInset }} px
+            </span>
+          </div>
+
+          <div class="flex items-center space-x-2.5">
+            <button
+              type="button"
+              @click="adjustCustomTopInset(-2)"
+              class="w-8 h-8 rounded-xl bg-white border border-gray-200 hover:bg-gray-100 font-bold text-gray-700 text-sm flex items-center justify-center cursor-pointer transition"
+              title="減少 2px"
+            >
+              −
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="120"
+              step="1"
+              :value="themeStore.customTopInset"
+              @input="themeStore.setCustomTopInset($event.target.value)"
+              class="flex-1 accent-frog-600 h-2 bg-gray-200 rounded-lg cursor-pointer"
+            />
+            <button
+              type="button"
+              @click="adjustCustomTopInset(2)"
+              class="w-8 h-8 rounded-xl bg-white border border-gray-200 hover:bg-gray-100 font-bold text-gray-700 text-sm flex items-center justify-center cursor-pointer transition"
+              title="增加 2px"
+            >
+              +
+            </button>
+          </div>
+
+          <div class="flex items-center justify-between text-[11px] text-gray-500">
+            <span>0px（無額外留白）</span>
+            <span>48px（瀏海）</span>
+            <span>60px（動態島）</span>
+            <span>120px</span>
+          </div>
+        </div>
+
+        <!-- WebLoader 網址參數小提示 -->
+        <div class="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200/80 text-xs text-amber-900 space-y-1">
+          <div class="font-bold flex items-center space-x-1.5">
+            <span>💡</span>
+            <span>WebLoader 啟動網址快速設定提示</span>
+          </div>
+          <p class="text-[11px] leading-relaxed text-amber-800">
+            若使用 WebLoader 類全螢幕程式且上方仍被動態島遮住，可直接將啟動網址加上
+            <code class="px-1.5 py-0.5 rounded bg-white/90 border border-amber-200 font-mono text-[11px]">?top_inset=59</code>
+            （自動記憶於本機）；隨時改開
+            <code class="px-1.5 py-0.5 rounded bg-white/90 border border-amber-200 font-mono text-[11px]">?top_inset=auto</code>
+            即可恢復系統自動偵測。
+          </p>
         </div>
       </div>
 

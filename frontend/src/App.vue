@@ -106,7 +106,7 @@ watch(
 </script>
 
 <template>
-  <div class="min-h-screen flex flex-col bg-gray-50 text-gray-800">
+  <div class="min-h-app flex flex-col bg-gray-50 text-gray-800">
     <!-- 頂部導航列 -->
     <Navbar
       @open-pin-modal="showPinModal = true"
@@ -116,7 +116,7 @@ watch(
     />
 
     <!-- 主要內容區 -->
-    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <main class="flex-1 max-w-7xl w-full mx-auto px-safe-page py-6 sm:py-8">
       <router-view @open-pin-modal="showPinModal = true" />
     </main>
 
@@ -155,7 +155,7 @@ watch(
     />
 
     <!-- 底部版權宣告 -->
-    <footer class="py-4 text-center text-xs text-gray-400 border-t border-gray-100">
+    <footer class="pt-4 footer-safe text-center text-xs text-gray-400 border-t border-gray-100">
       🐸 Frog Kudos 家庭積分獎勵系統 &copy; 2026 | 單一連接埠整合架構
     </footer>
   </div>

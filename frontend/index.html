@@ -5,13 +5,63 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Frog Kudos 家庭積分獎勵系統</title>
     
-    <!-- Anti-FOUC Theme Preloader -->
+    <!-- Anti-FOUC Theme & Safe-Area Top Inset Preloader -->
     <script>
       (function() {
         try {
           var t = localStorage.getItem('frog_kudos_theme') || 'emerald';
           document.documentElement.setAttribute('data-theme', t);
         } catch(e) {}
+
+        try {
+          var KEY = 'frog_kudos_top_inset';
+          var fromUrl = null;
+          var stored = null;
+          var params = new URLSearchParams(window.location.search);
+          var rawParam = params.get('top_inset');
+
+          if (rawParam !== null) {
+            var p = rawParam.trim().toLowerCase();
+            if (p === 'auto') {
+              stored = 'auto';
+              fromUrl = 'auto';
+              try { localStorage.setItem(KEY, stored); } catch(e) {}
+            } else if (/^\d+$/.test(p)) {
+              var n = parseInt(p, 10);
+              if (n >= 0 && n <= 120) {
+                stored = 'custom:' + n;
+                fromUrl = 'custom';
+                try { localStorage.setItem(KEY, stored); } catch(e) {}
+              }
+            }
+          }
+
+          if (stored === null) {
+            try {
+              stored = localStorage.getItem(KEY) || 'auto';
+            } catch(e) {
+              stored = 'auto';
+            }
+          }
+
+          var cssPx = '0px';
+          if (stored === 'notch') {
+            cssPx = '48px';
+          } else if (stored === 'island') {
+            cssPx = '60px';
+          } else if (typeof stored === 'string' && stored.indexOf('custom:') === 0) {
+            var cn = parseInt(stored.slice(7), 10);
+            if (!isNaN(cn) && cn >= 0 && cn <= 120) {
+              cssPx = cn + 'px';
+            }
+          }
+
+          document.documentElement.style.setProperty('--top-inset-override', cssPx);
+          window.__FROG_KUDOS_TOP_INSET_FROM_URL__ = fromUrl;
+          window.__FROG_KUDOS_TOP_INSET_VALUE__ = stored;
+        } catch(e) {
+          document.documentElement.style.setProperty('--top-inset-override', '0px');
+        }
       })();
     </script>
     
@@ -34,7 +84,7 @@
     <!-- Favicon (幾何極簡蛙 Modern Vector) -->
     <link rel="icon" type="image/jpeg" href="/icons/gallery/icon_4_vector.jpg" />
   </head>
-  <body class="bg-gray-50 text-gray-800 antialiased min-h-screen selection:bg-frog-200">
+  <body class="bg-gray-50 text-gray-800 antialiased min-h-app selection:bg-frog-200">
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>

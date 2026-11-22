@@ -270,11 +270,11 @@ function handleConfirmCrop() {
 <template>
   <div
     v-if="show"
-    class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-md select-none touch-none"
+    class="fixed inset-0 z-50 flex items-center justify-center modal-safe-backdrop bg-black/75 backdrop-blur-md select-none"
     @keydown.esc="emit('close')"
   >
     <div
-      class="bg-white rounded-3xl shadow-2xl max-w-sm sm:max-w-md w-full p-5 sm:p-6 text-center animate-in fade-in zoom-in duration-200 border border-gray-100"
+      class="bg-white rounded-3xl shadow-2xl max-w-sm sm:max-w-md w-full max-h-full overflow-y-auto overscroll-contain px-5 sm:px-6 py-4 sm:portrait:py-6 text-center animate-in fade-in zoom-in duration-200 border border-gray-100"
     >
       <!-- 標題欄 -->
       <div class="flex items-center justify-between pb-3 mb-4 border-b border-gray-100">
@@ -298,7 +298,7 @@ function handleConfirmCrop() {
 
       <!-- 取景視窗 (Viewport) -->
       <div
-        class="relative mx-auto overflow-hidden rounded-2xl bg-gray-950 border-2 border-gray-800 shadow-inner cursor-grab active:cursor-grabbing flex items-center justify-center"
+        class="relative mx-auto overflow-hidden rounded-2xl bg-gray-950 border-2 border-gray-800 shadow-inner cursor-grab active:cursor-grabbing flex items-center justify-center touch-none"
         :style="{ width: `${VIEWPORT_SIZE}px`, height: `${VIEWPORT_SIZE}px` }"
         @pointerdown="handlePointerDown"
         @pointermove="handlePointerMove"

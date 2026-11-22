@@ -37,10 +37,10 @@ onUnmounted(() => {
 <template>
   <div
     v-if="show && imageUrl"
-    class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+    class="fixed inset-0 z-50 flex items-center justify-center modal-safe-backdrop bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
     @click.self="$emit('close')"
   >
-    <div class="bg-gray-900/90 border border-white/20 rounded-3xl shadow-2xl max-w-3xl w-full p-4 sm:p-6 flex flex-col max-h-[92vh] overflow-hidden">
+    <div class="bg-gray-900/90 border border-white/20 rounded-3xl shadow-2xl max-w-3xl w-full h-[85dvh] max-h-full p-4 sm:p-6 flex flex-col overflow-hidden">
       <!-- 頂部資訊列 -->
       <div class="flex items-center justify-between pb-3 border-b border-gray-700/60 mb-3 flex-shrink-0">
         <div class="flex items-center space-x-2.5 min-w-0">
@@ -77,11 +77,11 @@ onUnmounted(() => {
       </div>
 
       <!-- 圖片主體 -->
-      <div class="flex-1 overflow-auto flex items-center justify-center bg-black/50 rounded-2xl p-2 min-h-[250px]">
+      <div class="flex-1 min-h-0 overflow-auto flex items-center justify-center bg-black/50 rounded-2xl p-2">
         <img
           :src="imageUrl"
           :alt="title"
-          class="max-h-[72vh] max-w-full rounded-xl object-contain shadow-lg"
+          class="max-h-full max-w-full rounded-xl object-contain shadow-lg"
           loading="lazy"
         />
       </div>

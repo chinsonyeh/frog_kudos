@@ -189,14 +189,192 @@ export const LOGO_ICONS = [
 
 const STORAGE_KEY = 'frog_kudos_theme'
 const STORAGE_ICON_KEY = 'frog_kudos_logo_icon'
+const STORAGE_TOP_INSET_KEY = 'frog_kudos_top_inset'
+
+const TOP_INSET_PRESETS = {
+  auto: 0,
+  notch: 48,
+  island: 60,
+}
+const HEURISTIC_FALLBACK_PX = 59
+
+let safeAreaListenersBound = false
+
+function clampTopInsetPx(val) {
+  const n = Math.round(Number(val))
+  if (!Number.isFinite(n)) return 0
+  return Math.max(0, Math.min(120, n))
+}
+
+function parseStoredTopInset(raw) {
+  if (raw === 'notch') return { mode: 'notch', customPx: 59 }
+  if (raw === 'island') return { mode: 'island', customPx: 59 }
+  if (typeof raw === 'string' && raw.startsWith('custom:')) {
+    const n = parseInt(raw.slice(7), 10)
+    if (!Number.isNaN(n) && n >= 0 && n <= 120) {
+      return { mode: 'custom', customPx: n }
+    }
+  }
+  return { mode: 'auto', customPx: 59 }
+}
+
+function measureSystemSafeTop() {
+  if (typeof window === 'undefined' || typeof document === 'undefined' || !document.body) {
+    return 0
+  }
+  let probe = document.getElementById('frog-safe-area-probe')
+  if (!probe) {
+    probe = document.createElement('div')
+    probe.id = 'frog-safe-area-probe'
+    probe.setAttribute('aria-hidden', 'true')
+    probe.style.cssText =
+      'position:fixed;top:0;left:0;width:0;height:0;padding-top:env(safe-area-inset-top, 0px);visibility:hidden;pointer-events:none;'
+    document.body.appendChild(probe)
+  }
+  const px = parseFloat(window.getComputedStyle(probe).paddingTop)
+  return Number.isFinite(px) ? Math.max(0, Math.round(px)) : 0
+}
+
+function detectFullscreenIphoneHeuristic(measuredTop) {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return 0
+  const isIphone = /iPhone/i.test(navigator.userAgent || '')
+  if (!isIphone || measuredTop > 0) return 0
+
+  const isPortrait = window.innerHeight > window.innerWidth
+  if (!isPortrait) return 0
+
+  const sw = window.screen?.width || 0
+  const sh = window.screen?.height || 0
+  const screenMax = Math.max(sw, sh)
+  const screenMin = Math.min(sw, sh)
+  if (screenMin <= 0 || screenMax <= 0) return 0
+
+  const isFullHeight = window.innerHeight >= screenMax - 20
+  const aspectRatio = screenMax / screenMin
+  if (isFullHeight && aspectRatio >= 2.0) {
+    return HEURISTIC_FALLBACK_PX
+  }
+  return 0
+}
 
 export const useThemeStore = defineStore('theme', () => {
   const currentTheme = ref('emerald')
   const currentLogoId = ref('4')
 
+  // 裝置頂部安全距離 / 動態島避讓狀態 (本機裝置獨立設定)
+  const topInsetMode = ref('auto') // 'auto' | 'notch' | 'island' | 'custom'
+  const customTopInset = ref(59)
+  const detectedSafeAreaTop = ref(0)
+  const isLandscape = ref(false)
+  const heuristicActive = ref(false)
+  const topInsetUrlSource = ref(null) // 'custom' | 'auto' | null
+
   const currentLogo = computed(() => {
     return LOGO_ICONS.find((i) => i.id === currentLogoId.value) || LOGO_ICONS.find((i) => i.id === '4') || LOGO_ICONS[0]
   })
+
+  const configuredOverridePx = computed(() => {
+    if (topInsetMode.value === 'notch') return TOP_INSET_PRESETS.notch
+    if (topInsetMode.value === 'island') return TOP_INSET_PRESETS.island
+    if (topInsetMode.value === 'custom') return clampTopInsetPx(customTopInset.value)
+    return heuristicActive.value ? HEURISTIC_FALLBACK_PX : 0
+  })
+
+  const effectiveSafeTopPx = computed(() => {
+    if (isLandscape.value) return detectedSafeAreaTop.value
+    return Math.max(detectedSafeAreaTop.value, configuredOverridePx.value)
+  })
+
+  const topInsetSourceLabel = computed(() => {
+    if (isLandscape.value) {
+      return `橫向模式（沿用系統安全區 ${detectedSafeAreaTop.value}px）`
+    }
+    if (topInsetMode.value === 'custom') {
+      if (topInsetUrlSource.value === 'custom') {
+        return `由啟動網址參數套用 (?top_inset=${clampTopInsetPx(customTopInset.value)})`
+      }
+      return `自訂頂部安全距離 (${clampTopInsetPx(customTopInset.value)}px)`
+    }
+    if (topInsetMode.value === 'island') {
+      return '預設：iPhone 動態島 (60px)'
+    }
+    if (topInsetMode.value === 'notch') {
+      return '預設：iPhone 瀏海 (48px)'
+    }
+    if (heuristicActive.value) {
+      return `滿版啟發式備援 (${HEURISTIC_FALLBACK_PX}px，僅暫態不寫入儲存)`
+    }
+    if (topInsetUrlSource.value === 'auto') {
+      return '已透過網址參數重置為系統自動偵測'
+    }
+    return detectedSafeAreaTop.value > 0
+      ? `系統自動偵測 env() (${detectedSafeAreaTop.value}px)`
+      : '系統自動偵測 (一般視窗無須額外留白)'
+  })
+
+  function syncTopInsetCssVar() {
+    if (typeof document === 'undefined') return
+    const px = clampTopInsetPx(configuredOverridePx.value)
+    // 一律帶 px 單位，歸零必為 '0px'，防止 WebKit max() 解析失效
+    document.documentElement.style.setProperty('--top-inset-override', `${px}px`)
+  }
+
+  function refreshSafeAreaMetrics() {
+    if (typeof window === 'undefined') return
+    isLandscape.value = window.innerWidth > window.innerHeight
+    const measured = measureSystemSafeTop()
+    detectedSafeAreaTop.value = measured
+    heuristicActive.value = topInsetMode.value === 'auto' && detectFullscreenIphoneHeuristic(measured) > 0
+    syncTopInsetCssVar()
+  }
+
+  function persistTopInsetSetting() {
+    let serialized = 'auto'
+    if (topInsetMode.value === 'notch') {
+      serialized = 'notch'
+    } else if (topInsetMode.value === 'island') {
+      serialized = 'island'
+    } else if (topInsetMode.value === 'custom') {
+      serialized = `custom:${clampTopInsetPx(customTopInset.value)}`
+    }
+    try {
+      localStorage.setItem(STORAGE_TOP_INSET_KEY, serialized)
+    } catch {
+      // 容錯處理
+    }
+  }
+
+  function setTopInsetMode(mode) {
+    const valid = ['auto', 'notch', 'island', 'custom'].includes(mode) ? mode : 'auto'
+    topInsetMode.value = valid
+    topInsetUrlSource.value = null
+    persistTopInsetSetting()
+    refreshSafeAreaMetrics()
+  }
+
+  function setCustomTopInset(px) {
+    customTopInset.value = clampTopInsetPx(px)
+    topInsetMode.value = 'custom'
+    topInsetUrlSource.value = null
+    persistTopInsetSetting()
+    refreshSafeAreaMetrics()
+  }
+
+  function bindSafeAreaListeners() {
+    if (typeof window === 'undefined' || safeAreaListenersBound) return
+    safeAreaListenersBound = true
+    const scheduleRefresh = () => {
+      window.requestAnimationFrame(() => {
+        refreshSafeAreaMetrics()
+      })
+    }
+    window.addEventListener('resize', scheduleRefresh, { passive: true })
+    window.addEventListener('orientationchange', () => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(refreshSafeAreaMetrics)
+      })
+    })
+  }
 
   function updateFavicon(src) {
     if (typeof document === 'undefined') return
@@ -261,15 +439,47 @@ export const useThemeStore = defineStore('theme', () => {
   function initTheme() {
     let savedTheme = 'emerald'
     let savedLogo = '4'
+    let savedTopInset = 'auto'
     try {
       savedTheme = localStorage.getItem(STORAGE_KEY) || 'emerald'
       savedLogo = localStorage.getItem(STORAGE_ICON_KEY) || '4'
+      savedTopInset = localStorage.getItem(STORAGE_TOP_INSET_KEY) || 'auto'
     } catch {
       savedTheme = 'emerald'
       savedLogo = '4'
+      savedTopInset = 'auto'
     }
     applyTheme(savedTheme)
     applyLogoIcon(savedLogo)
+
+    // 同步由 index.html preloader 解析完成的本機安全區設定（相容受限環境無法寫入 localStorage 之情境）
+    const preloadedValue =
+      typeof window !== 'undefined' && typeof window.__FROG_KUDOS_TOP_INSET_VALUE__ === 'string'
+        ? window.__FROG_KUDOS_TOP_INSET_VALUE__
+        : null
+    const effectiveStoredTopInset =
+      (typeof window !== 'undefined' && window.__FROG_KUDOS_TOP_INSET_FROM_URL__ && preloadedValue) ||
+      savedTopInset ||
+      preloadedValue ||
+      'auto'
+    const parsed = parseStoredTopInset(effectiveStoredTopInset)
+    topInsetMode.value = parsed.mode
+    customTopInset.value = parsed.customPx
+    if (typeof window !== 'undefined') {
+      topInsetUrlSource.value = window.__FROG_KUDOS_TOP_INSET_FROM_URL__ || null
+      isLandscape.value = window.innerWidth > window.innerHeight
+    }
+    syncTopInsetCssVar()
+
+    // 等待首幀版面完成後再以隱藏探針量測 env(safe-area-inset-top)，避免 WKWebView 冷啟動誤判
+    if (typeof window !== 'undefined') {
+      bindSafeAreaListeners()
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          refreshSafeAreaMetrics()
+        })
+      })
+    }
   }
 
   return {
@@ -281,5 +491,16 @@ export const useThemeStore = defineStore('theme', () => {
     currentLogoId,
     currentLogo,
     setLogoIcon,
+    topInsetMode,
+    customTopInset,
+    detectedSafeAreaTop,
+    isLandscape,
+    heuristicActive,
+    topInsetUrlSource,
+    effectiveSafeTopPx,
+    topInsetSourceLabel,
+    setTopInsetMode,
+    setCustomTopInset,
+    refreshSafeAreaMetrics,
   }
 })

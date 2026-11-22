@@ -17,13 +17,15 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-300">
-    <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8 text-center relative overflow-hidden border-4 border-yellow-300">
-      <!-- 閃爍光芒背景 -->
-      <div class="absolute -top-24 -left-24 w-48 h-48 bg-yellow-100 rounded-full blur-2xl opacity-60"></div>
-      <div class="absolute -bottom-24 -right-24 w-48 h-48 bg-frog-100 rounded-full blur-2xl opacity-60"></div>
+  <div class="fixed inset-0 z-50 flex items-center justify-center modal-safe-backdrop bg-black/70 backdrop-blur-sm animate-in fade-in duration-300">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full max-h-full relative overflow-hidden border-4 border-yellow-300 flex flex-col">
+      <!-- 閃爍光芒背景 (獨立裝飾層，不影響內部捲動) -->
+      <div class="absolute inset-0 overflow-hidden pointer-events-none rounded-3xl">
+        <div class="absolute -top-24 -left-24 w-48 h-48 bg-yellow-100 rounded-full blur-2xl opacity-60"></div>
+        <div class="absolute -bottom-24 -right-24 w-48 h-48 bg-frog-100 rounded-full blur-2xl opacity-60"></div>
+      </div>
 
-      <div class="relative z-10">
+      <div class="relative z-10 p-6 sm:p-8 text-center flex-auto min-h-0 overflow-y-auto overscroll-contain">
         <div class="text-6xl mb-3 animate-bounce">
           🎉
         </div>

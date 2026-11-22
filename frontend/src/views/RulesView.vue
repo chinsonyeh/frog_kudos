@@ -234,8 +234,8 @@ function getCategoryName(catId) {
     </div>
 
     <!-- 新增/編輯規則彈窗 -->
-    <div v-if="showRuleModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div class="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-4 shadow-2xl">
+    <div v-if="showRuleModal" class="fixed inset-0 z-50 flex items-center justify-center modal-safe-backdrop bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div class="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full max-h-full overflow-y-auto overscroll-contain space-y-4 shadow-2xl">
         <h4 class="font-bold text-gray-900 text-base">
           {{ editingRule ? '編輯獎勵規則' : '新增獎勵規則' }}
         </h4>

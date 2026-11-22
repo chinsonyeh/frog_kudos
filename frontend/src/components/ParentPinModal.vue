@@ -141,13 +141,13 @@ function handleKeydown(e) {
 <template>
   <div
     v-if="show"
-    class="pin-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm select-none"
+    class="pin-modal-backdrop fixed inset-0 z-50 flex items-center justify-center modal-safe-backdrop bg-black/60 backdrop-blur-sm select-none"
     @keydown="handleKeydown"
     @dblclick.prevent
     tabindex="0"
   >
     <div
-      class="pin-modal-card bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 text-center animate-in fade-in zoom-in duration-200 select-none touch-manipulation relative"
+      class="pin-modal-card bg-white rounded-3xl shadow-2xl max-w-sm w-full max-h-full overflow-y-auto overscroll-contain p-6 landscape:py-4 text-center animate-in fade-in zoom-in duration-200 select-none touch-manipulation relative"
       @dblclick.prevent
     >
       <!-- 【步驟 1: 選擇解鎖成員身分】 -->
@@ -301,7 +301,8 @@ function handleKeydown(e) {
 
 <style scoped>
 .pin-modal-backdrop {
-  touch-action: none;
+  touch-action: manipulation;
+  overscroll-behavior: contain;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;

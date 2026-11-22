@@ -718,8 +718,8 @@ async function handlePermanentDeleteItem(item) {
     </div>
 
     <!-- 退回原因彈窗 -->
-    <div v-if="showRejectModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div class="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+    <div v-if="showRejectModal" class="fixed inset-0 z-50 flex items-center justify-center modal-safe-backdrop bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div class="bg-white rounded-3xl p-6 max-w-sm w-full max-h-full overflow-y-auto overscroll-contain space-y-4 shadow-2xl">
         <h4 class="font-bold text-gray-900 text-base">
           {{ rejectTargetType === 'kudos' ? '退回加點申請說明' : '退回兌換申請與全額退點說明' }}
         </h4>
@@ -740,8 +740,8 @@ async function handlePermanentDeleteItem(item) {
     </div>
 
     <!-- 新增/編輯獎品彈窗 -->
-    <div v-if="showItemModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div class="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-4 shadow-2xl">
+    <div v-if="showItemModal" class="fixed inset-0 z-50 flex items-center justify-center modal-safe-backdrop bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div class="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full max-h-full overflow-y-auto overscroll-contain space-y-4 shadow-2xl">
         <h4 class="font-bold text-gray-900 text-base">{{ editingItem ? '編輯商城獎品' : '新增商城獎品' }}</h4>
         <div>
           <label class="block text-xs font-bold text-gray-700 uppercase mb-1">獎品名稱</label>

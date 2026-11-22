@@ -601,8 +601,8 @@ async function handleDelete(member) {
 </script>
 
 <template>
-  <div v-if="show" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-    <div class="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 sm:p-8 max-h-[90vh] flex flex-col">
+  <div v-if="show" class="fixed inset-0 z-50 flex items-center justify-center modal-safe-backdrop bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 sm:p-8 max-h-full flex flex-col">
       <!-- 頂部 Header -->
       <div class="flex items-center justify-between pb-4 border-b border-gray-100 flex-shrink-0">
         <div class="flex items-center space-x-2">
@@ -1127,9 +1127,9 @@ async function handleDelete(member) {
   <!-- 家長安全 PIN 碼快速驗證提權彈窗 (未解鎖時點選編輯或新增成員自動彈出) -->
   <div
     v-if="showUnlockPrompt"
-    class="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
+    class="fixed inset-0 z-[60] flex items-center justify-center modal-safe-backdrop bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
   >
-    <div class="bg-white rounded-3xl p-6 sm:p-7 max-w-sm w-full shadow-2xl border border-gray-100 text-center animate-in zoom-in-95 duration-150">
+    <div class="bg-white rounded-3xl p-6 sm:p-7 max-w-sm w-full max-h-full overflow-y-auto overscroll-contain shadow-2xl border border-gray-100 text-center animate-in zoom-in-95 duration-150">
       <div class="w-14 h-14 mx-auto mb-3 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center text-2xl shadow-inner">
         🔐
       </div>

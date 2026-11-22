@@ -63,8 +63,8 @@ function handleOpenSystem() {
 </script>
 
 <template>
-  <header class="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-100 shadow-sm">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+  <header class="sticky top-0 z-40 pt-safe-top bg-white/90 backdrop-blur-md border-b border-gray-100 shadow-sm">
+    <div class="max-w-7xl mx-auto px-safe-page">
       <div class="flex items-center justify-between h-16">
         <!-- Logo 與品牌 -->
         <div class="flex items-center space-x-3">
@@ -192,7 +192,7 @@ function handleOpenSystem() {
     </div>
 
     <!-- 行動裝置底部快速導航 (Mobile Tab Bar) -->
-    <div class="md:hidden border-t border-gray-100 bg-white/95 px-2 py-1.5 flex justify-around overflow-x-auto shadow-sm">
+    <div class="md:hidden border-t border-gray-100 bg-white/95 px-safe-compact py-1.5 flex justify-around overflow-x-auto shadow-sm">
       <template v-for="item in navItems" :key="item.name">
         <router-link
           v-if="item.type === 'link'"

@@ -140,8 +140,8 @@ async function submitBatchAdjust() {
 </script>
 
 <template>
-  <div v-if="show" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-    <div class="bg-white rounded-3xl shadow-2xl max-w-xl w-full p-6 sm:p-8 max-h-[90vh] overflow-y-auto">
+  <div v-if="show" class="fixed inset-0 z-50 flex items-center justify-center modal-safe-backdrop bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-xl w-full p-6 sm:p-8 max-h-full overflow-y-auto overscroll-contain">
       <div class="flex items-center justify-between pb-4 border-b border-gray-100 mb-6">
         <div class="flex items-center space-x-2">
           <span class="text-2xl">🛠</span>
